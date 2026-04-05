@@ -181,4 +181,4 @@ This project sits in between:
 
 ## LICENSE
 
-MIT (or your choice)
+MIT
