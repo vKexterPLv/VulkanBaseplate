@@ -606,8 +606,8 @@ private:
 //  Header         : VulkanModuleExpansion.h
 //  Implementation : VulkanModuleExpansion.cpp
 //
-//  CLASSES  (9)
-//  ────────────
+//  CLASSES  (11)
+//  ─────────────
 //  [1]  VulkanOneTimeCommand          — one-shot GPU command using the existing pool
 //  [2]  VulkanFramebufferSet          — per-swapchain-image VkFramebuffers
 //  [3]  VulkanDepthBuffer             — depth/stencil image wrapping VulkanImage
@@ -617,13 +617,15 @@ private:
 //  [7]  VulkanDescriptorLayoutBuilder — fluent VkDescriptorSetLayout builder
 //  [8]  VulkanDescriptorPool          — VkDescriptorPool + per-frame set allocation
 //  [9]  VulkanUniformSet<T>           — per-frame typed UBO with Write() + GetSet()
+//  [10] VulkanDescriptorAllocator     — general-purpose pool supporting multiple descriptor types
+//  [11] VulkanModelPipeline           — full model pipeline with UBO layouts + push constants
 //
-//  HELPER FUNCTION
-//  ───────────────
-//  FindSupportedDepthFormat(VkPhysicalDevice)
+//  HELPER FUNCTION (file-static, internal)
+//  ───────────────────────────────────────
+//  FindDepthFormat(VulkanDevice&)
 //    Iterates D32_SFLOAT → D32_SFLOAT_S8_UINT → D24_UNORM_S8_UINT and
 //    returns the first format that supports DEPTH_STENCIL_ATTACHMENT optimal
-//    tiling.  Called internally by VulkanDepthBuffer::Initialize().
+//    tiling.  Called internally by VulkanDepthBuffer::Initialize() and Recreate().
 // =============================================================================
 
 
@@ -708,7 +710,7 @@ private:
 //  VulkanDepthBuffer
 //
 //  Depth/stencil image backed by VulkanImage.  The best available format is
-//  chosen automatically by FindSupportedDepthFormat():
+//  chosen automatically by FindDepthFormat():
 //    D32_SFLOAT  →  D32_SFLOAT_S8_UINT  →  D24_UNORM_S8_UINT
 //
 //  The image is created and immediately transitioned to
@@ -838,7 +840,7 @@ private:
 //
 //  RecordDraw() will:
 //    • vkCmdBindVertexBuffers  — binding 0
-//    • vkCmdBindIndexBuffer    — only when IsIndexed()
+//    • vkCmdBindIndexBuffer    — only when an index buffer was uploaded
 //    • vkCmdDrawIndexed / vkCmdDraw
 //
 //  ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -855,8 +857,7 @@ private:
 //    Binds buffers and issues one draw call.
 //
 //  ── Accessors ─────────────────────────────────────────────────────────────
-//  bool IsValid()    const
-//  bool IsIndexed()  const
+//  bool IsValid()    const   — true if the vertex buffer was uploaded successfully
 // -----------------------------------------------------------------------------
 
 
@@ -981,6 +982,96 @@ private:
 //    Returns the descriptor set for binding via vkCmdBindDescriptorSets.
 // -----------------------------------------------------------------------------
 
+
+// -----------------------------------------------------------------------------
+//  VulkanDescriptorAllocator
+//
+//  General-purpose VkDescriptorPool that supports multiple descriptor types in
+//  a single pool and exposes Allocate() to pull individual VkDescriptorSets
+//  from any compatible layout.  All sets are freed implicitly when Shutdown()
+//  destroys the pool.
+//
+//  Unlike VulkanDescriptorPool (which pre-allocates a fixed number of sets of
+//  one type), this class is suitable for mixed layouts — e.g. a set-0 UBO
+//  layout and a set-1 sampler layout allocated from the same pool.
+//
+//  Usage:
+//    VulkanDescriptorAllocator alloc;
+//    alloc.Initialize(device, 8,
+//        {{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         4 },
+//         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 }});
+//
+//    VkDescriptorSet s0 = alloc.Allocate(set0Layout);
+//    VkDescriptorSet s1 = alloc.Allocate(set1Layout);
+//    // ...use sets...
+//    alloc.Shutdown();   // frees pool + all sets implicitly
+//
+//  ── Lifecycle ─────────────────────────────────────────────────────────────
+//  bool Initialize(VulkanDevice&                   device,
+//                  uint32_t                        maxSets,
+//                  initializer_list<PoolSize>      sizes)
+//    Creates the pool.  maxSets is the total set count across all Allocate()
+//    calls.  sizes lists each descriptor type and its total count in the pool.
+//  void Shutdown()
+//    Destroys the pool (all allocated sets freed implicitly).
+//
+//  ── Allocation ────────────────────────────────────────────────────────────
+//  VkDescriptorSet Allocate(VkDescriptorSetLayout layout)
+//    Allocates one descriptor set.  Returns VK_NULL_HANDLE on failure.
+//
+//  ── Nested type ───────────────────────────────────────────────────────────
+//  struct PoolSize { VkDescriptorType type; uint32_t count; }
+// -----------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------
+//  VulkanModelPipeline
+//
+//  The full GTA3 model draw pipeline.  VulkanPipeline owns the VkRenderPass and
+//  creates a baseline VkPipeline with an empty layout.  VulkanModelPipeline
+//  takes that render pass and builds the properly-wired VkPipeline that App
+//  actually draws with.
+//
+//  Descriptor layout:
+//    set 0, binding 0 — CameraUBO            (VK_SHADER_STAGE_VERTEX_BIT)
+//    set 0, binding 1 — SceneParams UBO      (VERTEX | FRAGMENT)
+//    set 1, binding 0 — combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
+//
+//  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 128 bytes):
+//    mat4 model  +  mat4 normalMatrix
+//
+//  Usage (after VulkanPipeline::Initialize has run):
+//    VulkanModelPipeline mp;
+//    mp.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
+//
+//    // per frame:
+//    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mp.GetPipeline());
+//    vkCmdBindDescriptorSets(cmd, ..., mp.GetPipelineLayout(), ...);
+//    vkCmdPushConstants(cmd, mp.GetPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT,
+//                       0, 128, &pc);
+//    mesh.RecordDraw(cmd);
+//
+//    // shutdown before VulkanPipeline:
+//    mp.Shutdown();
+//
+//  ── Lifecycle ─────────────────────────────────────────────────────────────
+//  bool Initialize(VulkanDevice&                          device,
+//                  VkRenderPass                           renderPass,
+//                  const VulkanPipeline::ShaderInfo&      shaders,
+//                  const VulkanPipeline::VertexInputInfo& vertexInput)
+//    renderPass is borrowed from VulkanPipeline::GetRenderPass() — NOT owned.
+//  void Shutdown()
+//    Destroys pipeline, pipeline layout, and both descriptor set layouts.
+//    Must be called before the VulkanPipeline that provided the render pass.
+//
+//  ── Accessors ─────────────────────────────────────────────────────────────
+//  VkPipeline            GetPipeline()       const
+//  VkPipelineLayout      GetPipelineLayout() const
+//  VkDescriptorSetLayout GetSet0Layout()     const   — use with VulkanDescriptorAllocator
+//  VkDescriptorSetLayout GetSet1Layout()     const   — use with VulkanDescriptorAllocator
+// -----------------------------------------------------------------------------
+
+
 // =============================================================================
 //  IMPLEMENTATION FUNCTION INDEX
 //  All functions defined across the .cpp files, grouped by translation unit.
@@ -1088,13 +1179,15 @@ private:
 ────────────────────────────────────────────────────────────────────────────────
 
  RECOMMENDED EXPANSION SHUTDOWN ORDER (before base objects):
-   ubo.Shutdown()           VulkanUniformSet<T>
-   pool.Shutdown()          VulkanDescriptorPool
+   modelPipeline.Shutdown()     VulkanModelPipeline          ← owns descriptor layouts; shut down before pipeline
+   ubo.Shutdown()               VulkanUniformSet<T>
+   descAllocator.Shutdown()     VulkanDescriptorAllocator    ← pool destruction frees all allocated sets implicitly
+   pool.Shutdown()              VulkanDescriptorPool
    vkDestroyDescriptorSetLayout(...)
-   mesh.Shutdown()          VulkanMesh
-   tex.Shutdown()           VulkanTexture
-   depth.Shutdown()         VulkanDepthBuffer
-   fbs.Shutdown()           VulkanFramebufferSet
+   mesh.Shutdown()              VulkanMesh
+   tex.Shutdown()               VulkanTexture
+   depth.Shutdown()             VulkanDepthBuffer
+   fbs.Shutdown()               VulkanFramebufferSet
    ── then base objects ──
 
  VulkanOneTimeCommand
@@ -1151,6 +1244,25 @@ private:
    void            VulkanUniformSet<T>::Shutdown()
    void            VulkanUniformSet<T>::Write(uint32_t frameIndex, const T& data)
    VkDescriptorSet VulkanUniformSet<T>::GetSet(uint32_t frameIndex) const
+
+ VulkanDescriptorAllocator
+   bool            VulkanDescriptorAllocator::Initialize(VulkanDevice&,
+                                                          uint32_t maxSets,
+                                                          initializer_list<PoolSize> sizes)
+   void            VulkanDescriptorAllocator::Shutdown()
+   VkDescriptorSet VulkanDescriptorAllocator::Allocate(VkDescriptorSetLayout)
+
+ VulkanModelPipeline
+   bool            VulkanModelPipeline::Initialize(VulkanDevice&, VkRenderPass,
+                                                    const VulkanPipeline::ShaderInfo&,
+                                                    const VulkanPipeline::VertexInputInfo&)
+   void            VulkanModelPipeline::Shutdown()
+   (private) bool  VulkanModelPipeline::BuildDescriptorLayouts()
+   (private) bool  VulkanModelPipeline::BuildPipelineLayout()
+   (private) bool  VulkanModelPipeline::BuildGraphicsPipeline(VkRenderPass,
+                                                               const ShaderInfo&,
+                                                               const VertexInputInfo&)
+   (private) VkShaderModule VulkanModelPipeline::CreateShaderModule(const vector<uint32_t>&)
 
 */
 
