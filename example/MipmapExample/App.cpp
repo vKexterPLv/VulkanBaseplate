@@ -1,5 +1,5 @@
 #include "App.h"
-#include "vulkan/VulkanModule.h"
+#include "VulkanModule.h"
 #include <string>
 #include <vector>
 #include <fstream>
@@ -58,10 +58,10 @@ namespace VulkanBaseplate::MipmapExample {
     // ─────────────────────────────────────────────────────────────────────────
     //  Texture constants
     // ─────────────────────────────────────────────────────────────────────────
-    static constexpr uint32_t  kTexW   = 256;
-    static constexpr uint32_t  kTexH   = 256;
-    static constexpr uint32_t  kTile   = 16;   // checkerboard cell size in pixels
-    static constexpr VkFormat  kFmt    = VK_FORMAT_R8G8B8A8_SRGB;
+    static constexpr uint32_t  kTexW   = 512;
+    static constexpr uint32_t  kTexH   = 512;
+    static constexpr uint32_t  kTile   = 128;    // small tiles — more pattern, sharper mip transitions
+    static constexpr VkFormat  kFmt    = VK_FORMAT_R8G8B8A8_UNORM;  // no gamma softening
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Vulkan objects — core
@@ -153,7 +153,7 @@ namespace VulkanBaseplate::MipmapExample {
         for (uint32_t y = 0; y < kTexH; y++) {
             for (uint32_t x = 0; x < kTexW; x++) {
                 bool     white = ((x / kTile) + (y / kTile)) % 2 == 0;
-                uint8_t  v     = white ? 230 : 30;
+                uint8_t  v     = white ? 255 : 0;
                 uint32_t idx   = (y * kTexW + x) * 4;
                 pixels[idx + 0] = v;
                 pixels[idx + 1] = v;
@@ -299,9 +299,9 @@ namespace VulkanBaseplate::MipmapExample {
         //  wasted work.
         VkSamplerCreateInfo sci{};
         sci.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        sci.magFilter    = VK_FILTER_LINEAR;
-        sci.minFilter    = VK_FILTER_LINEAR;
-        sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sci.magFilter    = VK_FILTER_NEAREST;           // no blurring when magnified
+        sci.minFilter    = VK_FILTER_LINEAR;            // smooth when minified
+        sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST; // snap to correct mip, no blending
         sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -456,8 +456,8 @@ namespace VulkanBaseplate::MipmapExample {
         swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
 
         // Shaders: position (loc 0) + uv (loc 1) → texture sample
-        shaders.VertexSpirv   = LoadSpv("../assets/mip.vert.spv");
-        shaders.FragmentSpirv = LoadSpv("../assets/mip.frag.spv");
+        shaders.VertexSpirv   = LoadSpv("./assets/mip.vert.spv");
+        shaders.FragmentSpirv = LoadSpv("./assets/mip.frag.spv");
 
         vertexInput.Bindings = {{
             .binding   = 0,
@@ -523,14 +523,21 @@ namespace VulkanBaseplate::MipmapExample {
         imgWrite.pImageInfo      = &imgInfo;
         vkUpdateDescriptorSets(device.GetDevice(), 1, &imgWrite, 0, nullptr);
 
-        // ── Full-screen quad (two triangles, UV [0,1]) ────────────────────────
+        // ── Full-screen quad (two CCW triangles, UV [0,1]) ───────────────────
+        //  Pipeline: VK_FRONT_FACE_COUNTER_CLOCKWISE + back-face cull.
+        //  Viewed from the front (camera looking -Z), CCW means:
+        //    tri 0: TL(0) → BL(3) → TR(1)
+        //    tri 1: BL(3) → BR(2) → TR(1)
+        //  UVs go to 4.0 so the checkerboard tiles 4x across — this makes
+        //  the mip level selection visible: large tiles at full size, the
+        //  pattern averaging toward grey as the window shrinks.
         const std::vector<Vertex> verts = {
-            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // top-left
-            {{ 1.f, -1.f, 0.f}, {1.f, 0.f}},   // top-right
-            {{ 1.f,  1.f, 0.f}, {1.f, 1.f}},   // bottom-right
-            {{-1.f,  1.f, 0.f}, {0.f, 1.f}},   // bottom-left
+            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // 0 — top-left
+            {{ 1.f, -1.f, 0.f}, {4.f, 0.f}},   // 1 — top-right
+            {{ 1.f,  1.f, 0.f}, {4.f, 4.f}},   // 2 — bottom-right
+            {{-1.f,  1.f, 0.f}, {0.f, 4.f}},   // 3 — bottom-left
         };
-        const std::vector<uint32_t> indices = { 0,1,2, 0,2,3 };
+        const std::vector<uint32_t> indices = { 0,3,1, 3,2,1 };
 
         quad.Upload(device, command,
                     verts.data(), verts.size() * sizeof(Vertex),

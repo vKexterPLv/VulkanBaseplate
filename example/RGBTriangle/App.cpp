@@ -1,5 +1,5 @@
 #include "App.h"
-#include "vulkan/VulkanModule.h"
+#include "VulkanModule.h"
 #include <string>
 #include <vector>
 #include <fstream>
@@ -215,8 +215,8 @@ namespace VulkanBaseplate::RGBTriangle {
 
         // Shaders: position (location 0) + color (location 1) → output color.
         // No descriptor sets, no push constants.
-        shaders.VertexSpirv   = LoadSpv("../assets/triangle.vert.spv");
-        shaders.FragmentSpirv = LoadSpv("../assets/triangle.frag.spv");
+        shaders.VertexSpirv   = LoadSpv("./assets/triangle.vert.spv");
+        shaders.FragmentSpirv = LoadSpv("./assets/triangle.frag.spv");
 
         vertexInput.Bindings = {{
             .binding   = 0,
