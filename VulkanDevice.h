@@ -7,7 +7,7 @@
 #include <optional>
 #include <vector>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Queue family indices resolved during physical device selection.
@@ -94,4 +94,4 @@ namespace GTA_Sandbox {
         };
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

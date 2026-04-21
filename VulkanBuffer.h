@@ -4,7 +4,7 @@
 #include "vk_mem_alloc.h"
 #include <cstdint>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice;
 
@@ -75,4 +75,4 @@ namespace GTA_Sandbox {
         VkDeviceSize  m_Size = 0;
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

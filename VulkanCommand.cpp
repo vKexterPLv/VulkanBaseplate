@@ -1,7 +1,7 @@
 #include "VulkanCommand.h"
 #include "VulkanDevice.h"
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::Initialize(VulkanDevice& device)
@@ -75,4 +75,4 @@ namespace GTA_Sandbox {
         return VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex]));
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

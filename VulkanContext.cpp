@@ -15,7 +15,7 @@ static constexpr bool k_WantValidation = true;
 static constexpr bool k_WantValidation = false;
 #endif
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ===========================================================================
     //  Public — Lifecycle
@@ -85,7 +85,7 @@ namespace GTA_Sandbox {
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         appInfo.pApplicationName = appName.c_str();
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.pEngineName = "GTA_Sandbox";
+        appInfo.pEngineName = "VulkanBaseplate";
         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
         appInfo.apiVersion = VK_API_VERSION_1_2;
 
@@ -240,4 +240,4 @@ namespace GTA_Sandbox {
         return VK_FALSE;
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

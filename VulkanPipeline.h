@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice;
 
@@ -82,4 +82,4 @@ namespace GTA_Sandbox {
         VkPipeline       m_Pipeline = VK_NULL_HANDLE;
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

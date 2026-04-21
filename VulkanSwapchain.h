@@ -3,7 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice; // forward — avoid pulling in VulkanDevice.h transitively
 
@@ -66,4 +66,4 @@ namespace GTA_Sandbox {
         std::vector<VkImageView> m_ImageViews;
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

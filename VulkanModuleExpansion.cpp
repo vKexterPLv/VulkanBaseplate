@@ -1,7 +1,7 @@
 #include "VulkanModule.h"
 // VulkanModuleExpansion.h is included at the bottom of VulkanModule.h
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
 // =============================================================================
 //  Internal helper
@@ -524,7 +524,7 @@ void VulkanModelPipeline::Shutdown()
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Descriptor layouts
-//    set 0: binding 0 = CameraUBO (vert), binding 1 = SceneParams (vert+frag)
+//    set 0: binding 0 = per-frame UBO (vert)
 //    set 1: binding 0 = combined image sampler (frag)
 // ─────────────────────────────────────────────────────────────────────────────
 bool VulkanModelPipeline::BuildDescriptorLayouts()
@@ -532,8 +532,6 @@ bool VulkanModelPipeline::BuildDescriptorLayouts()
     m_Set0Layout = VulkanDescriptorLayoutBuilder{}
         .Add(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 VK_SHADER_STAGE_VERTEX_BIT)
-        .Add(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build(*m_Device);
 
     if (m_Set0Layout == VK_NULL_HANDLE) return false;
@@ -548,14 +546,14 @@ bool VulkanModelPipeline::BuildDescriptorLayouts()
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Pipeline layout
-//    set 0, set 1 + push constant (ModelPC = 128 bytes, vertex stage)
+//    set 0, set 1 + push constant (64 bytes, vertex stage — mat4 model)
 // ─────────────────────────────────────────────────────────────────────────────
 bool VulkanModelPipeline::BuildPipelineLayout()
 {
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pcRange.offset     = 0;
-    pcRange.size       = 128; // mat4 model + mat4 normalMatrix
+    pcRange.size       = 64; // mat4 model
 
     std::array<VkDescriptorSetLayout, 2> setLayouts = { m_Set0Layout, m_Set1Layout };
 
@@ -705,4 +703,116 @@ bool VulkanModelPipeline::BuildGraphicsPipeline(
 }
 
 
-} // namespace GTA_Sandbox
+// =============================================================================
+//  [12] VulkanMipmapGenerator
+// =============================================================================
+
+uint32_t VulkanMipmapGenerator::MipLevels(uint32_t width, uint32_t height)
+{
+    uint32_t levels = 1;
+    uint32_t dim    = (width > height) ? width : height;
+    while (dim > 1) { dim >>= 1; ++levels; }
+    return levels;
+}
+
+bool VulkanMipmapGenerator::IsFormatSupported(VulkanDevice& device, VkFormat format)
+{
+    VkFormatProperties props{};
+    vkGetPhysicalDeviceFormatProperties(device.GetPhysicalDevice(), format, &props);
+    return (props.optimalTilingFeatures &
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+}
+
+bool VulkanMipmapGenerator::Generate(VulkanDevice&  device,
+                                     VulkanCommand& command,
+                                     VkImage        image,
+                                     uint32_t       width,
+                                     uint32_t       height,
+                                     uint32_t       mipLevels)
+{
+    if (mipLevels <= 1) return true;   // nothing to generate
+
+    VulkanOneTimeCommand otc;
+    if (!otc.Begin(device, command))
+        return false;
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.image                           = image;
+    barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+    barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount     = 1;
+    barrier.subresourceRange.levelCount     = 1;
+
+    int32_t mipW = static_cast<int32_t>(width);
+    int32_t mipH = static_cast<int32_t>(height);
+
+    for (uint32_t i = 1; i < mipLevels; i++)
+    {
+        // Transition level i-1 from TRANSFER_DST → TRANSFER_SRC so it can be read
+        barrier.subresourceRange.baseMipLevel = i - 1;
+        barrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask                 = VK_ACCESS_TRANSFER_READ_BIT;
+
+        vkCmdPipelineBarrier(otc.Cmd(),
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        // Blit level i-1 → level i (half dimensions, clamped to 1)
+        int32_t nextW = (mipW > 1) ? mipW / 2 : 1;
+        int32_t nextH = (mipH > 1) ? mipH / 2 : 1;
+
+        VkImageBlit blit{};
+        blit.srcOffsets[0]               = { 0, 0, 0 };
+        blit.srcOffsets[1]               = { mipW, mipH, 1 };
+        blit.srcSubresource.aspectMask   = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel     = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount   = 1;
+        blit.dstOffsets[0]               = { 0, 0, 0 };
+        blit.dstOffsets[1]               = { nextW, nextH, 1 };
+        blit.dstSubresource.aspectMask   = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel     = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount   = 1;
+
+        vkCmdBlitImage(otc.Cmd(),
+            image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blit, VK_FILTER_LINEAR);
+
+        // Transition level i-1 from TRANSFER_SRC → SHADER_READ_ONLY — done with it
+        barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(otc.Cmd(),
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        mipW = nextW;
+        mipH = nextH;
+    }
+
+    // Transition the last mip level (still in TRANSFER_DST) → SHADER_READ_ONLY
+    barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+    barrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout                     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask                 = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(otc.Cmd(),
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    otc.End();
+    return true;
+}
+
+
+} // namespace VulkanBaseplate

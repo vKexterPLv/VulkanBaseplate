@@ -1,7 +1,7 @@
 #include "VulkanSync.h"
 #include "VulkanDevice.h"
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanSync::Initialize(VulkanDevice& device)
@@ -57,4 +57,4 @@ namespace GTA_Sandbox {
         LogVk("VulkanSync shut down");
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

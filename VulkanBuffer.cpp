@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include <cstring>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanBuffer::Create(VulkanDevice& device,
@@ -132,4 +132,4 @@ namespace GTA_Sandbox {
         vkCmdCopyBuffer(cmd, m_Buffer, destination.GetBuffer(), 1, &copyRegion);
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

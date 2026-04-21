@@ -119,6 +119,15 @@ Expansion objects must be destroyed **BEFORE** base objects.
 * **VulkanUniformSet<T>**
   Typed per-frame uniform buffers with direct `Write()`
 
+* **VulkanDescriptorAllocator**
+  Mixed-type descriptor pool with per-set `Allocate()`
+
+* **VulkanModelPipeline**
+  Full model pipeline (UBOs, push constants, set layouts)
+
+* **VulkanMipmapGenerator**
+  Blit-based mip chain generation for any `VkImage`
+
 ---
 
 ## EXAMPLE USAGE
@@ -138,8 +147,18 @@ texture.CreateFromPixels(device, command, pixels, width, height);
 ```
 
 ```cpp
-cameraUBO.Write(frameIndex, data);
+ubo.Write(frameIndex, data);
 vkCmdBindDescriptorSets(cmd, ...);
+```
+
+```cpp
+// Mip chain generation (mip-aware VkImage required — see VulkanMipmapGenerator docs)
+uint32_t mips = VulkanMipmapGenerator::MipLevels(width, height);
+if (VulkanMipmapGenerator::IsFormatSupported(device, VK_FORMAT_R8G8B8A8_SRGB))
+{
+    VulkanMipmapGenerator gen;
+    gen.Generate(device, command, rawImage, width, height, mips);
+}
 ```
 
 ---
@@ -149,7 +168,10 @@ vkCmdBindDescriptorSets(cmd, ...);
 * `VulkanOneTimeCommand` uses `vkQueueWaitIdle`
   → intended for setup / upload, not per-frame usage
 
-* No mipmap generation yet
+* `VulkanMipmapGenerator` requires the image to be created with
+  `VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT`.
+  Call `IsFormatSupported()` before `Generate()` — fall back to a single
+  mip level if the device doesn't support linear blitting for the format.
 
 * Descriptor system is designed for future extension
 
@@ -157,7 +179,6 @@ vkCmdBindDescriptorSets(cmd, ...);
 
 ## FUTURE DIRECTION
 
-* Mipmap generation
 * Staging allocator / upload batching
 * Material system
 * Render graph / frame graph

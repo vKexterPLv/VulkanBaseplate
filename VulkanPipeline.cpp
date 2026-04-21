@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include <array>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanPipeline::Initialize(VulkanDevice& device,
@@ -247,4 +247,4 @@ namespace GTA_Sandbox {
         return success;
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

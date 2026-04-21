@@ -1,7 +1,7 @@
 // =============================================================================
 //  VulkanModule.h
 //
-//  Single-header amalgam of the GTA_Sandbox Vulkan layer.
+//  Single-header amalgam of the VulkanBaseplate Vulkan layer.
 //  Including this file gives you every class declaration, struct, macro, and
 //  constant across all 8 translation units.
 //
@@ -24,7 +24,7 @@
 //
 //  QUICK NAMESPACE
 //  ───────────────
-//  Everything lives in:  namespace GTA_Sandbox { ... }
+//  Everything lives in:  namespace VulkanBaseplate { ... }
 // =============================================================================
 
 #pragma once
@@ -91,7 +91,7 @@ inline void LogVk(const std::string& message) {
 //   ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝
 // =============================================================================
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
 // -----------------------------------------------------------------------------
 //  VulkanContext.h
@@ -571,7 +571,7 @@ private:
 };
 
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate
 
 
 
@@ -587,7 +587,7 @@ private:
 //
 //  Declared in VulkanModuleExpansion.h (auto-included below).
 //  Implemented in VulkanModuleExpansion.cpp.
-//  All classes live in namespace GTA_Sandbox.
+//  All classes live in namespace VulkanBaseplate.
 //
 //  DESIGN RULE
 //  ───────────
@@ -606,7 +606,7 @@ private:
 //  Header         : VulkanModuleExpansion.h
 //  Implementation : VulkanModuleExpansion.cpp
 //
-//  CLASSES  (11)
+//  CLASSES  (12)
 //  ─────────────
 //  [1]  VulkanOneTimeCommand          — one-shot GPU command using the existing pool
 //  [2]  VulkanFramebufferSet          — per-swapchain-image VkFramebuffers
@@ -619,6 +619,7 @@ private:
 //  [9]  VulkanUniformSet<T>           — per-frame typed UBO with Write() + GetSet()
 //  [10] VulkanDescriptorAllocator     — general-purpose pool supporting multiple descriptor types
 //  [11] VulkanModelPipeline           — full model pipeline with UBO layouts + push constants
+//  [12] VulkanMipmapGenerator         — blit-based mip chain generation for any VkImage
 //
 //  HELPER FUNCTION (file-static, internal)
 //  ───────────────────────────────────────
@@ -943,7 +944,7 @@ private:
 //  Write() does a plain memcpy into the persistently-mapped buffer.
 //
 //  Usage:
-//    struct CameraUBO { glm::mat4 viewProj; };
+//    struct FrameUBO { float viewProj[16]; float camPos[4]; };
 //
 //    VkDescriptorSetLayout layout =
 //        VulkanDescriptorLayoutBuilder{}
@@ -954,16 +955,16 @@ private:
 //    VulkanDescriptorPool pool;
 //    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 //
-//    VulkanUniformSet<CameraUBO> cameraUBO;
-//    cameraUBO.Initialize(device, pool, 0 /* binding */);
+//    VulkanUniformSet<FrameUBO> ubo;
+//    ubo.Initialize(device, pool, 0 /* binding */);
 //
 //    // every frame:
-//    cameraUBO.Write(frameIndex, { viewProjMatrix });
+//    ubo.Write(frameIndex, frameData);
 //    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
 //                            pipelineLayout, 0, 1,
-//                            &cameraUBO.GetSet(frameIndex), 0, nullptr);
+//                            &ubo.GetSet(frameIndex), 0, nullptr);
 //
-//    cameraUBO.Shutdown();   // before pool.Shutdown()
+//    ubo.Shutdown();   // before pool.Shutdown()
 //    pool.Shutdown();
 //    vkDestroyDescriptorSetLayout(device.GetDevice(), layout, nullptr);
 //
@@ -1027,18 +1028,17 @@ private:
 // -----------------------------------------------------------------------------
 //  VulkanModelPipeline
 //
-//  The full GTA3 model draw pipeline.  VulkanPipeline owns the VkRenderPass and
+//  A fully-wired model pipeline.  VulkanPipeline owns the VkRenderPass and
 //  creates a baseline VkPipeline with an empty layout.  VulkanModelPipeline
 //  takes that render pass and builds the properly-wired VkPipeline that App
 //  actually draws with.
 //
 //  Descriptor layout:
-//    set 0, binding 0 — CameraUBO            (VK_SHADER_STAGE_VERTEX_BIT)
-//    set 0, binding 1 — SceneParams UBO      (VERTEX | FRAGMENT)
+//    set 0, binding 0 — per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
 //    set 1, binding 0 — combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
 //
-//  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 128 bytes):
-//    mat4 model  +  mat4 normalMatrix
+//  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 64 bytes):
+//    mat4 model
 //
 //  Usage (after VulkanPipeline::Initialize has run):
 //    VulkanModelPipeline mp;
@@ -1048,7 +1048,7 @@ private:
 //    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mp.GetPipeline());
 //    vkCmdBindDescriptorSets(cmd, ..., mp.GetPipelineLayout(), ...);
 //    vkCmdPushConstants(cmd, mp.GetPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT,
-//                       0, 128, &pc);
+//                       0, 64, &pc);
 //    mesh.RecordDraw(cmd);
 //
 //    // shutdown before VulkanPipeline:
@@ -1263,6 +1263,13 @@ private:
                                                                const ShaderInfo&,
                                                                const VertexInputInfo&)
    (private) VkShaderModule VulkanModelPipeline::CreateShaderModule(const vector<uint32_t>&)
+
+ VulkanMipmapGenerator
+   static uint32_t VulkanMipmapGenerator::MipLevels(uint32_t width, uint32_t height)
+   static bool     VulkanMipmapGenerator::IsFormatSupported(VulkanDevice&, VkFormat)
+   bool            VulkanMipmapGenerator::Generate(VulkanDevice&, VulkanCommand&,
+                                                    VkImage, uint32_t w, uint32_t h,
+                                                    uint32_t mipLevels)
 
 */
 

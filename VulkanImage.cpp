@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanImage::Create(VulkanDevice& device,
@@ -221,4 +221,4 @@ namespace GTA_Sandbox {
             1, &region);
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

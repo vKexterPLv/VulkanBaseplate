@@ -5,7 +5,7 @@
 #include <array>
 #include <cstdint>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice;
 
@@ -50,4 +50,4 @@ namespace GTA_Sandbox {
         std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> m_CommandBuffers{};
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

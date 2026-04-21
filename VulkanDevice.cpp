@@ -4,7 +4,7 @@
 #include <set>
 #include <algorithm>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Public API
@@ -310,4 +310,4 @@ namespace GTA_Sandbox {
         return details;
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

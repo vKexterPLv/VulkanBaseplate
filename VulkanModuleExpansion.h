@@ -27,13 +27,16 @@
 //  [7]  VulkanDescriptorLayoutBuilder — fluent VkDescriptorSetLayout builder
 //  [8]  VulkanDescriptorPool          — VkDescriptorPool + per-frame set allocation
 //  [9]  VulkanUniformSet<T>           — per-frame typed UBO with Write() + GetSet()
+//  [10] VulkanDescriptorAllocator     — mixed-type descriptor pool, per-set Allocate()
+//  [11] VulkanModelPipeline           — full model pipeline with UBO layouts + push constants
+//  [12] VulkanMipmapGenerator         — blit-based mip chain generation for any VkImage
 // =============================================================================
 
 #pragma once
 // Note: VulkanModule.h is already included before this file.
 // All base types (VulkanDevice, VulkanBuffer, VulkanImage, etc.) are available.
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
 // =============================================================================
 // [1] VulkanOneTimeCommand
@@ -349,10 +352,10 @@ private:
 //  descriptor sets (from VulkanDescriptorPool) at them on Initialize().
 //
 //  Usage:
-//    VulkanUniformSet<CameraUBO> ubo;
-//    ubo.Initialize(device, pool, layout, binding);
+//    VulkanUniformSet<MyUBO> ubo;
+//    ubo.Initialize(device, pool, binding);
 //    // every frame:
-//    ubo.Write(frameIndex, cameraData);
+//    ubo.Write(frameIndex, myData);
 //    vkCmdBindDescriptorSets(..., ubo.GetSet(frameIndex), ...);
 //    // shutdown before device:
 //    ubo.Shutdown();
@@ -474,18 +477,17 @@ private:
 // =============================================================================
 // [11] VulkanModelPipeline
 //
-//  The full GTA3 model pipeline.  VulkanPipeline owns the VkRenderPass and
-//  creates a baseline VkPipeline with an empty layout.  VulkanModelPipeline
-//  takes that render pass and builds the properly-wired VkPipeline that App
-//  actually draws with:
+//  A fully-wired graphics pipeline with descriptor set layouts and push constants.
+//  VulkanPipeline owns the VkRenderPass and creates a baseline VkPipeline with
+//  an empty layout.  VulkanModelPipeline takes that render pass and builds the
+//  properly-wired VkPipeline used for actual drawing:
 //
 //  Descriptor layout:
-//    set 0, binding 0 — CameraUBO            (VK_SHADER_STAGE_VERTEX_BIT)
-//    set 0, binding 1 — SceneParams UBO      (VERTEX | FRAGMENT)
+//    set 0, binding 0 — per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
 //    set 1, binding 0 — combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
 //
-//  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 128 bytes):
-//    mat4 model  +  mat4 normalMatrix
+//  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 64 bytes):
+//    mat4 model
 //
 //  Usage (after VulkanPipeline::Initialize has run):
 //    VulkanModelPipeline modelPipeline;
@@ -537,4 +539,94 @@ private:
 };
 
 
-} // namespace GTA_Sandbox
+// =============================================================================
+// [12] VulkanMipmapGenerator
+//
+//  Generates a full mip chain for a VkImage by issuing a sequence of
+//  vkCmdBlitImage calls — one blit per mip level — inside a single
+//  VulkanOneTimeCommand.
+//
+//  Requirements:
+//    • The image must have been created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+//      AND VK_IMAGE_USAGE_TRANSFER_DST_BIT in addition to its intended usage
+//      flags (e.g. VK_IMAGE_USAGE_SAMPLED_BIT).
+//    • The physical device must support VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT
+//      for the image's format (checked by IsFormatSupported()).
+//    • mipLevels must be pre-calculated:
+//        uint32_t mipLevels = VulkanMipmapGenerator::MipLevels(width, height);
+//      and passed to vkImageCreateInfo.mipLevels when the image is created.
+//
+//  Layout contract:
+//    • The image must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL before calling Generate().
+//    • After Generate() the entire mip chain is left in
+//      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL (ready to bind as a sampler).
+//
+//  Usage:
+//    // 1. Calculate mip levels before image creation
+//    uint32_t mips = VulkanMipmapGenerator::MipLevels(width, height);
+//
+//    // 2. Create image with TRANSFER_SRC + TRANSFER_DST + SAMPLED usage,
+//    //    and mipLevels = mips.
+//    //    (Use vkCreateImage directly — VulkanImage wraps a single level;
+//    //     mip-aware image creation requires the raw Vulkan call.)
+//
+//    // 3. Upload base level into the image (staging copy, same as VulkanTexture),
+//    //    leaving image in TRANSFER_DST_OPTIMAL.
+//
+//    // 4. Generate the remaining mip levels:
+//    if (VulkanMipmapGenerator::IsFormatSupported(device, VK_FORMAT_R8G8B8A8_SRGB))
+//    {
+//        VulkanMipmapGenerator gen;
+//        gen.Generate(device, command, image, width, height, mips);
+//    }
+//
+//    // Image is now in SHADER_READ_ONLY_OPTIMAL across all mip levels.
+//
+//  ── Static helpers ────────────────────────────────────────────────────────
+//  static uint32_t MipLevels(uint32_t width, uint32_t height)
+//    Returns floor(log2(max(width, height))) + 1.
+//    This is the standard mip count for a 2-D image.
+//  static bool IsFormatSupported(VulkanDevice& device, VkFormat format)
+//    Returns true if the physical device supports linear filtering for the
+//    given format (required for vkCmdBlitImage with VK_FILTER_LINEAR).
+//
+//  ── Instance method ───────────────────────────────────────────────────────
+//  bool Generate(VulkanDevice&  device,
+//                VulkanCommand& command,
+//                VkImage        image,
+//                uint32_t       width,
+//                uint32_t       height,
+//                uint32_t       mipLevels)
+//    Generates mip levels [1 .. mipLevels-1] via blit, then transitions the
+//    entire image to SHADER_READ_ONLY_OPTIMAL.
+//    Returns false if the one-time command could not be started.
+// =============================================================================
+class VulkanMipmapGenerator
+{
+public:
+    VulkanMipmapGenerator()  = default;
+    ~VulkanMipmapGenerator() = default;
+
+    VulkanMipmapGenerator(const VulkanMipmapGenerator&)            = delete;
+    VulkanMipmapGenerator& operator=(const VulkanMipmapGenerator&) = delete;
+
+    // Returns the number of mip levels needed to reach a 1x1 level.
+    static uint32_t MipLevels(uint32_t width, uint32_t height);
+
+    // Returns true if the device supports linear blitting for the given format.
+    // Call before Generate() — if false, fall back to nearest or skip mips.
+    static bool IsFormatSupported(VulkanDevice& device, VkFormat format);
+
+    // Generates mip levels 1..mipLevels-1 from the already-uploaded level 0.
+    // image must be in TRANSFER_DST_OPTIMAL on entry.
+    // On return the entire chain is in SHADER_READ_ONLY_OPTIMAL.
+    bool Generate(VulkanDevice&  device,
+                  VulkanCommand& command,
+                  VkImage        image,
+                  uint32_t       width,
+                  uint32_t       height,
+                  uint32_t       mipLevels);
+};
+
+
+} // namespace VulkanBaseplate

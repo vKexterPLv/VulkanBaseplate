@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ---------------------------------------------------------------------------
     //  VulkanContext
@@ -90,4 +90,4 @@ namespace GTA_Sandbox {
         static constexpr const char* VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

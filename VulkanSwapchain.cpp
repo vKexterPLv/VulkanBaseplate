@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <limits>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Public API
@@ -198,7 +198,7 @@ namespace GTA_Sandbox {
         // ── Format preference order ───────────────────────────────────────────
         //
         // We prefer R8G8B8A8_UNORM over B8G8R8A8_* to avoid RGB/BGR channel
-        // confusion.  Using UNORM (not SRGB) for the swapchain matches GTA3's
+        // confusion.  UNORM is generally preferred for the swapchain format.
         // original D3D7 fixed-function pipeline which performed no gamma
         // conversion — all vertex colours and textures are stored in display
         // (gamma-encoded) space and are used as-is.
@@ -268,4 +268,4 @@ namespace GTA_Sandbox {
         return actual;
     }
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

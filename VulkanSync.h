@@ -4,7 +4,7 @@
 #include <array>
 #include <cstdint>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice;
 
@@ -55,4 +55,4 @@ namespace GTA_Sandbox {
         uint32_t m_CurrentFrame = 0;
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate

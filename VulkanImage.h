@@ -4,7 +4,7 @@
 #include "vk_mem_alloc.h"
 #include <cstdint>
 
-namespace GTA_Sandbox {
+namespace VulkanBaseplate {
 
     class VulkanDevice;
     class VulkanBuffer;
@@ -79,4 +79,4 @@ namespace GTA_Sandbox {
         VkImageAspectFlags m_AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
     };
 
-} // namespace GTA_Sandbox
+} // namespace VulkanBaseplate
