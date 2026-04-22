@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ---------------------------------------------------------------------------
     //  VulkanContext
@@ -90,4 +90,4 @@ namespace VulkanBaseplate {
         static constexpr const char* VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

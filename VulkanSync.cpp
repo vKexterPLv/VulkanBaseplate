@@ -1,7 +1,7 @@
 #include "VulkanSync.h"
 #include "VulkanDevice.h"
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanSync::Initialize(VulkanDevice& device)
@@ -57,4 +57,4 @@ namespace VulkanBaseplate {
         LogVk("VulkanSync shut down");
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

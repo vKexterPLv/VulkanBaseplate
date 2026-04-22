@@ -2,7 +2,7 @@
 #include <cassert>
 #include <algorithm>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
 
 // =============================================================================
@@ -783,4 +783,4 @@ void VulkanMemoryManager::SubmitStagingCmd()
 }
 
 
-} // namespace VulkanBaseplate
+} // namespace VCK

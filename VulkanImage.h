@@ -4,7 +4,7 @@
 #include "vk_mem_alloc.h"
 #include <cstdint>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice;
     class VulkanBuffer;
@@ -79,4 +79,4 @@ namespace VulkanBaseplate {
         VkImageAspectFlags m_AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

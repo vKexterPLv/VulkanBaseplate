@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanImage::Create(VulkanDevice& device,
@@ -221,4 +221,4 @@ namespace VulkanBaseplate {
             1, &region);
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

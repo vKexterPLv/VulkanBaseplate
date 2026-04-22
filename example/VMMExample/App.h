@@ -29,7 +29,7 @@
 //               vmm.StageToImage, vmm.BeginFrame, vmm.EndFrame, vmm.FlushStaging
 // =============================================================================
 
-namespace VulkanBaseplate {
+namespace VCK {
     namespace VMMExample {
         extern GLFWwindow* window;
         extern int         window_width;

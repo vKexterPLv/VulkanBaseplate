@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 :: =============================================================================
-::  build.bat  -  VulkanBaseplate example builder
+::  build.bat  -  VCK example builder
 ::  Run from the example\ folder.
 ::
 ::  Expected deps layout:
@@ -57,7 +57,7 @@ if not exist "deps\glfw\include\GLFW\glfw3.h" (
 ::  Include search order:
 ::    1. deps\                   vk_mem_alloc.h
 ::    2. deps\glfw\include       GLFW/glfw3.h, GLFW/glfw3native.h
-::    3. ..                      VulkanModule.h and all Vulkan*.h (project root)
+::    3. ..                      VCK.h and all Vulkan*.h (project root)
 ::    4. VULKAN_SDK\Include      vulkan/vulkan.h and full vk_video/ tree
 ::
 ::  Note: we do NOT add the bundled vulkan\ folder in the project root to
@@ -71,12 +71,12 @@ set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I"%VULKAN_SDK%\Include"
 ::    VULKAN_SDK\Lib    vulkan-1.lib
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
 
-::  VulkanBaseplate core .cpp files (shared by all examples)
-set VKB=..\VmaImpl.cpp ..\VulkanBuffer.cpp ..\VulkanCommand.cpp ..\VulkanContext.cpp ..\VulkanDevice.cpp ..\VulkanHelpers.cpp ..\VulkanImage.cpp ..\VulkanPipeline.cpp ..\VulkanSwapchain.cpp ..\VulkanSync.cpp ..\VulkanModuleExpansion.cpp
+::  VCK core .cpp files (shared by all examples)
+set VKB=..\VmaImpl.cpp ..\VulkanBuffer.cpp ..\VulkanCommand.cpp ..\VulkanContext.cpp ..\VulkanDevice.cpp ..\VulkanHelpers.cpp ..\VulkanImage.cpp ..\VulkanPipeline.cpp ..\VulkanSwapchain.cpp ..\VulkanSync.cpp ..\VCKExpansion.cpp
 
 :: ── Menu ---------------------------------------------------------------------
 echo.
-echo  VulkanBaseplate - example builder
+echo  VCK - example builder
 echo  -----------------------------------
 echo  [1]  RGBTriangle    - coloured triangle, live resize
 echo  [2]  MipmapExample  - mip chain generation and sampling

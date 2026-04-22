@@ -2,6 +2,6 @@
 
 int main()
 {
-    VulkanBaseplate::MipmapExample::Run();
+    VCK::MipmapExample::Run();
     return 0;
 }

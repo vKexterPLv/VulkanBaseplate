@@ -4,7 +4,7 @@
 #include "vk_mem_alloc.h"
 #include <cstdint>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice;
 
@@ -75,4 +75,4 @@ namespace VulkanBaseplate {
         VkDeviceSize  m_Size = 0;
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

@@ -1,6 +1,6 @@
 #include <cstring>
 #include "App.h"
-#include "vulkan/VulkanModule.h"
+#include "vulkan/VCK.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -12,7 +12,7 @@ namespace GTA_Sandbox::App {
     // ─────────────────────────────────────────────────────────────────────────
     //  Window
     // ─────────────────────────────────────────────────────────────────────────
-    std::string title         = "Example of VulkanBaseplate with GLFW";
+    std::string title         = "Example of VCK with GLFW";
     GLFWwindow* window        = nullptr;
     int         window_width  = 1280;
     int         window_height = 720;

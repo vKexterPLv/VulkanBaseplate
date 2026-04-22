@@ -17,7 +17,7 @@
 //  position and color directly from the vertex buffer.
 // =============================================================================
 
-namespace VulkanBaseplate {
+namespace VCK {
     namespace RGBTriangle {
         extern GLFWwindow* window;
         extern int         window_width;

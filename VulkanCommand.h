@@ -5,7 +5,7 @@
 #include <array>
 #include <cstdint>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice;
 
@@ -50,4 +50,4 @@ namespace VulkanBaseplate {
         std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> m_CommandBuffers{};
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

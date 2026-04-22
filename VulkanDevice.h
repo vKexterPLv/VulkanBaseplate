@@ -7,7 +7,7 @@
 #include <optional>
 #include <vector>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Queue family indices resolved during physical device selection.
@@ -94,4 +94,4 @@ namespace VulkanBaseplate {
         };
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

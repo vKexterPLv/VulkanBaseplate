@@ -1,5 +1,5 @@
 #include "App.h"
-#include "VulkanModule.h"
+#include "VCK.h"
 #include <string>
 #include <vector>
 #include <fstream>
@@ -34,7 +34,7 @@
 //  small to observe coarser mip levels averaging the checkerboard to grey.
 // =============================================================================
 
-namespace VulkanBaseplate::MipmapExample {
+namespace VCK::MipmapExample {
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Window state
@@ -585,4 +585,4 @@ namespace VulkanBaseplate::MipmapExample {
         Shutdown();
     }
 
-} // namespace VulkanBaseplate::MipmapExample
+} // namespace VCK::MipmapExample

@@ -1,7 +1,7 @@
 #include "VulkanCommand.h"
 #include "VulkanDevice.h"
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::Initialize(VulkanDevice& device)
@@ -75,4 +75,4 @@ namespace VulkanBaseplate {
         return VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex]));
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

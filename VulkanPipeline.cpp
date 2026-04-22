@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include <array>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanPipeline::Initialize(VulkanDevice& device,
@@ -247,4 +247,4 @@ namespace VulkanBaseplate {
         return success;
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

@@ -2,6 +2,6 @@
 
 int main()
 {
-    VulkanBaseplate::RGBTriangle::Run();
+    VCK::RGBTriangle::Run();
     return 0;
 }

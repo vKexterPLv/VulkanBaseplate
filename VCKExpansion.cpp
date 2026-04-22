@@ -1,7 +1,7 @@
-#include "VulkanModule.h"
-// VulkanModuleExpansion.h is included at the bottom of VulkanModule.h
+#include "VCK.h"
+// VCKExpansion.h is included at the bottom of VCK.h
 
-namespace VulkanBaseplate {
+namespace VCK {
 
 // =============================================================================
 //  Internal helper
@@ -815,4 +815,4 @@ bool VulkanMipmapGenerator::Generate(VulkanDevice&  device,
 }
 
 
-} // namespace VulkanBaseplate
+} // namespace VCK

@@ -4,7 +4,7 @@
 #include <array>
 #include <cstdint>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice;
 
@@ -55,4 +55,4 @@ namespace VulkanBaseplate {
         uint32_t m_CurrentFrame = 0;
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

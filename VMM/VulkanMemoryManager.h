@@ -1,16 +1,16 @@
 #pragma once
 
-// VulkanModule.h is a single mega-header (pragma once) that defines
+// VCK.h is a single mega-header (pragma once) that defines
 // VulkanDevice, VulkanCommand, VulkanSync, MAX_FRAMES_IN_FLIGHT, LogVk, VK_CHECK, etc.
 // Including individual sub-headers instead would cause redefinition errors when
-// App.cpp (or any TU that already includes VulkanModule.h) also includes this file.
-#include "../VulkanModule.h"
+// App.cpp (or any TU that already includes VCK.h) also includes this file.
+#include "../VCK.h"
 
 // =============================================================================
 //  VulkanMemoryManager.h  (VMM)
 //
 //  Three-layer GPU resource lifecycle and memory management system for
-//  VulkanBaseplate.  Include this file to get the full VMM API.
+//  VCK.  Include this file to get the full VMM API.
 //
 //  ┌──────────────────────────────────────────────────────────────────────┐
 //  │  LAYER 1 — RAW ALLOCATION (VmmRawAlloc)                              │
@@ -67,7 +67,7 @@
 #include <functional>
 
 
-namespace VulkanBaseplate {
+namespace VCK {
 
 
 // =============================================================================
@@ -427,4 +427,4 @@ private:
 };
 
 
-} // namespace VulkanBaseplate
+} // namespace VCK

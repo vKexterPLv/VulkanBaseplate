@@ -1,5 +1,5 @@
 #include "App.h"
-#include "VulkanModule.h"
+#include "VCK.h"
 #include <string>
 #include <vector>
 #include <fstream>
@@ -7,7 +7,7 @@
 // =============================================================================
 //  RGBTriangle
 //
-//  The smallest possible VulkanBaseplate program that draws something and
+//  The smallest possible VCK program that draws something and
 //  handles live window resize correctly.
 //
 //  Objects used:
@@ -27,7 +27,7 @@
 //    framebuffers in place — no objects are destroyed and rebuilt.
 // =============================================================================
 
-namespace VulkanBaseplate::RGBTriangle {
+namespace VCK::RGBTriangle {
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Window state
@@ -282,4 +282,4 @@ namespace VulkanBaseplate::RGBTriangle {
         Shutdown();
     }
 
-} // namespace VulkanBaseplate::RGBTriangle
+} // namespace VCK::RGBTriangle

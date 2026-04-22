@@ -3,7 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice; // forward — avoid pulling in VulkanDevice.h transitively
 
@@ -66,4 +66,4 @@ namespace VulkanBaseplate {
         std::vector<VkImageView> m_ImageViews;
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

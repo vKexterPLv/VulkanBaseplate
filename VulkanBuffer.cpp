@@ -2,7 +2,7 @@
 #include "VulkanDevice.h"
 #include <cstring>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanBuffer::Create(VulkanDevice& device,
@@ -132,4 +132,4 @@ namespace VulkanBaseplate {
         vkCmdCopyBuffer(cmd, m_Buffer, destination.GetBuffer(), 1, &copyRegion);
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

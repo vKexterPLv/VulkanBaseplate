@@ -1,20 +1,31 @@
 // =============================================================================
-//  VulkanModule.h
+//  VCK.h  —  Vulkan Core Kit
 //
-//  Single-header amalgam of the VulkanBaseplate Vulkan layer.
-//  Including this file gives you every class declaration, struct, macro, and
-//  constant across all 8 translation units.
+//  Single-header amalgam of the VCK core Vulkan layer.  Include this file
+//  and you get every core class, struct, macro, and constant in one shot.
+//  VCKExpansion.h is auto-included at the bottom, so this one header is
+//  enough to use the entire kit.
 //
-//  SOURCE FILES ASSEMBLED
-//  ──────────────────────
+//  LAYERING
+//  ────────
+//      VCK core      (this file)           — instance, device, swapchain, ...
+//          ↓
+//      VCK expansion (VCKExpansion.h)      — textures, meshes, descriptors, ...
+//          ↓
+//      VCK memory    (VMM/VulkanMemoryManager.h, optional)
+//          ↓
+//      Your renderer / game / tool
+//
+//  SOURCE FILES ASSEMBLED (core)
+//  ─────────────────────────────
 //  Headers   (.h)  : VulkanHelpers   VulkanContext   VulkanDevice
-//                    VulkanSwapchain  VulkanBuffer    VulkanImage
-//                    VulkanPipeline   VulkanCommand   VulkanSync
+//                    VulkanSwapchain  VulkanBuffer   VulkanImage
+//                    VulkanPipeline   VulkanCommand  VulkanSync
 //
 //  Implementations (.cpp) — function index at the bottom of this file:
-//                    VmaImpl         VulkanContext    VulkanDevice
-//                    VulkanSwapchain VulkanBuffer     VulkanImage
-//                    VulkanPipeline  VulkanCommand    VulkanSync
+//                    VmaImpl         VulkanContext   VulkanDevice
+//                    VulkanSwapchain VulkanBuffer    VulkanImage
+//                    VulkanPipeline  VulkanCommand   VulkanSync
 //                    VulkanHelpers
 //
 //  INIT / SHUTDOWN ORDER
@@ -22,9 +33,14 @@
 //  Init:      Context → Device → Swapchain → Pipeline → Command → Sync
 //  Shutdown:  Sync → Command → Pipeline → Swapchain → Device → Context
 //
-//  QUICK NAMESPACE
-//  ───────────────
-//  Everything lives in:  namespace VulkanBaseplate { ... }
+//  Expansion objects (VCKExpansion.h) and VMM resources must be shut down
+//  BEFORE the core objects they reference.
+//
+//  NAMESPACE
+//  ─────────
+//  Everything (core + expansion) lives in:  namespace VCK { ... }
+//  LogVk / VK_CHECK are deliberately at global scope so every TU can use
+//  them without a `using` declaration.
 // =============================================================================
 
 #pragma once
@@ -97,7 +113,7 @@ inline void LogVk(const std::string& message) {
 //   ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝
 // =============================================================================
 
-namespace VulkanBaseplate {
+namespace VCK {
 
 // -----------------------------------------------------------------------------
 //  VulkanContext.h
@@ -577,7 +593,7 @@ private:
 };
 
 
-} // namespace VulkanBaseplate
+} // namespace VCK
 
 
 
@@ -589,28 +605,28 @@ private:
 //  ███████╗██╔╝ ██╗██║     ██║  ██║██║ ╚████║███████║██║╚██████╔╝██║ ╚████║
 //  ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 // =============================================================================
-//  VulkanModuleExpansion  —  arm extension layer for VulkanModule
+//  VCKExpansion  —  higher-level building blocks on top of VCK core
 //
-//  Declared in VulkanModuleExpansion.h (auto-included below).
-//  Implemented in VulkanModuleExpansion.cpp.
-//  All classes live in namespace VulkanBaseplate.
+//  Declared in VCKExpansion.h (auto-included below).
+//  Implemented in VCKExpansion.cpp.
+//  All classes live in namespace VCK.
 //
 //  DESIGN RULE
 //  ───────────
-//  Every expansion class receives the six base objects by reference or raw
-//  pointer.  They do NOT own, construct, or destroy any base object.
-//  The original init/shutdown order is completely unchanged:
+//  Every expansion class receives the core objects by reference or raw
+//  pointer.  They do NOT own, construct, or destroy any core object.
+//  The core init/shutdown order is completely unchanged:
 //
 //    Init:      Context → Device → Swapchain → Pipeline → Command → Sync
 //    Shutdown:  Sync → Command → Pipeline → Swapchain → Device → Context
 //
-//  All expansion objects must be Shutdown() BEFORE the base objects they
+//  All expansion objects must be Shutdown() BEFORE the core objects they
 //  reference.  A typical ordering is shown in the function index below.
 //
 //  SOURCE FILES ADDED
 //  ──────────────────
-//  Header         : VulkanModuleExpansion.h
-//  Implementation : VulkanModuleExpansion.cpp
+//  Header         : VCKExpansion.h
+//  Implementation : VCKExpansion.cpp
 //
 //  CLASSES  (12)
 //  ─────────────
@@ -1181,7 +1197,7 @@ private:
  void VulkanSync::Shutdown()
 
 ────────────────────────────────────────────────────────────────────────────────
- VulkanModuleExpansion.cpp
+ VCKExpansion.cpp
 ────────────────────────────────────────────────────────────────────────────────
 
  RECOMMENDED EXPANSION SHUTDOWN ORDER (before base objects):
@@ -1280,8 +1296,8 @@ private:
 */
 
 
-#include "VulkanModuleExpansion.h"
+#include "VCKExpansion.h"
 
 // =============================================================================
-//  END OF VulkanModule.h
+//  END OF VCK.h
 // =============================================================================

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <limits>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Public API
@@ -268,4 +268,4 @@ namespace VulkanBaseplate {
         return actual;
     }
 
-} // namespace VulkanBaseplate
+} // namespace VCK

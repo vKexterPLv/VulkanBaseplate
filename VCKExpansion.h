@@ -1,8 +1,8 @@
 // =============================================================================
-//  VulkanModuleExpansion.h
+//  VCKExpansion.h
 //
-//  Arm extension for VulkanModule.h.
-//  Included automatically at the bottom of VulkanModule.h —
+//  Arm extension for VCK.h.
+//  Included automatically at the bottom of VCK.h —
 //  you never need to include this file directly.
 //
 //  DESIGN RULE
@@ -33,10 +33,10 @@
 // =============================================================================
 
 #pragma once
-// Note: VulkanModule.h is already included before this file.
+// Note: VCK.h is already included before this file.
 // All base types (VulkanDevice, VulkanBuffer, VulkanImage, etc.) are available.
 
-namespace VulkanBaseplate {
+namespace VCK {
 
 // =============================================================================
 // [1] VulkanOneTimeCommand
@@ -629,4 +629,4 @@ public:
 };
 
 
-} // namespace VulkanBaseplate
+} // namespace VCK

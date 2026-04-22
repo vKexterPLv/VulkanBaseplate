@@ -2,6 +2,6 @@
 
 int main()
 {
-    VulkanBaseplate::VMMExample::Run();
+    VCK::VMMExample::Run();
     return 0;
 }

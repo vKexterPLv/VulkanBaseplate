@@ -18,7 +18,7 @@
 //  to see the GPU switch to coarser mip levels (checkerboard becomes grey).
 // =============================================================================
 
-namespace VulkanBaseplate {
+namespace VCK {
     namespace MipmapExample {
         extern GLFWwindow* window;
         extern int         window_width;

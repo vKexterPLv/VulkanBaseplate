@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace VulkanBaseplate {
+namespace VCK {
 
     class VulkanDevice;
 
@@ -82,4 +82,4 @@ namespace VulkanBaseplate {
         VkPipeline       m_Pipeline = VK_NULL_HANDLE;
     };
 
-} // namespace VulkanBaseplate
+} // namespace VCK

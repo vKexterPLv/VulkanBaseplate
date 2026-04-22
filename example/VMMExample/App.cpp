@@ -1,5 +1,5 @@
 #include "App.h"
-#include "VulkanModule.h"
+#include "VCK.h"
 #include "VMM/VulkanMemoryManager.h"
 #include <string>
 #include <vector>
@@ -34,7 +34,7 @@
 //      vmm.LogStats()  →  VS Output window shows registry state + ring usage
 // =============================================================================
 
-namespace VulkanBaseplate::VMMExample {
+namespace VCK::VMMExample {
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Window
@@ -576,4 +576,4 @@ namespace VulkanBaseplate::VMMExample {
         Shutdown();
     }
 
-} // namespace VulkanBaseplate::VMMExample
+} // namespace VCK::VMMExample
