@@ -1,8 +1,18 @@
+<div align="center">
+
 # Execution Layer
+
+FrameScheduler · JobGraph · GpuSubmissionBatcher · BackpressureGovernor · TimelineSemaphore
+
+</div>
+
+---
 
 Entirely optional. If you just want core VCK and want to drive `VulkanSync` +
 `VulkanCommand` yourself, skip this page. Everything here composes on top of
 the core and does not modify it.
+
+---
 
 ## FrameScheduler + FramePolicy
 
@@ -133,7 +143,7 @@ GPU retirement is inferred opportunistically from per-slot fence status
 ### framesInFlight and asyncMaxLag
 
 `FrameScheduler` reads the runtime `framesInFlight` from `VulkanSync`
-(set via `Config::sync.framesInFlight` — see [[Core API]](Core-API.md))
+(set via `Config::sync.framesInFlight` — see [Core API](Core-API))
 and passes it into `BackpressureGovernor::Initialize`. The governor clamps
 `asyncMaxLag` to `framesInFlight` with a logged warning if you asked for
 more — deeper pipelining needs `VK_KHR_timeline_semaphore` (see

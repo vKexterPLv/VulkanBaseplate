@@ -1,8 +1,18 @@
-# Core API — `VCK.h`
+<div align="center">
 
-One header (`VCK.h`) + a matching set of `Vulkan*.cpp` translation units. Owns
-the raw Vulkan handles. Nothing above this layer creates or destroys these
-objects.
+# Core API &nbsp;·&nbsp; `VCK.h`
+
+Instance · Device · Swapchain · Pipeline · Command · Sync · Buffer · Image · Window
+
+</div>
+
+---
+
+One header (`VCK.h`) + a matching set of `core/Vulkan*.cpp` translation units.
+Owns the raw Vulkan handles. Nothing above this layer creates or destroys
+these objects.
+
+---
 
 ## Classes
 
@@ -105,12 +115,12 @@ Notes:
 - **MSAA (`cfg.swapchain.msaaSamples`) — reserved, clamped to 1x today.**
   The field + accessor exist so the API surface is stable, but proper MSAA
   needs a render-pass resolve attachment and a per-swapchain-image multi-
-  sampled colour image — both are on the roadmap (see [[Design]](Design.md)).
+  sampled colour image — both are on the roadmap (see [Design](Design)).
   Setting `msaaSamples > 1` currently logs a warning and is clamped to
   `VK_SAMPLE_COUNT_1_BIT` in `VulkanPipeline`. Do not rely on it yet.
 - **framesInFlight** is clamped to `[1, MAX_FRAMES_IN_FLIGHT]` (= 3). Going
   deeper requires `VK_KHR_timeline_semaphore` — a separate track; see
-  `TimelineSemaphore` in [[Expansion API]](Expansion-API.md).
+  `TimelineSemaphore` in [Expansion API](Expansion-API).
 - **`cmd` and `sync` must share the same `framesInFlight`.** Pass the same
   `cfg` to both. The zero-arg path uses `2` for both, so it's always
   consistent by default.
@@ -159,4 +169,4 @@ sc.Shutdown();   dev.Shutdown();  ctx.Shutdown();
 ```
 
 If you want the scheduler to drive the per-frame steps for you, see
-[[Execution Layer]](Execution-Layer.md) — the core API never changes.
+[Execution Layer](Execution-Layer) — the core API never changes.

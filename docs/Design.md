@@ -1,4 +1,12 @@
+<div align="center">
+
 # Design
+
+Rules · status · honest caveats · roadmap
+
+</div>
+
+---
 
 ## Rules (strict)
 
@@ -20,6 +28,7 @@
      — `vkQueueWaitIdle`, setup paths only.
    - `FrameScheduler::BeginFrame` / `EndFrame` when policy dictates (per
      slot fence wait).
+   - `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
    - Anything you do manually.
 5. **Frame-scoped or persistent, nothing else.** Every GPU resource has a
    clear lifetime tag (VMM) or is owned by a class that does.

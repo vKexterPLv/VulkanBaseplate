@@ -1,7 +1,17 @@
-# Examples
+<div align="center">
+
+# Examples &nbsp;·&nbsp; `example/build.bat`
+
+Nine runnable examples. Pick from the menu, build runs in seconds.
+
+</div>
+
+---
 
 Nine runnable examples in `example/`, each built from the menu in
 `example/build.bat`.
+
+---
 
 ## Layout
 
@@ -47,4 +57,4 @@ cd example
 build.bat
 ```
 
-Pick an example from the menu. See [[Build]](Build.md) for dependency setup.
+Pick an example from the menu. See [Build](Build) for dependency setup.

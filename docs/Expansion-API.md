@@ -1,8 +1,18 @@
-# Expansion API — `VCKExpansion.h`
+<div align="center">
+
+# Expansion API &nbsp;·&nbsp; `VCKExpansion.h`
+
+Framebuffers · depth · samplers · textures · meshes · descriptors · mipmaps
+
+</div>
+
+---
 
 Higher-level, non-owning building blocks composed on top of the core. Every
 class here borrows core objects by reference. `VCKExpansion.cpp` is compiled
 into every example (`VKB` in `build.bat`).
+
+---
 
 ## VulkanOneTimeCommand
 

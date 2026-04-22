@@ -1,9 +1,19 @@
-# VMM — Vulkan Memory Manager
+<div align="center">
+
+# VMM &nbsp;·&nbsp; Vulkan Memory Manager
+
+Persistent · transient · frame-buffered — three lifetimes, one staging ring
+
+</div>
+
+---
 
 Three-layer GPU resource lifecycle. Optional — the core works fine with raw
 `VulkanBuffer` / `VulkanImage`. Use VMM when you want batched staging
 uploads, a zero-cost per-frame transient pool, or lifetime-tagged
 persistent allocations.
+
+---
 
 ## Layers
 

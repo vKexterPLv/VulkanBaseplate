@@ -1,4 +1,12 @@
-# Build (Windows)
+<div align="center">
+
+# Build &nbsp;·&nbsp; Windows / MinGW
+
+Five-minute setup. One `build.bat`. Nine examples ready to run.
+
+</div>
+
+---
 
 ## Requirements
 
