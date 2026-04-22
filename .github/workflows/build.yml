@@ -35,7 +35,9 @@ jobs:
           optional_components: com.lunarg.vulkan.vma
           install_runtime: true
           cache: true
-          stripdown: true
+          # stripdown: true aggressively removes subheaders (including
+          # vk_video/*.h), which breaks vulkan_core.h > 1.3.280.  Full install.
+          stripdown: false
 
       # ─── MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
       # on PATH.  Prepending the MSYS2 mingw64 bin directory is enough - we

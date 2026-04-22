@@ -73,9 +73,9 @@ if not exist "deps\glfw\include\GLFW\glfw3.h" (
 )
 
 :: ── Shared flags -------------------------------------------------------------
-set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I"%VULKAN_SDK%\Include"
+set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\core -I"%VULKAN_SDK%\Include"
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
-set VKB=..\VmaImpl.cpp ..\VulkanBuffer.cpp ..\VulkanCommand.cpp ..\VulkanContext.cpp ..\VulkanDevice.cpp ..\VulkanHelpers.cpp ..\VulkanImage.cpp ..\VulkanPipeline.cpp ..\VulkanSwapchain.cpp ..\VulkanSync.cpp ..\VCKExpansion.cpp
+set VKB=..\core\VmaImpl.cpp ..\core\VulkanBuffer.cpp ..\core\VulkanCommand.cpp ..\core\VulkanContext.cpp ..\core\VulkanDevice.cpp ..\core\VulkanHelpers.cpp ..\core\VulkanImage.cpp ..\core\VulkanPipeline.cpp ..\core\VulkanSwapchain.cpp ..\core\VulkanSync.cpp ..\VCKExpansion.cpp
 
 :: ── Banner + menu ------------------------------------------------------------
 call :BANNER
@@ -230,8 +230,11 @@ exit /b 0
 
 :STEP
 :: %~1 = header text, e.g. "[4/9] HelloExample"
+:: Escape the literal '>' with '^>' so cmd.exe doesn't try to redirect output
+:: (which produces the cosmetic 'filename, directory name or volume label
+::  syntax is incorrect' error before any command runs).
 echo.
-echo %C_MAG%>%C_RESET% %C_BOLD%%~1%C_RESET%
+echo %C_MAG%^>%C_RESET% %C_BOLD%%~1%C_RESET%
 exit /b 0
 
 :ERR

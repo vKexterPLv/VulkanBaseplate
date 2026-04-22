@@ -76,7 +76,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 #include "vk_mem_alloc.h"
-#include "VulkanHelpers.h"   // LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
+#include "core/VulkanHelpers.h"   // LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
 
 #include <cstdio>
 #include <string>
@@ -119,14 +119,14 @@
 // still include only "VCK.h" (or "VCKExpansion.h") - the amalgam pulls in the
 // whole core API.  Internal .cpp files can keep including individual headers.
 
-#include "VulkanContext.h"
-#include "VulkanDevice.h"
-#include "VulkanSwapchain.h"
-#include "VulkanBuffer.h"
-#include "VulkanImage.h"
-#include "VulkanPipeline.h"
-#include "VulkanSync.h"
-#include "VulkanCommand.h"
+#include "core/VulkanContext.h"
+#include "core/VulkanDevice.h"
+#include "core/VulkanSwapchain.h"
+#include "core/VulkanBuffer.h"
+#include "core/VulkanImage.h"
+#include "core/VulkanPipeline.h"
+#include "core/VulkanSync.h"
+#include "core/VulkanCommand.h"
 
 
 
