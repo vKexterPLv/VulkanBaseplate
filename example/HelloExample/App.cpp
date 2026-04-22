@@ -1,5 +1,8 @@
 #include "App.h"
 #include "VCK.h"
+#include "stb_easy_font.h"
+#include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -7,9 +10,13 @@
 // =============================================================================
 //  HelloExample
 //
-//  The minimal FrameScheduler-driven program.  Identical geometry to
-//  RGBTriangle, but the frame loop is driven by the scheduler instead of
-//  hand-rolled VulkanSync / VulkanCommand calls.
+//  Minimal FrameScheduler-driven program that renders "Hello World" in big
+//  white letters centred on a dark background.
+//
+//  Text is built once at Init with stb_easy_font (public-domain, single-file
+//  header included beside this TU).  Each glyph becomes a small batch of
+//  axis-aligned quads in pixel coordinates; we convert those pixel coords to
+//  NDC so the text scales with the window.
 //
 //  Flow, per frame:
 //
@@ -26,7 +33,7 @@ namespace VCK::HelloExample {
     // ─────────────────────────────────────────────────────────────────────────
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
-    std::string title         = "HelloExample";
+    std::string title         = "HelloExample — Hello, World";
     GLFWwindow* window        = nullptr;
     int         window_width  = 1280;
     int         window_height = 720;
@@ -35,12 +42,15 @@ namespace VCK::HelloExample {
     bool g_Minimized = false;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex — same as RGBTriangle
+    //  Vertex — matches the layout stb_easy_font emits (16 bytes):
+    //      x,y,z    : float
+    //      color[4] : uint8 (RGBA, fed to shader via R8G8B8A8_UNORM)
     // ─────────────────────────────────────────────────────────────────────────
     struct Vertex {
-        float position[3];
-        float color[4];
+        float   position[3];
+        uint8_t color[4];
     };
+    static_assert(sizeof(Vertex) == 16, "stb_easy_font layout mismatch");
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Vulkan objects
@@ -210,8 +220,8 @@ namespace VCK::HelloExample {
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
         }};
         vertexInput.Attributes = {
-            { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,    .offset = offsetof(Vertex, position) },
-            { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
+            { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, position) },
+            { .location = 1, .binding = 0, .format = VK_FORMAT_R8G8B8A8_UNORM,   .offset = offsetof(Vertex, color)    },
         };
 
         pipeline.Initialize(device, swapchain, shaders, vertexInput);
@@ -226,18 +236,70 @@ namespace VCK::HelloExample {
         cfg.enableTimeline = false;     // flip to true + call scheduler.Timeline().Dump() to see spans
         scheduler.Initialize(device, command, sync, cfg);
 
-        // Classic RGB triangle.
-        const std::vector<Vertex> vertices = {
-            {{ 0.0f,  -0.6667f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
-            {{-0.5f,   0.3333f, 0.f}, {0.f, 0.f, 1.f, 1.f}},
-            {{ 0.5f,   0.3333f, 0.f}, {0.f, 1.f, 0.f, 1.f}},
-        };
-        const std::vector<uint32_t> indices = { 0, 1, 2 };
+        // --------------------------------------------------------------
+        //  Build the "Hello, World" mesh.
+        //
+        //  1. stb_easy_font_print emits 4 vertices per character quad in
+        //     pixel space (x rightward, y DOWNWARD, z=0, u8 RGBA).
+        //  2. We compute scale + offset so the text occupies ~70% of NDC
+        //     horizontally and is centred vertically.  The text STRETCHES
+        //     with the window -- perfect for a "Hello World" demo.
+        //  3. Quads are converted to triangle-list indices (2 triangles /
+        //     4 vertices per quad, 6 indices per quad).
+        // --------------------------------------------------------------
+        const char* kText = "Hello, World";
+
+        // stb doc: ~270 bytes per char upper bound.  Reserve plenty.
+        std::vector<uint8_t> raw(std::strlen(kText) * 320 + 64);
+        int numQuads = stb_easy_font_print(
+            /*x=*/0.0f, /*y=*/0.0f,
+            const_cast<char*>(kText),
+            /*color=*/nullptr,              // default opaque white
+            raw.data(), static_cast<int>(raw.size()));
+
+        const int textW = stb_easy_font_width (const_cast<char*>(kText));
+        const int textH = stb_easy_font_height(const_cast<char*>(kText));
+
+        const float kTargetNdc = 1.4f;          // text width in NDC units (full span = 2.0)
+        const float scale      = kTargetNdc / static_cast<float>(textW);
+        const float offsetX    = -(textW * scale) * 0.5f;
+        const float offsetY    = -(textH * scale) * 0.5f;
+
+        const int numVerts = numQuads * 4;
+        std::vector<Vertex> vertices(numVerts);
+        for (int i = 0; i < numVerts; ++i)
+        {
+            Vertex v;
+            std::memcpy(&v, raw.data() + i * sizeof(Vertex), sizeof(Vertex));
+            v.position[0] = v.position[0] * scale + offsetX;
+            v.position[1] = v.position[1] * scale + offsetY;
+            v.position[2] = 0.0f;
+            vertices[i] = v;
+        }
+
+        // Quads -> triangle-list indices (0,1,2 + 0,2,3 per quad).
+        std::vector<uint32_t> indices;
+        indices.reserve(numQuads * 6);
+        for (int q = 0; q < numQuads; ++q)
+        {
+            const uint32_t b = static_cast<uint32_t>(q * 4);
+            indices.push_back(b + 0);
+            indices.push_back(b + 1);
+            indices.push_back(b + 2);
+            indices.push_back(b + 0);
+            indices.push_back(b + 2);
+            indices.push_back(b + 3);
+        }
+
         mesh.Upload(device, command,
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
         LogVk("[HelloExample] FrameScheduler running with FramePolicy::Pipelined.");
+        LogVk(std::string("[HelloExample] \"") + kText + "\" -- "
+              + std::to_string(numQuads)       + " quads, "
+              + std::to_string(numVerts)       + " verts, "
+              + std::to_string(indices.size()) + " indices.");
     }
 
     // =========================================================================

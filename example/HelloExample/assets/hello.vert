@@ -3,7 +3,8 @@
 // =============================================================================
 //  hello.vert — HelloExample
 //
-//  Position + color straight through, same shape as the RGBTriangle example.
+//  stb_easy_font produces quads in *pixel* coordinates; App.cpp converts them
+//  to NDC before upload, so this shader is just a straight passthrough.
 // =============================================================================
 
 layout(location = 0) in vec3 inPosition;
