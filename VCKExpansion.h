@@ -874,8 +874,13 @@ public:
     void NoteCpuFrameStart(uint64_t absoluteFrame);
     void NoteGpuFrameRetired(uint64_t absoluteFrame);
 
-    // Returns number of microseconds the CPU spent stalled waiting for GPU.
-    uint64_t WaitIfOverrun();
+    // Non-blocking overrun check (AsyncMax only).  FrameScheduler uses this
+    // to decide whether to force an extra fence wait.  The governor itself
+    // never blocks — earlier versions waited on a condition variable, but
+    // NoteGpuFrameRetired is always called on the same render thread, which
+    // self-deadlocked the CV path the moment the CPU overran.
+    bool     IsOverrun() const;
+    uint64_t WaitIfOverrun();   // kept for API compat — always returns 0
 
     FramePolicy Policy() const { return m_Policy; }
     uint32_t    MaxLag() const { return m_MaxLag; }

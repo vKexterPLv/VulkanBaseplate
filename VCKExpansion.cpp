@@ -1023,11 +1023,7 @@ void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag)
 
 void BackpressureGovernor::Shutdown()
 {
-    // Wake anyone still waiting.
-    {
-        std::lock_guard<std::mutex> lk(m_Mu);
-    }
-    m_Cv.notify_all();
+    // Nothing to do — no threads, no handles.  All state is plain atomics.
 }
 
 void BackpressureGovernor::NoteCpuFrameStart(uint64_t absoluteFrame)
@@ -1045,25 +1041,29 @@ void BackpressureGovernor::NoteGpuFrameRetired(uint64_t absoluteFrame)
     {
         /* retry */
     }
-    m_Cv.notify_all();
+}
+
+// Non-blocking overrun check.
+//
+// Returns true when the CPU is more than `maxLag` frames ahead of the last
+// retired GPU frame.  FrameScheduler is responsible for any actual waiting
+// (it has the fences / device that can unstick the lag); the governor itself
+// never blocks.  This used to wait on a condition variable, but every caller
+// of NoteGpuFrameRetired runs on the render thread too — so the CV would
+// self-deadlock the moment the CPU overran.
+bool BackpressureGovernor::IsOverrun() const
+{
+    if (m_Policy != FramePolicy::AsyncMax) return false;
+    const uint64_t cpu = m_CpuFrame.load(std::memory_order_acquire);
+    const uint64_t gpu = m_GpuFrame.load(std::memory_order_acquire);
+    return cpu > gpu && (cpu - gpu) > static_cast<uint64_t>(m_MaxLag);
 }
 
 uint64_t BackpressureGovernor::WaitIfOverrun()
 {
-    if (m_Policy != FramePolicy::AsyncMax) return 0;
-
-    const auto t0 = std::chrono::steady_clock::now();
-
-    std::unique_lock<std::mutex> lk(m_Mu);
-    m_Cv.wait(lk, [this] {
-        const uint64_t cpu = m_CpuFrame.load(std::memory_order_acquire);
-        const uint64_t gpu = m_GpuFrame.load(std::memory_order_acquire);
-        return cpu <= gpu || (cpu - gpu) <= static_cast<uint64_t>(m_MaxLag);
-    });
-
-    const auto t1 = std::chrono::steady_clock::now();
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+    // Kept for API compatibility — no longer blocks.  Real backpressure is
+    // implemented in FrameScheduler::BeginFrame via fence polling.
+    return 0;
 }
 
 
@@ -1479,28 +1479,30 @@ Frame& FrameScheduler::BeginFrame()
     ++m_Absolute;
     m_Governor.NoteCpuFrameStart(m_Absolute);
 
-    // Backpressure — AsyncMax only.
-    const uint64_t stallUs = m_Governor.WaitIfOverrun();
-    if (stallUs > 0 && m_Timeline.Enabled())
-    {
-        m_Timeline.NoteStall("backpressure", m_Absolute, stallUs);
-    }
-
-    // Opportunistic retirement probe.
+    // Opportunistic retirement probe — cheap, non-blocking fence status query.
     RetireCompletedFrames();
 
     const uint32_t slot = CurrentSlot();
 
-    // Pipelined / Lockstep: wait for this slot's fence before reusing it.
-    // Lockstep additionally waits for *every* slot to drain, forcing CPU ≤ GPU.
+    // Wait for this slot's fence before reusing its command buffer.
+    //
+    // All three policies share this single wait:
+    //   Lockstep   : fence is still-signalled from its prior EndFrame's wait
+    //                (that wait intentionally does NOT reset); the wait here
+    //                is therefore a no-op and resets in preparation for the
+    //                next submit.
+    //   Pipelined  : standard case — block if the GPU hasn't finished this
+    //                slot's previous frame yet.
+    //   AsyncMax   : same as Pipelined.  The slot-fence mechanism already
+    //                caps CPU-GPU lag at MAX_FRAMES_IN_FLIGHT; configuring
+    //                asyncMaxLag higher than that is fine (IsOverrun never
+    //                fires), configuring it lower is accepted but only
+    //                observable via Governor().Lag() — the scheduler does
+    //                NOT force extra waits beyond the slot fence (a naive
+    //                extra wait risks blocking on an un-submitted fence).
+    //                If you need tighter than MAX_FRAMES_IN_FLIGHT, use
+    //                FramePolicy::Lockstep instead.
     WaitInFlightFence(slot);
-    if (m_Cfg.policy == FramePolicy::Lockstep)
-    {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-        {
-            if (i != slot) WaitInFlightFence(i);
-        }
-    }
 
     // Reset this slot's job graph.
     m_Jobs[slot].Reset();
@@ -1567,11 +1569,14 @@ void FrameScheduler::EndFrame()
         m_Timeline.EndCpuSpan("frame", m_Absolute);
     }
 
-    // Lockstep: block until this frame's GPU work retires.
+    // Lockstep: block until this frame's GPU work retires.  We wait but do
+    // NOT reset — the fence stays signalled until the next BeginFrame reaches
+    // this slot, which does the reset inside WaitInFlightFence.  Resetting
+    // here would leave the fence in a state where the next same-slot
+    // BeginFrame hangs on a never-submitted fence.
     if (m_Cfg.policy == FramePolicy::Lockstep && fence != VK_NULL_HANDLE && m_Device != nullptr)
     {
         VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
-        VK_CHECK(vkResetFences(m_Device->GetDevice(), 1, &fence));
         m_Governor.NoteGpuFrameRetired(m_Absolute);
     }
 
