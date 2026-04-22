@@ -820,17 +820,28 @@ class GpuSubmissionBatcher
 public:
     struct SubmitInfo
     {
-        VkSemaphore          waitSem  = VK_NULL_HANDLE;
+        VkSemaphore          waitSem   = VK_NULL_HANDLE;
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSemaphore          signalSem = VK_NULL_HANDLE;
+
+        // Explicit default ctor — MinGW g++ (9.x/10.x) rejects `info = {}`
+        // when the nested struct has NSDMI unless the default ctor is
+        // explicitly user-declared.  Cheap fix, zero runtime cost.
+        SubmitInfo() = default;
     };
 
     bool Initialize(VulkanDevice& device, QueueSet& queues);
     void Shutdown();
 
-    void QueueGraphics(VkCommandBuffer cmd, const SubmitInfo& info = {});
-    void QueueCompute (VkCommandBuffer cmd, const SubmitInfo& info = {});
-    void QueueTransfer(VkCommandBuffer cmd, const SubmitInfo& info = {});
+    // Overloads instead of a default-argument — avoids the same MinGW
+    // corner case on `SubmitInfo = {}`.
+    void QueueGraphics(VkCommandBuffer cmd, const SubmitInfo& info);
+    void QueueCompute (VkCommandBuffer cmd, const SubmitInfo& info);
+    void QueueTransfer(VkCommandBuffer cmd, const SubmitInfo& info);
+
+    void QueueGraphics(VkCommandBuffer cmd) { QueueGraphics(cmd, SubmitInfo()); }
+    void QueueCompute (VkCommandBuffer cmd) { QueueCompute (cmd, SubmitInfo()); }
+    void QueueTransfer(VkCommandBuffer cmd) { QueueTransfer(cmd, SubmitInfo()); }
 
     // Flushes all three queue buckets.  graphicsFence (if not null) is passed
     // to vkQueueSubmit on the graphics queue so the CPU can wait on it.
@@ -1107,6 +1118,10 @@ public:
         uint32_t    asyncMaxLag    = 2;    // only relevant for AsyncMax
         bool        enableTimeline = false;
         uint32_t    jobWorkers     = 0;    // 0 → hardware_concurrency clamped
+
+        // See SubmitInfo above — explicit default ctor works around a
+        // MinGW g++ bug with NSDMI + `cfg = {}` default arguments.
+        Config() = default;
     };
 
     FrameScheduler()  = default;
@@ -1118,7 +1133,15 @@ public:
     bool Initialize(VulkanDevice&  device,
                     VulkanCommand& command,
                     VulkanSync&    sync,
-                    Config         cfg = {});
+                    Config         cfg);
+
+    // No-config overload — defaults to `Config()`.
+    bool Initialize(VulkanDevice&  device,
+                    VulkanCommand& command,
+                    VulkanSync&    sync)
+    {
+        return Initialize(device, command, sync, Config());
+    }
     void Shutdown();
 
     // Frame lifecycle — must be called in order, once per frame.
