@@ -95,7 +95,7 @@ struct Config
 
     struct SwapchainCfg
     {
-        PresentMode                presentMode              = PresentMode::Auto;
+        PresentMode                presentMode              = PresentMode::Mailbox;    // falls back to FIFO automatically
         uint32_t                   imageCount               = 0;                       // 0 = minImageCount + 1
         VkFormat                   surfaceFormat            = VK_FORMAT_UNDEFINED;     // UNDEFINED = auto-pick
         // RESERVED: MSAA is not yet wired end-to-end (no resolve attachment /

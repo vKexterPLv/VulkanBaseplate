@@ -64,7 +64,7 @@ struct VCK::Config
     } device;
 
     struct SwapchainCfg {
-        PresentMode              presentMode             = PresentMode::Auto;
+        PresentMode              presentMode             = PresentMode::Mailbox; // falls back to FIFO automatically
         uint32_t                 imageCount              = 0;                    // 0 = minImageCount + 1
         VkFormat                 surfaceFormat           = VK_FORMAT_UNDEFINED;  // UNDEFINED = auto-pick
         VkSampleCountFlagBits    msaaSamples             = VK_SAMPLE_COUNT_1_BIT;
