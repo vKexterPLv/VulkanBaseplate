@@ -1,5 +1,11 @@
 #pragma once
 
+// VulkanModule.h is a single mega-header (pragma once) that defines
+// VulkanDevice, VulkanCommand, VulkanSync, MAX_FRAMES_IN_FLIGHT, LogVk, VK_CHECK, etc.
+// Including individual sub-headers instead would cause redefinition errors when
+// App.cpp (or any TU that already includes VulkanModule.h) also includes this file.
+#include "../VulkanModule.h"
+
 // =============================================================================
 //  VulkanMemoryManager.h  (VMM)
 //
@@ -284,7 +290,7 @@ public:
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     // Call after VulkanDevice and VulkanCommand are initialised.
     bool Initialize(VulkanDevice& device, VulkanCommand& command,
-                    const Config& config = {});
+                    const Config& config);
 
     // Call before VulkanCommand and VulkanDevice shutdown.
     void Shutdown();

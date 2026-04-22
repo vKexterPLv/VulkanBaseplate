@@ -260,7 +260,7 @@ namespace VulkanBaseplate::VMMExample {
             modelPipeline.GetPipelineLayout(), 0,
             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
-        static const float kI[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        // kI already declared above — reuse it for push constants
         vkCmdPushConstants(cmd, modelPipeline.GetPipelineLayout(),
             VK_SHADER_STAGE_VERTEX_BIT, 0, 64, kI);
 
