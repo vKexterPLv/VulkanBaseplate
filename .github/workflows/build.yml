@@ -1,0 +1,95 @@
+name: Windows build (MinGW + Vulkan SDK)
+
+on:
+  push:
+    branches: [main, VCK]
+  pull_request:
+    branches: [main, VCK]
+  workflow_dispatch:
+
+# Cancel stale runs when a branch gets a new push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build.bat [A]  (all 9 examples)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ─── Install the Vulkan SDK (provides vulkan-1.lib + glslangValidator). ─
+      # Pin a known-good version; the action exports VULKAN_SDK and adds the
+      # SDK's Bin to PATH so glslangValidator resolves.
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.290.0
+          optional_components: com.lunarg.vulkan.vma
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      # ─── MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
+      # on PATH.  Prepending the MSYS2 mingw64 bin directory is enough - we
+      # invoke the raw g++.exe, no shell.
+      - name: Add MinGW-w64 GCC to PATH
+        run: |
+          echo C:\msys64\mingw64\bin>>%GITHUB_PATH%
+
+      - name: Verify toolchain
+        run: |
+          where g++
+          where glslangValidator
+          g++ --version
+          glslangValidator --version
+
+      # ─── Dependencies expected by example/build.bat ─────────────────────────
+      #   deps/vk_mem_alloc.h                       (VMA header-only)
+      #   deps/libglfw3.a                           (GLFW 3.4 mingw archive)
+      #   deps/glfw/include/GLFW/glfw3.h            (GLFW public header)
+      #   deps/glfw/include/GLFW/glfw3native.h      (GLFW native header)
+      - name: Fetch VMA header
+        shell: pwsh
+        run: |
+          $dst = 'example\deps\vk_mem_alloc.h'
+          New-Item -ItemType Directory -Force -Path 'example\deps' | Out-Null
+          # VMA ships with the Vulkan SDK under Include\vma\vk_mem_alloc.h; prefer
+          # that copy so CI does not depend on raw.githubusercontent being reachable.
+          $sdk = $env:VULKAN_SDK
+          if ($sdk -and (Test-Path "$sdk\Include\vma\vk_mem_alloc.h")) {
+            Copy-Item "$sdk\Include\vma\vk_mem_alloc.h" $dst
+            "VMA copied from SDK: $sdk\Include\vma\vk_mem_alloc.h" | Write-Host
+          } else {
+            Invoke-WebRequest 'https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h' -OutFile $dst
+            "VMA fetched from GitHub" | Write-Host
+          }
+          (Get-Item $dst).Length
+
+      - name: Fetch GLFW (Windows mingw-w64 pre-built)
+        shell: pwsh
+        run: |
+          $ver = '3.4'
+          $zip = "glfw-$ver.bin.WIN64.zip"
+          $url = "https://github.com/glfw/glfw/releases/download/$ver/$zip"
+          Invoke-WebRequest $url -OutFile $zip
+          Expand-Archive $zip -DestinationPath .
+          New-Item -ItemType Directory -Force -Path 'example\deps\glfw\include\GLFW' | Out-Null
+          Copy-Item "glfw-$ver.bin.WIN64\include\GLFW\glfw3.h"       'example\deps\glfw\include\GLFW\glfw3.h'
+          Copy-Item "glfw-$ver.bin.WIN64\include\GLFW\glfw3native.h" 'example\deps\glfw\include\GLFW\glfw3native.h'
+          Copy-Item "glfw-$ver.bin.WIN64\lib-mingw-w64\libglfw3.a"   'example\deps\libglfw3.a'
+          Get-ChildItem example\deps -Recurse
+
+      # ─── Run the same build.bat the user runs locally.  Pipe "A" into the
+      # interactive menu so it picks "Build all".
+      - name: Build all examples
+        working-directory: example
+        run: |
+          echo A| build.bat

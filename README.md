@@ -7,6 +7,10 @@ frame-level execution orchestration layer on top.
 
 <sub>**not** an engine · no scene graph · no material system · you own the frame</sub>
 
+[![Windows build](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml/badge.svg?branch=VCK)](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml)
+[![Docs](https://img.shields.io/badge/docs-wiki-blue)](https://github.com/vKexterPLv/VCK/wiki)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 </div>
 
 ---
