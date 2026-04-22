@@ -221,15 +221,31 @@ goto END
 
 :: =============================================================================
 :BUILD_ALL
-call :DO_BUILD_TRIANGLE     || exit /b 1
-call :DO_BUILD_MIPMAP       || exit /b 1
-call :DO_BUILD_VMM          || exit /b 1
-set EX=HelloExample              & set STEM=hello                       & call :DO_COMPILE || exit /b 1
-set EX=JobGraphExample           & set STEM=JobGraphExample              & call :DO_COMPILE || exit /b 1
-set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample       & call :DO_COMPILE || exit /b 1
-set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample    & call :DO_COMPILE || exit /b 1
-set EX=TimelineExample           & set STEM=TimelineExample              & call :DO_COMPILE || exit /b 1
-set EX=DebugTimelineExample      & set STEM=DebugTimelineExample         & call :DO_COMPILE || exit /b 1
+call :DO_BUILD_TRIANGLE || exit /b 1
+call :DO_BUILD_MIPMAP   || exit /b 1
+call :DO_BUILD_VMM      || exit /b 1
+:: No alignment padding here — in cmd.exe `set VAR=value <spaces>& ...`
+:: folds the trailing spaces into the variable's value, which then shows
+:: up as `HelloExample              \assets\hello.vert` and breaks the
+:: glslangValidator call.  One `set` per line keeps the values clean.
+set EX=HelloExample
+set STEM=hello
+call :DO_COMPILE || exit /b 1
+set EX=JobGraphExample
+set STEM=JobGraphExample
+call :DO_COMPILE || exit /b 1
+set EX=SchedulerPolicyExample
+set STEM=SchedulerPolicyExample
+call :DO_COMPILE || exit /b 1
+set EX=SubmissionBatchingExample
+set STEM=SubmissionBatchingExample
+call :DO_COMPILE || exit /b 1
+set EX=TimelineExample
+set STEM=TimelineExample
+call :DO_COMPILE || exit /b 1
+set EX=DebugTimelineExample
+set STEM=DebugTimelineExample
+call :DO_COMPILE || exit /b 1
 echo.
 echo  OK  all examples built.
 goto END
