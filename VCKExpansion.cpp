@@ -1178,15 +1178,28 @@ JobGraph::JobId JobGraph::Add(const char* name, Fn fn, std::initializer_list<Job
     job->id   = static_cast<JobId>(m_Jobs.size());
     job->name = name != nullptr ? name : "job";
     job->fn   = std::move(fn);
-    job->pendingDeps.store(static_cast<uint32_t>(deps.size()));
 
+    // Count only *valid* deps.  A stale JobId from a previous frame (after
+    // Reset()) or a bogus id would otherwise inflate pendingDeps and leave
+    // the job unreachable — Execute() would deadlock on the threaded path
+    // (m_Outstanding never reaches 0) or silently drop the job + all its
+    // dependents on the inline fallback.
+    uint32_t validDeps = 0;
     for (JobId dep : deps)
     {
         if (dep < m_Jobs.size())
         {
             m_Jobs[dep]->dependents.push_back(job->id);
+            ++validDeps;
+        }
+        else
+        {
+            LogVk(std::string("[JobGraph] Add('") +
+                  (name != nullptr ? name : "job") +
+                  "'): ignoring invalid dep " + std::to_string(dep));
         }
     }
+    job->pendingDeps.store(validDeps);
 
     const JobId id = job->id;
     m_Jobs.push_back(std::move(job));
