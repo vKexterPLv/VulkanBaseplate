@@ -9,19 +9,90 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-//  LogVk - routes to BOTH the Visual Studio Output window
-//          (OutputDebugStringA) and the console window (stdout / printf).
-//  Global scope - usable from any file, any namespace.
+//  VCK logging
 //
-//  Binaries built via example/build.bat use the default g++ console subsystem,
-//  so stdout is already wired to whatever console launched the process - no
-//  AllocConsole dance needed.
+//  The logger writes to BOTH the Visual Studio Output window (OutputDebugStringA)
+//  and the console (stdout).  Console output is ANSI-coloured; the debugger
+//  pane gets the same text without escape codes so it stays readable.
+//
+//    VCKLog::Info ("Context",   "Instance created");
+//    VCKLog::Warn ("Swapchain", "Mailbox unsupported, falling back to FIFO");
+//    VCKLog::Error("Device",    "No suitable GPU");
+//
+//  Output:  [VCK] [Context] Instance created
+//           ^cyan ^bold       ^default/yellow/red
+//
+//  The older one-arg LogVk("...") form is kept as a thin wrapper (tag = "VK")
+//  so no existing call site has to change.
+//
+//  build.bat switches the console code page to 65001 (UTF-8) before running
+//  g++, so the em-dash / box-drawing characters used elsewhere render cleanly.
 // -----------------------------------------------------------------------------
-inline void LogVk(const std::string& message) {
-    const std::string line = "[VK] " + message + "\n";
-    OutputDebugStringA(line.c_str());
-    std::fputs(line.c_str(), stdout);
+namespace VCK { namespace Log {
+
+enum class Level { Info, Warn, Error };
+
+// ANSI colours - resolved at compile time so we pay no branch per log line.
+constexpr const char* kReset    = "\x1b[0m";
+constexpr const char* kBold     = "\x1b[1m";
+constexpr const char* kDim      = "\x1b[2m";
+constexpr const char* kCyan     = "\x1b[96m";
+constexpr const char* kYellow   = "\x1b[93m";
+constexpr const char* kRed      = "\x1b[91m";
+constexpr const char* kWhite    = "\x1b[97m";
+
+// Colour sequences are printf-free: OutputDebugStringA gets a stripped copy,
+// stdout gets the coloured copy.  Hot paths are rare (one call per init step
+// or per error), so the string assembly cost is irrelevant.
+inline void Emit(Level level, const char* tag, const std::string& msg)
+{
+    const char* lvlColour =
+        level == Level::Error ? kRed    :
+        level == Level::Warn  ? kYellow :
+                                kReset;
+
+    // Coloured console line.
+    std::string coloured;
+    coloured.reserve(16 + msg.size());
+    coloured += kCyan; coloured += "[VCK]"; coloured += kReset;
+    coloured += ' ';
+    coloured += kBold; coloured += kWhite; coloured += '['; coloured += tag; coloured += ']'; coloured += kReset;
+    coloured += ' ';
+    if (lvlColour != kReset) coloured += lvlColour;
+    coloured += msg;
+    if (lvlColour != kReset) coloured += kReset;
+    coloured += '\n';
+
+    std::fputs(coloured.c_str(), stdout);
     std::fflush(stdout);
+
+    // Plain line for the debugger pane - no ANSI.
+    std::string plain = "[VCK] [";
+    plain += tag;
+    plain += "] ";
+    plain += msg;
+    plain += '\n';
+    OutputDebugStringA(plain.c_str());
+}
+
+inline void Info (const char* tag, const std::string& msg) { Emit(Level::Info,  tag, msg); }
+inline void Warn (const char* tag, const std::string& msg) { Emit(Level::Warn,  tag, msg); }
+inline void Error(const char* tag, const std::string& msg) { Emit(Level::Error, tag, msg); }
+
+}} // namespace VCK::Log
+
+// Short alias matching the public API in docs / wiki.
+namespace VCKLog = VCK::Log;
+
+// Backwards-compatible one-arg form.  New code should prefer
+// VCKLog::Info("Swapchain", "...") which produces '[VCK] [Swapchain] ...'.
+inline void LogVk(const std::string& message) {
+    VCK::Log::Info("VK", message);
+}
+
+// Tagged overload - use this from new code.
+inline void LogVk(const char* tag, const std::string& message) {
+    VCK::Log::Info(tag, message);
 }
 
 // -----------------------------------------------------------------------------

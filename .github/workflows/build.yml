@@ -34,9 +34,12 @@ jobs:
           vulkan_version: 1.3.290.0
           optional_components: com.lunarg.vulkan.vma
           install_runtime: true
-          cache: true
-          # stripdown: true aggressively removes subheaders (including
-          # vk_video/*.h), which breaks vulkan_core.h > 1.3.280.  Full install.
+          # cache: false because the action's cache key does NOT include the
+          # stripdown flag - a previous run with stripdown: true left a cache
+          # with vk_video/* headers removed, and vulkan_core.h > 1.3.280 hard-
+          # includes vk_video/vulkan_video_codec_av1std_encode.h.  Disabling
+          # cache costs ~5min per CI run but guarantees a full SDK install.
+          cache: false
           stripdown: false
 
       # ─── MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
