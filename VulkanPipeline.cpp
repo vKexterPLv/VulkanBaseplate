@@ -25,6 +25,19 @@ namespace VCK {
         VkSampleCountFlagBits  samples)
     {
         m_Device  = &device;
+
+        // MSAA end-to-end requires a resolve attachment in the render pass and
+        // a per-swapchain-image multisampled colour image.  Neither is wired
+        // yet — clamp to 1x and warn so users who set cfg.swapchain.msaaSamples
+        // > 1 do not trip Vulkan validation / get a broken framebuffer.
+        // Full MSAA support is a follow-up (see docs/Design.md "Roadmap").
+        if (samples != VK_SAMPLE_COUNT_1_BIT)
+        {
+            LogVk("[VulkanPipeline] cfg.swapchain.msaaSamples > 1 is not yet "
+                  "supported end-to-end (no resolve attachment). Clamping to "
+                  "VK_SAMPLE_COUNT_1_BIT — see docs/Design.md");
+            samples = VK_SAMPLE_COUNT_1_BIT;
+        }
         m_Samples = samples;
 
         if (!CreateRenderPass(swapchainFormat))    return false;

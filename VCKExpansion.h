@@ -1160,6 +1160,14 @@ private:
 //
 //  The scheduler NEVER calls vkAcquireNextImageKHR or vkQueuePresentKHR.
 //  Those remain the caller's responsibility; the scheduler just owns timing.
+//
+//  framesInFlight is inherited from VulkanSync (set via the core VCK::Config
+//  at sync.Initialize time).  FrameScheduler reads sync.GetFramesInFlight()
+//  and loops over that many per-frame slots, then forwards the count into
+//  BackpressureGovernor so asyncMaxLag is clamped correctly.
+//  FrameScheduler::Config is a SEPARATE, narrower struct — it governs the
+//  scheduler's own knobs (policy, asyncMaxLag, timeline, jobWorkers), not
+//  framesInFlight.
 // -----------------------------------------------------------------------------
 class FrameScheduler
 {

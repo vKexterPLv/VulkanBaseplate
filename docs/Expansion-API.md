@@ -101,8 +101,10 @@ VkDescriptorSet set = pool.GetSet(frameSlot);   // one set per frame slot
 
 ## VulkanUniformSet\<T\>
 
-Per-frame typed UBO. Owns `MAX_FRAMES_IN_FLIGHT` buffers and points the pool's
-descriptor sets at them on `Initialize`.
+Per-frame typed UBO. Owns up to `MAX_FRAMES_IN_FLIGHT` (= 3) buffers —
+iterates only over the runtime `framesInFlight` you set on `VulkanSync` /
+`VulkanCommand`, and points the pool's descriptor sets at them on
+`Initialize`.
 
 ```cpp
 struct SceneUbo { glm::mat4 view, proj; };

@@ -49,11 +49,23 @@
 
 Deferred features, in rough priority order:
 
-1. Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
+1. **MSAA end-to-end.** `cfg.swapchain.msaaSamples` is a reserved field
+   today — `VulkanPipeline` clamps `samples` to `VK_SAMPLE_COUNT_1_BIT`
+   with a `LogVk` warning. Full support needs:
+   - Render pass with a multisampled colour attachment + a single-sample
+     resolve attachment; `subpass.pResolveAttachments` pointed at it.
+   - A per-swapchain-image multisampled `VkImage` + view owned by
+     `VulkanSwapchain` (or a new helper).
+   - Framebuffers bind `[msaaView, swapchainView]` instead of
+     `[swapchainView]` alone.
+   - Recreate path on `WM_SIZE`.
+   The `Config` surface is already stable; when this lands, call sites
+   that already set `msaaSamples` will just start working.
+2. Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
    to use timeline primitives throughout.
-2. Real dedicated transfer / compute queues in `VulkanDevice` and
+3. Real dedicated transfer / compute queues in `VulkanDevice` and
    `QueueSet`.
-3. Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
-4. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
+4. Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
+5. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
    commands).
-5. Graphical profiler — chrome://tracing export, then a bundled viewer.
+6. Graphical profiler — chrome://tracing export, then a bundled viewer.

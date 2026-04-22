@@ -36,6 +36,31 @@
 //  Expansion objects (VCKExpansion.h) and VMM resources must be shut down
 //  BEFORE the core objects they reference.
 //
+//  ONE-HOUR QUICK START
+//  ────────────────────
+//    1.  Create a window (GLFW / Win32) and grab its HWND.
+//    2.  Build a VCK::Config if you want non-default knobs (optional):
+//            VCK::Config cfg;
+//            cfg.swapchain.presentMode = VCK::PresentMode::Mailbox;
+//            cfg.sync.framesInFlight   = 3;
+//    3.  Run the init chain with either zero-arg or Config overloads:
+//            ctx .Initialize(hwnd, cfg);
+//            dev .Initialize(ctx,  cfg);
+//            sc  .Initialize(dev, ctx, w, h, cfg);
+//            pipe.Initialize(dev, sc,  shaders, vertexInput);
+//            cmd .Initialize(dev,  cfg);
+//            sync.Initialize(dev,  cfg);
+//    4.  Drive the frame loop yourself (see RGBTriangle) OR hand off to
+//        VCK::FrameScheduler (see HelloExample).
+//    5.  Shut down in reverse order.
+//
+//  Every Initialize(...) has a zero-arg form — if you pass no Config you get
+//  exactly the same behaviour as before Config existed.  The library never
+//  owns things it did not construct, never hides Vk handles, and every
+//  "preferred" overload is implemented as a one-line forward to the raw-handle
+//  form — so you can always drop down to manual Vulkan for anything VCK is
+//  not doing for you.
+//
 //  NAMESPACE
 //  ─────────
 //  Everything (core + expansion) lives in:  namespace VCK { ... }
@@ -196,11 +221,18 @@ private:
 //  VulkanDevice.h
 //
 //  Responsibilities:
-//    1. Enumerate and score physical devices (prefer discrete GPU).
-//    2. Discover queue families (graphics + present).
-//    3. Create VkDevice with required extensions (VK_KHR_swapchain).
+//    1. Enumerate and score physical devices (prefer discrete GPU by default).
+//    2. Discover queue families (graphics + present; optional compute/transfer).
+//    3. Create VkDevice with required extensions (VK_KHR_swapchain + extras).
 //    4. Retrieve graphics and present queue handles.
 //    5. Create and own the VMA allocator.
+//
+//  Configuration via VCK::Config (cfg.device):
+//    preferDiscreteGpu       — set false to prefer integrated GPU
+//    extraDeviceExtensions   — appended to VK_KHR_swapchain
+//    queuePreference         — GraphicsOnly            (default)
+//                              GraphicsCompute         — also pick dedicated compute queue
+//                              GraphicsComputeTransfer — also pick dedicated transfer queue
 // -----------------------------------------------------------------------------
 
 struct QueueFamilyIndices
@@ -287,9 +319,17 @@ private:
 //
 //  Responsibilities:
 //    1. Choose surface format, present mode, and extent.
-//    2. Create VkSwapchainKHR (3 images, correct sharing mode).
+//    2. Create VkSwapchainKHR (3 images by default, correct sharing mode).
 //    3. Retrieve swapchain images and create VkImageViews.
 //    4. Recreate cleanly on WM_SIZE (destroy old → build new).
+//
+//  Configuration via VCK::Config (cfg.swapchain):
+//    presentMode    — Auto | Fifo | Mailbox | Immediate  (falls back to FIFO)
+//    imageCount     — 0 = minImageCount + 1 (driver-clamped)
+//    surfaceFormat  — UNDEFINED = auto-pick (RGBA8 UNORM preferred)
+//    msaaSamples    — reserved; clamped to 1x in VulkanPipeline today
+//                     (no resolve attachment wired yet — see docs/Design.md)
+//    depthFormat    — UNDEFINED = auto (D32_SFLOAT / D24_UNORM_S8_UINT)
 // -----------------------------------------------------------------------------
 class VulkanSwapchain
 {
@@ -498,6 +538,14 @@ private:
 //    Single colour attachment matching swapchainFormat.
 //    loadOp=CLEAR, storeOp=STORE
 //    initial=UNDEFINED, final=PRESENT_SRC_KHR
+//
+//  MSAA (reserved):
+//    VulkanPipeline currently clamps the samples argument to
+//    VK_SAMPLE_COUNT_1_BIT with a LogVk warning.  A full MSAA path needs a
+//    render-pass resolve attachment and a per-swapchain-image multisampled
+//    colour image — both are on the roadmap.  The samples parameter and the
+//    cfg.swapchain.msaaSamples field are kept so the API surface is stable
+//    when MSAA lands.
 // -----------------------------------------------------------------------------
 class VulkanPipeline
 {
@@ -568,7 +616,7 @@ private:
 // -----------------------------------------------------------------------------
 //  VulkanSync.h
 //
-//  Per-frame synchronisation primitives (MAX_FRAMES_IN_FLIGHT slots).
+//  Per-frame synchronisation primitives (up to MAX_FRAMES_IN_FLIGHT slots).
 //
 //  Per slot:
 //    imageAvailableSemaphore  — fired by vkAcquireNextImageKHR
@@ -576,6 +624,11 @@ private:
 //    inFlightFence            — CPU stalls here before reusing the frame slot
 //
 //  All fences created pre-signalled so frame 0 never blocks.
+//
+//  framesInFlight is runtime-configurable via VCK::Config:
+//    Config cfg; cfg.sync.framesInFlight = 3;  sync.Initialize(device, cfg);
+//  The requested count is clamped to [1, MAX_FRAMES_IN_FLIGHT] (= 3).
+//  Deeper pipelining needs VK_KHR_timeline_semaphore — a separate track.
 // -----------------------------------------------------------------------------
 
 class VulkanSync
@@ -626,6 +679,11 @@ private:
 //    < record vkCmd* calls >
 //    EndRecording(frameIndex)     — vkEndCommandBuffer
 //    < submit buffer via VkQueue >
+//
+//  framesInFlight must match VulkanSync — pass the same VCK::Config:
+//    cfg.sync.framesInFlight = 3;
+//    cmd.Initialize (dev, cfg);
+//    sync.Initialize(dev, cfg);
 // -----------------------------------------------------------------------------
 class VulkanCommand
 {

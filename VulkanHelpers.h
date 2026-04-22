@@ -98,6 +98,10 @@ struct Config
         PresentMode                presentMode              = PresentMode::Auto;
         uint32_t                   imageCount               = 0;                       // 0 = minImageCount + 1
         VkFormat                   surfaceFormat            = VK_FORMAT_UNDEFINED;     // UNDEFINED = auto-pick
+        // RESERVED: MSAA is not yet wired end-to-end (no resolve attachment /
+        // multisampled colour image).  Setting this > 1 logs a warning and is
+        // clamped to VK_SAMPLE_COUNT_1_BIT in VulkanPipeline.  Field kept so
+        // the API surface is stable when MSAA lands — see docs/Design.md.
         VkSampleCountFlagBits      msaaSamples              = VK_SAMPLE_COUNT_1_BIT;
         VkFormat                   depthFormat              = VK_FORMAT_UNDEFINED;     // UNDEFINED = auto
     } swapchain;

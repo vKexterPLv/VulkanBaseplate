@@ -27,7 +27,9 @@ objects.
   ```cpp
   VK_CHECK(vkQueueSubmit(queue, 1, &submit, fence));
   ```
-- `MAX_FRAMES_IN_FLIGHT` = `2`.
+- `VCK::MAX_FRAMES_IN_FLIGHT` = `3` — compile-time upper bound on
+  frames-in-flight. The runtime count is set via `Config::SyncCfg::framesInFlight`
+  (default `2`) and clamped to this bound.
 
 ## Lifecycle
 
@@ -39,7 +41,96 @@ Shutdown: Sync → Command → Pipeline → Swapchain → Device → Context
 Expansion objects, VMM resources, and any `FrameScheduler` must be shut down
 **before** the core objects they reference.
 
-## Minimal use
+## `VCK::Config` — optional init knobs
+
+Every core `Initialize(...)` has a zero-arg form *and* an overload that takes
+a `const VCK::Config&`. One struct, nested by class. Pass only the fields
+you care about; everything else defaults to the previous zero-arg behaviour.
+
+```cpp
+struct VCK::Config
+{
+    struct ContextCfg {
+        std::string              appName                 = "VCK App";
+        bool                     enableValidation        = true;
+        std::vector<const char*> extraInstanceLayers;
+        std::vector<const char*> extraInstanceExtensions;
+    } context;
+
+    struct DeviceCfg {
+        bool                     preferDiscreteGpu       = true;
+        std::vector<const char*> extraDeviceExtensions;
+        QueuePreference          queuePreference         = QueuePreference::GraphicsOnly;
+    } device;
+
+    struct SwapchainCfg {
+        PresentMode              presentMode             = PresentMode::Auto;
+        uint32_t                 imageCount              = 0;                    // 0 = minImageCount + 1
+        VkFormat                 surfaceFormat           = VK_FORMAT_UNDEFINED;  // UNDEFINED = auto-pick
+        VkSampleCountFlagBits    msaaSamples             = VK_SAMPLE_COUNT_1_BIT;
+        VkFormat                 depthFormat             = VK_FORMAT_UNDEFINED;  // UNDEFINED = auto
+    } swapchain;
+
+    struct SyncCfg {
+        uint32_t                 framesInFlight          = 2; // clamped to MAX_FRAMES_IN_FLIGHT
+    } sync;
+};
+
+enum class PresentMode      { Auto, Fifo, Mailbox, Immediate };
+enum class QueuePreference  { GraphicsOnly, GraphicsCompute, GraphicsComputeTransfer };
+```
+
+### Using Config
+
+```cpp
+VCK::Config cfg;
+cfg.context.appName        = "myapp";
+cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;    // tears-nothing, low-latency
+cfg.sync.framesInFlight    = 3;                            // deeper CPU/GPU pipeline
+
+ctx .Initialize(hwnd, cfg);
+dev .Initialize(ctx,  cfg);
+sc  .Initialize(dev, ctx, w, h, cfg);
+pipe.Initialize(dev, sc, shaders, vertexInput);
+cmd .Initialize(dev,  cfg);
+sync.Initialize(dev,  cfg);
+```
+
+Notes:
+- **Backward compatible.** Zero-arg `Initialize(...)` still works — that path
+  is literally a `return Initialize(..., Config())`.
+- **Present mode fallbacks.** `Mailbox` / `Immediate` fall back to `Fifo` if
+  the driver doesn't expose them; `Auto` picks `Mailbox` when available,
+  `Fifo` otherwise. `LogVk` reports the final choice.
+- **MSAA (`cfg.swapchain.msaaSamples`) — reserved, clamped to 1x today.**
+  The field + accessor exist so the API surface is stable, but proper MSAA
+  needs a render-pass resolve attachment and a per-swapchain-image multi-
+  sampled colour image — both are on the roadmap (see [[Design]](Design.md)).
+  Setting `msaaSamples > 1` currently logs a warning and is clamped to
+  `VK_SAMPLE_COUNT_1_BIT` in `VulkanPipeline`. Do not rely on it yet.
+- **framesInFlight** is clamped to `[1, MAX_FRAMES_IN_FLIGHT]` (= 3). Going
+  deeper requires `VK_KHR_timeline_semaphore` — a separate track; see
+  `TimelineSemaphore` in [[Expansion API]](Expansion-API.md).
+- **`cmd` and `sync` must share the same `framesInFlight`.** Pass the same
+  `cfg` to both. The zero-arg path uses `2` for both, so it's always
+  consistent by default.
+
+### Raw-handle escape hatches
+
+Every class also keeps a raw-handle overload so you can always drop down to
+manual Vulkan for anything VCK is not doing for you. Preferred overloads are
+literally a one-line forward to these:
+
+```cpp
+dev.Initialize (VkInstance, VkSurfaceKHR);
+dev.Initialize (VkInstance, VkSurfaceKHR, const Config&);
+sc .Initialize (VulkanDevice&, VkSurfaceKHR, w, h);
+sc .Initialize (VulkanDevice&, VkSurfaceKHR, w, h, const Config&);
+pipe.Initialize(VulkanDevice&, VkFormat, shaders, vi,
+                VkSampleCountFlagBits = VK_SAMPLE_COUNT_1_BIT);
+```
+
+## Minimal use (zero-config)
 
 ```cpp
 VCK::VulkanContext   ctx;

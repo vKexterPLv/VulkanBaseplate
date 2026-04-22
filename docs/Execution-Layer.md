@@ -130,6 +130,15 @@ if (gov.Lag() > 3)
 GPU retirement is inferred opportunistically from per-slot fence status
 (`vkGetFenceStatus`) in `BeginFrame`, so this is cheap and non-blocking.
 
+### framesInFlight and asyncMaxLag
+
+`FrameScheduler` reads the runtime `framesInFlight` from `VulkanSync`
+(set via `Config::sync.framesInFlight` — see [[Core API]](Core-API.md))
+and passes it into `BackpressureGovernor::Initialize`. The governor clamps
+`asyncMaxLag` to `framesInFlight` with a logged warning if you asked for
+more — deeper pipelining needs `VK_KHR_timeline_semaphore` (see
+`TimelineSemaphore` below).
+
 ## TimelineSemaphore & DependencyToken
 
 Thin wrapper over `VK_KHR_timeline_semaphore`:

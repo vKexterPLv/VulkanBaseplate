@@ -39,6 +39,19 @@ batcher.
 Everything lives in `namespace VCK`. `LogVk` and `VK_CHECK` are at global
 scope so any TU can use them without a `using` declaration.
 
+## One-hour tour
+
+1. **Build one example.** `cd example && build.bat` → pick `[1]` (RGBTriangle). That's `main.cpp` + `App.h` + `App.cpp` + `assets/` — the whole onboarding surface. Full build steps: [`docs/Build.md`](docs/Build.md).
+2. **Read `Hello VCK` below.** ~50 lines, one TU, no hidden state. Walks the entire init chain → frame loop → shutdown.
+3. **Skim [`VCK.h`](VCK.h)** top-to-bottom. Big ASCII banners split it into CLASSES / IMPLS. Every class has a doc block explaining what it owns, who calls it, and the init/shutdown order.
+4. **Decide what you want next**:
+   - *Render something textured / indexed:* [`docs/Examples.md`](docs/Examples.md) — RGBTriangle, MipmapExample.
+   - *Let VCK drive the frame loop:* [`docs/Execution-Layer.md`](docs/Execution-Layer.md) — FrameScheduler / JobGraph.
+   - *Stop writing VMA boilerplate:* [`docs/VMM.md`](docs/VMM.md) — three-layer memory manager.
+5. **Tune with `VCK::Config`** (below) when you need a different present mode, MSAA, or more frames in flight.
+
+Total surface: **one header**, everything in `namespace VCK`, no opaque ownership. When in doubt, the raw-handle overload (`dev.Initialize(VkInstance, VkSurfaceKHR)`, etc.) is always still there for full manual control.
+
 ## Hello VCK
 
 Minimal program that stands up a window, the core stack, and clears the
@@ -125,7 +138,7 @@ cfg.context.enableValidation = true;                             // debug only
 cfg.device.preferDiscreteGpu = true;
 cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;          // Auto | Fifo | Mailbox | Immediate
 cfg.swapchain.imageCount   = 3;                                  // 0 = minImageCount + 1
-cfg.swapchain.msaaSamples  = VK_SAMPLE_COUNT_4_BIT;              // wired through pipeline + render pass
+// cfg.swapchain.msaaSamples = VK_SAMPLE_COUNT_4_BIT;            // reserved — see Roadmap, clamps to 1x today
 cfg.sync.framesInFlight    = 3;                                  // clamped to MAX_FRAMES_IN_FLIGHT
 
 ctx.Initialize (hwnd, cfg);
