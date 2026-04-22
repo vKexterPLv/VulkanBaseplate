@@ -37,7 +37,6 @@
 #include "vk_mem_alloc.h"
 
 #include <cstdio>
-#include <cstdlib>
 #include <string>
 #include <vector>
 #include <array>
@@ -60,48 +59,14 @@
 //  No namespace — usable everywhere.
 // -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-//  VulkanBaseplate_EnsureConsole — attach + redirect stdio to a Windows console
-//  so printf / fputs / std::cout / LogVk produce visible output.
-//  Safe to call repeatedly.  Call this first thing in main() if you want the
-//  console window.
-// -----------------------------------------------------------------------------
-inline void VulkanBaseplate_EnsureConsole()
-{
-    static bool s_consoleReady = false;
-    if (s_consoleReady) return;
-
-    if (!AttachConsole(ATTACH_PARENT_PROCESS))
-    {
-        if (!AllocConsole())
-        {
-            s_consoleReady = true;
-            return;
-        }
-        SetConsoleTitleA("VulkanBaseplate - Log");
-    }
-
-    FILE* fOut = nullptr;
-    FILE* fErr = nullptr;
-    FILE* fIn  = nullptr;
-    freopen_s(&fOut, "CONOUT$", "w", stdout);
-    freopen_s(&fErr, "CONOUT$", "w", stderr);
-    freopen_s(&fIn,  "CONIN$",  "r", stdin);
-
-    std::setvbuf(stdout, nullptr, _IONBF, 0);
-    std::setvbuf(stderr, nullptr, _IONBF, 0);
-
-    s_consoleReady = true;
-}
-
 // LogVk — routes to BOTH the VS Output window (OutputDebugStringA) and the
-//         attached Windows console (stdout).  Works whether or not
-//         VulkanBaseplate_EnsureConsole() has been called: when no console is
-//         present, fputs(stdout) is a harmless no-op sink.
+//         process's stdout (console window when launched from cmd.exe / g++
+//         console-subsystem exe).
 inline void LogVk(const std::string& message) {
     const std::string line = "[VK] " + message + "\n";
     OutputDebugStringA(line.c_str());
     std::fputs(line.c_str(), stdout);
+    std::fflush(stdout);
 }
 
 // VK_CHECK(expr)
