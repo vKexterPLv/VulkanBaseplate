@@ -47,7 +47,7 @@ namespace
         if (g_GlfwInit) return true;
         if (!glfwInit())
         {
-            VCK::VCKLog::Error("Crossplatform",
+            VCKLog::Error("Crossplatform",
                 std::string("glfwInit() failed on ") + VCK_PLATFORM_NAME);
             return false;
         }
