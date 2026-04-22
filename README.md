@@ -1,6 +1,6 @@
-# VulkanBaseplate
+# VCK — Vulkan Core Kit
 
-Minimal, modular Vulkan baseplate designed as a clean foundation for building a custom renderer from scratch.
+Minimal, modular Vulkan helper library designed as a clean foundation for building a custom renderer from scratch.
 
 This project provides a controlled Vulkan environment with **explicit lifetimes**, **predictable initialization order**, and a **layered architecture** separating low-level setup from higher-level rendering systems.
 
@@ -10,7 +10,7 @@ This project provides a controlled Vulkan environment with **explicit lifetimes*
 
 This is **not an engine**.
 
-This is a **baseplate** you can drop into a project and immediately start building a renderer on top of — without fighting Vulkan boilerplate.
+This is a **kit** you can drop into a project and immediately start building a renderer on top of — without fighting Vulkan boilerplate.
 
 ---
 
@@ -115,6 +115,94 @@ Expansion objects must be destroyed **BEFORE** base objects.
 
 * **VulkanDescriptorPool**
   Per-frame descriptor allocation (double buffered)
+
+* **VulkanUniformSet<T>**
+  Typed per-frame uniform buffers with direct `Write()`
+
+* **VulkanDescriptorAllocator**
+  Mixed-type descriptor pool with per-set `Allocate()`
+
+* **VulkanModelPipeline**
+  Full model pipeline (UBOs, push constants, set layouts)
+
+* **VulkanMipmapGenerator**
+  Blit-based mip chain generation for any `VkImage`
+
+---
+
+## EXAMPLE USAGE
+
+```cpp
+VulkanMesh mesh;
+mesh.Upload(device, command,
+            vertices.data(), sizeof(vertices),
+            indices.data(), indices.size());
+
+mesh.RecordDraw(cmd);
+```
+
+```cpp
+VulkanTexture texture;
+texture.CreateFromPixels(device, command, pixels, width, height);
+```
+
+```cpp
+ubo.Write(frameIndex, data);
+vkCmdBindDescriptorSets(cmd, ...);
+```
+
+```cpp
+// Mip chain generation (mip-aware VkImage required — see VulkanMipmapGenerator docs)
+uint32_t mips = VulkanMipmapGenerator::MipLevels(width, height);
+if (VulkanMipmapGenerator::IsFormatSupported(device, VK_FORMAT_R8G8B8A8_SRGB))
+{
+    VulkanMipmapGenerator gen;
+    gen.Generate(device, command, rawImage, width, height, mips);
+}
+```
+
+---
+
+## NOTES
+
+* `VulkanOneTimeCommand` uses `vkQueueWaitIdle`
+  → intended for setup / upload, not per-frame usage
+
+* `VulkanMipmapGenerator` requires the image to be created with
+  `VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT`.
+  Call `IsFormatSupported()` before `Generate()` — fall back to a single
+  mip level if the device doesn't support linear blitting for the format.
+
+* Descriptor system is designed for future extension
+
+---
+
+## FUTURE DIRECTION
+
+* Staging allocator / upload batching
+* Material system
+* Render graph / frame graph
+* Bindless resources
+* Multi-threaded command recording
+
+---
+
+## WHY THIS EXISTS
+
+Most Vulkan examples are either:
+
+* too low-level (triangle demos)
+* too abstract (engine-level frameworks)
+
+This project sits in between:
+
+**full control + usable structure**
+
+---
+
+## LICENSE
+
+MIT
 
 * **VulkanUniformSet<T>**
   Typed per-frame uniform buffers with direct `Write()`
