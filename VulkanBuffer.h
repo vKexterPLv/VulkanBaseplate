@@ -17,10 +17,10 @@ namespace VCK {
     //    Create(device, size, usageFlags, vmaMemoryUsage)
     //
     //  Helpers for common patterns:
-    //    CreateStaging    — CPU-visible TRANSFER_SRC, mapped/unmapped on demand
-    //    CreateVertex     — GPU-only VERTEX_BUFFER | TRANSFER_DST
-    //    CreateIndex      — GPU-only INDEX_BUFFER  | TRANSFER_DST
-    //    CreateUniform    — CPU→GPU UNIFORM_BUFFER, persistently mapped
+    //    CreateStaging    - CPU-visible TRANSFER_SRC, mapped/unmapped on demand
+    //    CreateVertex     - GPU-only VERTEX_BUFFER | TRANSFER_DST
+    //    CreateIndex      - GPU-only INDEX_BUFFER  | TRANSFER_DST
+    //    CreateUniform    - CPU→GPU UNIFORM_BUFFER, persistently mapped
     //
     //  Upload workflow for GPU-only buffers:
     //    1. CreateStaging → staging.Upload(data, size)

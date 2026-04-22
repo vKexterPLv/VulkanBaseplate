@@ -44,7 +44,7 @@ namespace VCK {
         if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
             return false;
 
-        LogVk("VulkanCommand initialized — pool + "
+        LogVk("VulkanCommand initialized - pool + "
             + std::to_string(m_FramesInFlight) + " command buffers");
         return true;
     }
@@ -70,7 +70,7 @@ namespace VCK {
     {
         VkCommandBuffer cmd = m_CommandBuffers[frameIndex];
 
-        // Reset the individual buffer — pool stays intact, other slots unaffected.
+        // Reset the individual buffer - pool stays intact, other slots unaffected.
         if (!VK_CHECK(vkResetCommandBuffer(cmd, 0)))
             return false;
 

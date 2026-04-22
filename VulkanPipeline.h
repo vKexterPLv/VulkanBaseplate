@@ -16,15 +16,15 @@ namespace VCK {
     //  graphics pass (colour output, no depth attachment by default).
     //
     //  Caller supplies:
-    //    • ShaderInfo      — pre-compiled SPIR-V words for vertex + fragment stages
-    //    • VertexInputInfo — binding + attribute descriptions for the vertex layout
+    //    • ShaderInfo      - pre-compiled SPIR-V words for vertex + fragment stages
+    //    • VertexInputInfo - binding + attribute descriptions for the vertex layout
     //
     //  Fixed pipeline state (sensible defaults, tweak as needed):
     //    • Topology    : TRIANGLE_LIST
     //    • Polygon     : FILL, back-face cull, COUNTER_CLOCKWISE front face
     //    • Blend       : alpha-blend (src_alpha / one_minus_src_alpha)
     //    • Depth       : disabled (add a DepthInfo struct when needed)
-    //    • Viewport/Scissor : dynamic — set at draw time via vkCmdSetViewport/Scissor
+    //    • Viewport/Scissor : dynamic - set at draw time via vkCmdSetViewport/Scissor
     //
     //  Render pass:
     //    Single colour attachment matching swapchainFormat.
@@ -56,7 +56,7 @@ namespace VCK {
         VulkanPipeline(const VulkanPipeline&) = delete;
         VulkanPipeline& operator=(const VulkanPipeline&) = delete;
 
-        // Preferred overload — pulls the colour format AND MSAA sample
+        // Preferred overload - pulls the colour format AND MSAA sample
         // count from the swapchain (cfg.swapchain.msaaSamples).  Use this when
         // you want MSAA to follow the swapchain config.
         bool Initialize(VulkanDevice&          device,
@@ -64,7 +64,7 @@ namespace VCK {
                         const ShaderInfo&      shaders,
                         const VertexInputInfo& vertexInput);
 
-        // Explicit-format / explicit-samples overload — MSAA = 1x by default.
+        // Explicit-format / explicit-samples overload - MSAA = 1x by default.
         bool Initialize(VulkanDevice& device,
             VkFormat               swapchainFormat,
             const ShaderInfo& shaders,

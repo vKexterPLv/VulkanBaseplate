@@ -80,7 +80,7 @@ namespace VCK::SchedulerPolicyExample {
         framesSinceSwitch = 0;
         cpuUsSum          = 0;
 
-        std::string t = title + " — " + PolicyName(p);
+        std::string t = title + " - " + PolicyName(p);
         glfwSetWindowTitle(window, t.c_str());
         LogVk(std::string("[SchedulerPolicy] switched to ") + PolicyName(p));
     }
@@ -189,7 +189,7 @@ namespace VCK::SchedulerPolicyExample {
         if (!glfwInit()) return;
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-        window = glfwCreateWindow(window_width, window_height, (title + " — Pipelined").c_str(), nullptr, nullptr);
+        window = glfwCreateWindow(window_width, window_height, (title + " - Pipelined").c_str(), nullptr, nullptr);
         if (!window) { glfwTerminate(); return; }
         glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
         glfwSetWindowRefreshCallback(window,   OnWindowRefresh);

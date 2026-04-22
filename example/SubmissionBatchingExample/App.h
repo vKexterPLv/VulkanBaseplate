@@ -10,10 +10,10 @@
 //  result in a single vkQueueSubmit.
 //
 //  Per frame:
-//    - "pre" primary cmd  (allocated from an extra command pool) — runs
+//    - "pre" primary cmd  (allocated from an extra command pool) - runs
 //                          setup work (e.g. image layout probe); batched
 //                          without wait/signal semas.
-//    - "main" primary cmd (from scheduler/VulkanCommand)         — renders
+//    - "main" primary cmd (from scheduler/VulkanCommand)         - renders
 //                          the triangle; waits on ImageAvailable, signals
 //                          RenderFinished.
 //

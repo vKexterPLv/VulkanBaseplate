@@ -11,11 +11,11 @@
 //  handles live window resize correctly.
 //
 //  Objects used:
-//    Core     — VulkanContext, VulkanDevice, VulkanSwapchain,
+//    Core     - VulkanContext, VulkanDevice, VulkanSwapchain,
 //               VulkanPipeline, VulkanCommand, VulkanSync
-//    Expansion — VulkanFramebufferSet, VulkanMesh
+//    Expansion - VulkanFramebufferSet, VulkanMesh
 //
-//  VulkanPipeline is used directly — its built-in empty layout is exactly
+//  VulkanPipeline is used directly - its built-in empty layout is exactly
 //  right here since we have no UBOs, no descriptors, and no push constants.
 //  The vertex shader reads position + color straight from the vertex buffer.
 //
@@ -24,7 +24,7 @@
 //    OnWindowRefresh calls DrawFrame() during the OS drag loop so the window
 //    keeps painting while the user is actively resizing.
 //    HandleResize() calls vkDeviceWaitIdle, then recreates the swapchain and
-//    framebuffers in place — no objects are destroyed and rebuilt.
+//    framebuffers in place - no objects are destroyed and rebuilt.
 // =============================================================================
 
 namespace VCK::RGBTriangle {
@@ -41,7 +41,7 @@ namespace VCK::RGBTriangle {
     bool g_Minimized = false;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex — position + color only.  No normals, no UVs needed.
+    //  Vertex - position + color only.  No normals, no UVs needed.
     // ─────────────────────────────────────────────────────────────────────────
     struct Vertex {
         float position[3];   // location 0
@@ -235,9 +235,9 @@ namespace VCK::RGBTriangle {
 
         // ── RGB triangle, CCW winding, NDC-space ──────────────────────────────
         const std::vector<Vertex> vertices = {
-            {{ 0.0f,  -0.6667f, 0.f}, {1.f, 0.f, 0.f, 1.f}},  // top          — red
-            {{-0.5f,   0.3333f, 0.f}, {0.f, 0.f, 1.f, 1.f}},  // bottom-left  — blue
-            {{ 0.5f,   0.3333f, 0.f}, {0.f, 1.f, 0.f, 1.f}},  // bottom-right — green
+            {{ 0.0f,  -0.6667f, 0.f}, {1.f, 0.f, 0.f, 1.f}},  // top          - red
+            {{-0.5f,   0.3333f, 0.f}, {0.f, 0.f, 1.f, 1.f}},  // bottom-left  - blue
+            {{ 0.5f,   0.3333f, 0.f}, {0.f, 1.f, 0.f, 1.f}},  // bottom-right - green
         };
         const std::vector<uint32_t> indices = { 0, 1, 2 };
 
@@ -247,7 +247,7 @@ namespace VCK::RGBTriangle {
     }
 
     // =========================================================================
-    //  Shutdown  —  expansion objects first, then base objects
+    //  Shutdown  -  expansion objects first, then base objects
     // =========================================================================
     void Shutdown()
     {

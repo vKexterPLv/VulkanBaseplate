@@ -11,6 +11,6 @@ namespace GTA_Sandbox {
 
         void Init();        // Initialise GLFW, window, all Vulkan objects
         void Shutdown();    // Destroy all Vulkan objects, destroy GLFW window
-        void Run();         // Called by main.cpp — Init → loop → Shutdown
+        void Run();         // Called by main.cpp - Init → loop → Shutdown
     }
 }

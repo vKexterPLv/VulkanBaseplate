@@ -85,7 +85,7 @@ namespace VCK::SubmissionBatchingExample {
         bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
-        // (no work — pretend it's a "prep" pass)
+        // (no work - pretend it's a "prep" pass)
         VK_CHECK(vkEndCommandBuffer(cmd));
     }
 
@@ -161,7 +161,7 @@ namespace VCK::SubmissionBatchingExample {
         if ((++frameCounter % 120) == 0)
         {
             LogVk("[SubmissionBatching] frame=" + std::to_string(frameCounter) +
-                  " — each frame queued 2 cmd buffers via GpuSubmissionBatcher,"
+                  " - each frame queued 2 cmd buffers via GpuSubmissionBatcher,"
                   " resulting in 1 vkQueueSubmit.");
         }
     }

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  VmaImpl.cpp — VMA implementation translation unit
+//  VmaImpl.cpp - VMA implementation translation unit
 //
 //  VMA is a single-header library. VMA_IMPLEMENTATION must be defined in
 //  exactly ONE .cpp file across the entire project. This file is that one TU.

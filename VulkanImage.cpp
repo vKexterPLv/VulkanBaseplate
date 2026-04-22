@@ -43,7 +43,7 @@ namespace VCK {
 
         if (result != VK_SUCCESS)
         {
-            LogVk("VulkanImage::Create — vmaCreateImage failed: " + std::to_string(result));
+            LogVk("VulkanImage::Create - vmaCreateImage failed: " + std::to_string(result));
             return false;
         }
 
@@ -99,7 +99,7 @@ namespace VCK {
     //  RecordLayoutTransition
     //
     //  Inserts a VkImageMemoryBarrier.  Access masks and pipeline stage masks are
-    //  derived from the old/new layout pair — covering the common transitions:
+    //  derived from the old/new layout pair - covering the common transitions:
     //
     //    UNDEFINED              → TRANSFER_DST_OPTIMAL   (before upload)
     //    TRANSFER_DST_OPTIMAL   → SHADER_READ_ONLY_OPTIMAL (after upload)
@@ -144,7 +144,7 @@ namespace VCK {
         }
         else
         {
-            // Generic fallback — not optimal, but safe.
+            // Generic fallback - not optimal, but safe.
             barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
             sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         }

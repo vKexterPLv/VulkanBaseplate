@@ -18,7 +18,7 @@ namespace GTA_Sandbox::App {
     int         window_height = 720;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  GPU structs — std140, must match model.vert / model_vertcolor.frag
+    //  GPU structs - std140, must match model.vert / model_vertcolor.frag
     // ─────────────────────────────────────────────────────────────────────────
 
     struct alignas(16) CameraUBOData   // set 0, binding 0
@@ -74,7 +74,7 @@ namespace GTA_Sandbox::App {
     VulkanFramebufferSet      framebuffers;
     VulkanMesh                mesh;
     VulkanDescriptorAllocator descAllocator;
-    VulkanTexture             dummyTexture;   // 1x1 white — satisfies set 1 sampler binding
+    VulkanTexture             dummyTexture;   // 1x1 white - satisfies set 1 sampler binding
 
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> set0Sets{};
     VkDescriptorSet                                   set1Set = VK_NULL_HANDLE;
@@ -353,9 +353,9 @@ namespace GTA_Sandbox::App {
         //  CCW winding (top → bottom-left → bottom-right) for VK_FRONT_FACE_COUNTER_CLOCKWISE.
         //  normal/uv are unused by model_vertcolor.frag but required by the vertex layout.
         const std::vector<Vertex> vertices = {
-            {{ 0.0f,  -0.6667f, 0.f}, {0,0,1}, {0.5f,0.f}, {1,0,0,1}},  // top          — red
-            {{-0.5f,   0.3333f, 0.f}, {0,0,1}, {0.f, 1.f}, {0,0,1,1}},  // bottom-left  — blue
-            {{ 0.5f,   0.3333f, 0.f}, {0,0,1}, {1.f, 1.f}, {0,1,0,1}},  // bottom-right — green
+            {{ 0.0f,  -0.6667f, 0.f}, {0,0,1}, {0.5f,0.f}, {1,0,0,1}},  // top          - red
+            {{-0.5f,   0.3333f, 0.f}, {0,0,1}, {0.f, 1.f}, {0,0,1,1}},  // bottom-left  - blue
+            {{ 0.5f,   0.3333f, 0.f}, {0,0,1}, {1.f, 1.f}, {0,1,0,1}},  // bottom-right - green
         };
         const std::vector<uint32_t> indices = { 0, 1, 2 };
 
@@ -365,7 +365,7 @@ namespace GTA_Sandbox::App {
     }
 
     // =========================================================================
-    //  Shutdown  —  reverse of Init, expansion objects first
+    //  Shutdown  -  reverse of Init, expansion objects first
     // =========================================================================
     void Shutdown()
     {

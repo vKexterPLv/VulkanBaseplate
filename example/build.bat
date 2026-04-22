@@ -1,6 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: Switch the console to UTF-8 so em-dashes, box-drawing chars, and other
+:: non-ASCII printed by glslang / g++ / our own echo lines don't render as
+:: cp850 mojibake (e.g. "ÔÇö" in place of "-").
+chcp 65001 >nul 2>&1
+
 :: =============================================================================
 ::  VCK example builder
 :: =============================================================================

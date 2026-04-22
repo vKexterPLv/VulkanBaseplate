@@ -13,22 +13,22 @@
 //
 //  Three things draw simultaneously, each exercising a different VMM path:
 //
-//  [1] Static triangle  — Persistent GPU buffer + staging ring upload
+//  [1] Static triangle  - Persistent GPU buffer + staging ring upload
 //      Allocated once during Init(), never touched again.
 //      vmm.AllocPersistent → vmm.StageToBuffer → vmm.FlushStaging
 //
-//  [2] Animated quad — TransientPool, rebuilt every frame
+//  [2] Animated quad - TransientPool, rebuilt every frame
 //      Vertex data is written directly into the mapped transient block.
 //      vmm.AllocTransient → VmmBuffer::Upload (zero-copy into mapped memory)
-//      The VkBuffer is shared — no vmaCreateBuffer every frame.
+//      The VkBuffer is shared - no vmaCreateBuffer every frame.
 //
-//  [3] Checkerboard texture — Persistent image + staging ring image upload
+//  [3] Checkerboard texture - Persistent image + staging ring image upload
 //      vmm.AllocPersistentImage → vmm.StageToImage → vmm.FlushStaging
 //      Bound as a combined image/sampler; quad samples it so it's visible.
 //
 //  Frame boundary:
-//      vmm.BeginFrame(frameIndex, absoluteFrame)  — resets transient slot
-//      vmm.EndFrame(frameIndex)                   — submits batched staging
+//      vmm.BeginFrame(frameIndex, absoluteFrame)  - resets transient slot
+//      vmm.EndFrame(frameIndex)                   - submits batched staging
 //
 //  Every 120 frames:
 //      vmm.LogStats()  →  VS Output window shows registry state + ring usage
@@ -49,7 +49,7 @@ namespace VCK::VMMExample {
     uint32_t g_AbsoluteFrame = 0;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex layout — position + uv + color
+    //  Vertex layout - position + uv + color
     //  All three drawn objects share this layout.  The triangle ignores uv;
     //  the quad uses uv for texture sampling and ignores color.
     // ─────────────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ namespace VCK::VMMExample {
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Per-frame UBO — identity matrices; the shaders don't transform
+    //  Per-frame UBO - identity matrices; the shaders don't transform
     // ─────────────────────────────────────────────────────────────────────────
     struct alignas(16) FrameUBO { float m[16]; };
 
@@ -84,7 +84,7 @@ namespace VCK::VMMExample {
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> set0Sets{};
     VkDescriptorSet                                   set1Set = VK_NULL_HANDLE;
 
-    // Per-frame UBO buffers — allocated through VMM as FrameBuffered resources
+    // Per-frame UBO buffers - allocated through VMM as FrameBuffered resources
     std::array<VmmBuffer, MAX_FRAMES_IN_FLIGHT> uboBuffers{};
 
     VulkanPipeline::ShaderInfo      shaders;
@@ -95,18 +95,18 @@ namespace VCK::VMMExample {
     // ─────────────────────────────────────────────────────────────────────────
     VulkanMemoryManager vmm;
 
-    // ── [1] Persistent triangle — uploaded once, never touched again ──────────
+    // ── [1] Persistent triangle - uploaded once, never touched again ──────────
     VmmBuffer g_TriangleVBO;          // GPU-only vertex buffer
     VmmBuffer g_TriangleIBO;          // GPU-only index buffer
     uint32_t  g_TriangleIndexCount = 0;
 
-    // ── [2] Animated quad — transient, rebuilt every frame ────────────────────
-    //  These are VmmBuffer views into the transient block — NOT independent allocs.
+    // ── [2] Animated quad - transient, rebuilt every frame ────────────────────
+    //  These are VmmBuffer views into the transient block - NOT independent allocs.
     VmmBuffer g_QuadVBO;              // valid for current frame only
     VmmBuffer g_QuadIBO;              // valid for current frame only
     uint32_t  g_QuadIndexCount = 0;
 
-    // ── [3] Persistent texture — VmmImage uploaded via staging ring ───────────
+    // ── [3] Persistent texture - VmmImage uploaded via staging ring ───────────
     VmmImage  g_Texture;
     VkSampler g_Sampler = VK_NULL_HANDLE;
 
@@ -145,7 +145,7 @@ namespace VCK::VMMExample {
     //  BuildTransientQuad
     //
     //  Called every frame.  Writes new vertex data directly into the transient
-    //  block — no map/unmap, no allocation.  The quad corners oscillate on the
+    //  block - no map/unmap, no allocation.  The quad corners oscillate on the
     //  Y axis so the animation is visible.
     // ─────────────────────────────────────────────────────────────────────────
     void BuildTransientQuad(uint32_t frameIndex)
@@ -164,7 +164,7 @@ namespace VCK::VMMExample {
         const uint32_t indices[6] = { 0,1,2, 0,2,3 };
         g_QuadIndexCount = 6;
 
-        // ── VMM Layer 3 — AllocTransient ──────────────────────────────────────
+        // ── VMM Layer 3 - AllocTransient ──────────────────────────────────────
         //  Returns a view into the pre-allocated transient block for this slot.
         //  No VMA call, no allocation.  The cursor advances by sizeof(verts).
         g_QuadVBO = vmm.AllocTransient(frameIndex, "quad_vbo",
@@ -175,8 +175,8 @@ namespace VCK::VMMExample {
                                         sizeof(indices),
                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
-        // ── VmmBuffer::Upload — direct memcpy into mapped transient memory ─────
-        //  mapped ptr is (block base + claimed offset) — computed at Claim() time.
+        // ── VmmBuffer::Upload - direct memcpy into mapped transient memory ─────
+        //  mapped ptr is (block base + claimed offset) - computed at Claim() time.
         g_QuadVBO.Upload(verts,   sizeof(verts));
         g_QuadIBO.Upload(indices, sizeof(indices));
     }
@@ -216,7 +216,7 @@ namespace VCK::VMMExample {
         BuildTransientQuad(frame);
 
         // ── Upload per-frame UBO ──────────────────────────────────────────────
-        //  uboBuffers are CPU_TO_GPU with persistent map — direct memcpy.
+        //  uboBuffers are CPU_TO_GPU with persistent map - direct memcpy.
         static const float kI[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
         FrameUBO ubo{};
         std::memcpy(ubo.m, kI, sizeof(kI));
@@ -265,12 +265,12 @@ namespace VCK::VMMExample {
             modelPipeline.GetPipelineLayout(), 0,
             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
-        // kI already declared above — reuse it for push constants
+        // kI already declared above - reuse it for push constants
         vkCmdPushConstants(cmd, modelPipeline.GetPipelineLayout(),
             VK_SHADER_STAGE_VERTEX_BIT, 0, 64, kI);
 
         // ── [2] Draw animated quad (transient VmmBuffers) ─────────────────────
-        //  g_QuadVBO.buffer is a raw VkBuffer — same API as any other buffer.
+        //  g_QuadVBO.buffer is a raw VkBuffer - same API as any other buffer.
         {
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &g_QuadVBO.buffer, &offset);
@@ -279,7 +279,7 @@ namespace VCK::VMMExample {
         }
 
         // ── [1] Draw static triangle (persistent VmmBuffer) ───────────────────
-        //  Same draw call pattern — VMM is transparent at the draw level.
+        //  Same draw call pattern - VMM is transparent at the draw level.
         {
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &g_TriangleVBO.buffer, &offset);
@@ -380,8 +380,8 @@ namespace VCK::VMMExample {
         modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
         framebuffers.Initialize(device, swapchain, pipeline);
 
-        // ── VMM LAYER 3 — Initialize ──────────────────────────────────────────
-        //  16 MB staging ring (smaller than default — fine for this example).
+        // ── VMM LAYER 3 - Initialize ──────────────────────────────────────────
+        //  16 MB staging ring (smaller than default - fine for this example).
         //  4 MB transient blocks per frame slot.
         VulkanMemoryManager::Config vmmCfg;
         vmmCfg.stagingRingSize    = 16 * 1024 * 1024;
@@ -396,17 +396,17 @@ namespace VCK::VMMExample {
                 { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1                    },
             });
 
-        // ── VMM LAYER 3 — AllocPersistent (UBO buffers via VMM raw path) ──────
+        // ── VMM LAYER 3 - AllocPersistent (UBO buffers via VMM raw path) ──────
         //  These are per-frame UBOs.  We use VmmRawAlloc directly here to show
-        //  Layer 1 explicitly — the VMM doesn't have a dedicated FrameBuffered
+        //  Layer 1 explicitly - the VMM doesn't have a dedicated FrameBuffered
         //  allocator path yet, so raw alloc + manual lifetime is the right choice.
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            // VMM LAYER 1 — VmmRawAlloc::CreateUniform
-            // CPU_TO_GPU + persistently mapped — no map/unmap per frame.
+            // VMM LAYER 1 - VmmRawAlloc::CreateUniform
+            // CPU_TO_GPU + persistently mapped - no map/unmap per frame.
             uboBuffers[i] = VmmRawAlloc::CreateUniform(device, sizeof(FrameUBO));
 
-            // VMM LAYER 2 — Register with Manual lifetime
+            // VMM LAYER 2 - Register with Manual lifetime
             // Registry knows it exists; caller is responsible for freeing.
             ResourceInfo info{ Lifetime::Manual, 0, i, "frame_ubo" };
             vmm.Registry().Register(uboBuffers[i], info);
@@ -428,15 +428,15 @@ namespace VCK::VMMExample {
             vkUpdateDescriptorSets(device.GetDevice(), 1, &w, 0, nullptr);
         }
 
-        // ── VMM LAYER 3 — AllocPersistent + StageToBuffer ────────────────────
+        // ── VMM LAYER 3 - AllocPersistent + StageToBuffer ────────────────────
         //  Static triangle: vertices and indices live on the GPU forever.
-        //  Data is pushed through the staging ring — one ring claim, one
+        //  Data is pushed through the staging ring - one ring claim, one
         //  batched vkCmdCopyBuffer, submitted via FlushStaging().
         {
             const Vertex triVerts[3] = {
-                {{  0.0f, -0.85f, 0.f }, { 0.5f, 0.f }, { 1.f, 0.2f, 0.2f, 1.f }},  // top    — red
-                {{ -0.4f, -0.35f, 0.f }, { 0.f,  1.f }, { 0.2f, 0.2f, 1.f, 1.f }},  // left   — blue
-                {{  0.4f, -0.35f, 0.f }, { 1.f,  1.f }, { 0.2f, 1.f, 0.2f, 1.f }},  // right  — green
+                {{  0.0f, -0.85f, 0.f }, { 0.5f, 0.f }, { 1.f, 0.2f, 0.2f, 1.f }},  // top    - red
+                {{ -0.4f, -0.35f, 0.f }, { 0.f,  1.f }, { 0.2f, 0.2f, 1.f, 1.f }},  // left   - blue
+                {{  0.4f, -0.35f, 0.f }, { 1.f,  1.f }, { 0.2f, 1.f, 0.2f, 1.f }},  // right  - green
             };
             const uint32_t triIdx[3] = { 0, 1, 2 };
             g_TriangleIndexCount = 3;
@@ -450,13 +450,13 @@ namespace VCK::VMMExample {
                 sizeof(triIdx),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-            // Stage data — copies into the ring, records vkCmdCopyBuffer,
+            // Stage data - copies into the ring, records vkCmdCopyBuffer,
             // defers submission until FlushStaging / EndFrame.
             vmm.StageToBuffer(g_TriangleVBO, triVerts, sizeof(triVerts));
             vmm.StageToBuffer(g_TriangleIBO, triIdx,   sizeof(triIdx));
         }
 
-        // ── VMM LAYER 3 — AllocPersistentImage + StageToImage ────────────────
+        // ── VMM LAYER 3 - AllocPersistentImage + StageToImage ────────────────
         //  Procedural 128x128 checkerboard texture uploaded through the ring.
         {
             constexpr uint32_t kW = 128, kH = 128, kTile = 8;
@@ -479,11 +479,11 @@ namespace VCK::VMMExample {
                 VK_IMAGE_ASPECT_COLOR_BIT);
 
             // StageToImage: transitions, copies from ring, transitions to
-            // SHADER_READ_ONLY_OPTIMAL — all recorded into the staging cmd.
+            // SHADER_READ_ONLY_OPTIMAL - all recorded into the staging cmd.
             vmm.StageToImage(g_Texture, pixels.data(),
                              static_cast<VkDeviceSize>(pixels.size()), kW, kH);
 
-            // Linear sampler — no mipmapping in this example
+            // Linear sampler - no mipmapping in this example
             VkSamplerCreateInfo sci{};
             sci.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
             sci.magFilter    = VK_FILTER_LINEAR;
@@ -496,14 +496,14 @@ namespace VCK::VMMExample {
             vkCreateSampler(device.GetDevice(), &sci, nullptr, &g_Sampler);
         }
 
-        // ── VMM LAYER 3 — FlushStaging ────────────────────────────────────────
+        // ── VMM LAYER 3 - FlushStaging ────────────────────────────────────────
         //  All StageToBuffer / StageToImage calls above are batched into one
         //  command buffer.  FlushStaging() ends it, submits it, and blocks until
-        //  the GPU is done — safe to use at init time before the render loop.
+        //  the GPU is done - safe to use at init time before the render loop.
         //  After this point the persistent buffers and texture are GPU-resident
         //  and the staging ring space is fully retired.
         vmm.FlushStaging();
-        LogVk("VMMExample: FlushStaging complete — persistent resources on GPU");
+        LogVk("VMMExample: FlushStaging complete - persistent resources on GPU");
 
         // Wire texture into set 1
         set1Set = descAllocator.Allocate(modelPipeline.GetSet1Layout());
@@ -522,28 +522,28 @@ namespace VCK::VMMExample {
         imgWrite.pImageInfo      = &imgInfo;
         vkUpdateDescriptorSets(device.GetDevice(), 1, &imgWrite, 0, nullptr);
 
-        // Log initial registry state — shows 2 buffers (triangle vbo/ibo),
+        // Log initial registry state - shows 2 buffers (triangle vbo/ibo),
         // 1 image (checker_texture), and 2 Manual UBOs.
         vmm.LogStats();
     }
 
     // =========================================================================
-    //  Shutdown  —  VMM before command/device
+    //  Shutdown  -  VMM before command/device
     // =========================================================================
     void Shutdown()
     {
         vkDeviceWaitIdle(device.GetDevice());
 
-        // ── VMM LAYER 1 — manually free the UBOs (registered as Manual) ───────
+        // ── VMM LAYER 1 - manually free the UBOs (registered as Manual) ───────
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
             VmmRawAlloc::FreeBuffer(device, uboBuffers[i]);
 
-        // ── VMM LAYER 3 — Shutdown frees all Persistent registry entries ───────
+        // ── VMM LAYER 3 - Shutdown frees all Persistent registry entries ───────
         //  This frees g_TriangleVBO, g_TriangleIBO, g_Texture (via registry),
         //  and the staging ring and transient blocks directly.
         vmm.Shutdown();
 
-        // Sampler is not VMM-managed (it's not a buffer or image) — free manually
+        // Sampler is not VMM-managed (it's not a buffer or image) - free manually
         if (g_Sampler) vkDestroySampler(device.GetDevice(), g_Sampler, nullptr);
 
         descAllocator.Shutdown();

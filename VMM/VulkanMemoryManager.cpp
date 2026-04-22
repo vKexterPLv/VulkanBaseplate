@@ -6,11 +6,11 @@ namespace VCK {
 
 
 // =============================================================================
-//  LAYER 1 — VmmRawAlloc
+//  LAYER 1 - VmmRawAlloc
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-//  CreateBuffer — generic
+//  CreateBuffer - generic
 // -----------------------------------------------------------------------------
 VmmBuffer VmmRawAlloc::CreateBuffer(VulkanDevice&      device,
                                     VkDeviceSize       size,
@@ -55,7 +55,7 @@ VmmBuffer VmmRawAlloc::CreateStaging(VulkanDevice& device, VkDeviceSize size)
     return CreateBuffer(device, size,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VMA_MEMORY_USAGE_CPU_ONLY,
-        true);   // persistently mapped — avoids map/unmap per upload
+        true);   // persistently mapped - avoids map/unmap per upload
 }
 
 VmmBuffer VmmRawAlloc::CreateVertex(VulkanDevice& device, VkDeviceSize size)
@@ -77,11 +77,11 @@ VmmBuffer VmmRawAlloc::CreateUniform(VulkanDevice& device, VkDeviceSize size)
     return CreateBuffer(device, size,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_MEMORY_USAGE_CPU_TO_GPU,
-        true);   // persistently mapped — Write() without map/unmap overhead
+        true);   // persistently mapped - Write() without map/unmap overhead
 }
 
 // -----------------------------------------------------------------------------
-//  CreateImage — generic
+//  CreateImage - generic
 // -----------------------------------------------------------------------------
 VmmImage VmmRawAlloc::CreateImage(VulkanDevice&      device,
                                   uint32_t           width,
@@ -135,7 +135,7 @@ VmmImage VmmRawAlloc::CreateImage(VulkanDevice&      device,
 
     if (vkCreateImageView(device.GetDevice(), &vci, nullptr, &result.view) != VK_SUCCESS)
     {
-        LogVk("VmmRawAlloc::CreateImage — vkCreateImageView failed");
+        LogVk("VmmRawAlloc::CreateImage - vkCreateImageView failed");
         vmaDestroyImage(device.GetAllocator(), result.image, result.alloc);
         result.image = VK_NULL_HANDLE;
         result.alloc = VK_NULL_HANDLE;
@@ -168,7 +168,7 @@ void VmmRawAlloc::FreeImage(VulkanDevice& device, VmmImage& img)
 
 
 // =============================================================================
-//  LAYER 2 — VmmRegistry
+//  LAYER 2 - VmmRegistry
 // =============================================================================
 
 void VmmRegistry::Initialize(VulkanDevice& device)
@@ -234,7 +234,7 @@ VmmImage* VmmRegistry::FindImage(uint32_t id)
 }
 
 // -----------------------------------------------------------------------------
-//  FreeTransient — called at BeginFrame to retire the previous cycle's scratch
+//  FreeTransient - called at BeginFrame to retire the previous cycle's scratch
 // -----------------------------------------------------------------------------
 void VmmRegistry::FreeTransient(uint32_t frameSlot)
 {
@@ -252,7 +252,7 @@ void VmmRegistry::FreeTransient(uint32_t frameSlot)
     {
         auto& entry = m_Buffers[id];
         // Every registered TransientFrame entry is a stand-alone overflow
-        // allocation — pure sub-allocations are NOT registered (they have no
+        // allocation - pure sub-allocations are NOT registered (they have no
         // independent lifetime).  So unconditionally free here.
         VmmRawAlloc::FreeBuffer(*m_Device, entry.buf);
         m_Buffers.erase(id);
@@ -263,7 +263,7 @@ void VmmRegistry::FreeTransient(uint32_t frameSlot)
 }
 
 // -----------------------------------------------------------------------------
-//  FreeAll — frees Persistent + FrameBuffered; Manual entries left to caller
+//  FreeAll - frees Persistent + FrameBuffered; Manual entries left to caller
 // -----------------------------------------------------------------------------
 void VmmRegistry::FreeAll()
 {
@@ -287,7 +287,7 @@ void VmmRegistry::FreeAll()
 // -----------------------------------------------------------------------------
 void VmmRegistry::LogStats() const
 {
-    LogVk("VMM Registry — " +
+    LogVk("VMM Registry - " +
           std::to_string(m_Buffers.size()) + " buffers, " +
           std::to_string(m_Images.size())  + " images tracked");
 
@@ -317,7 +317,7 @@ void VmmRegistry::LogStats() const
 
 
 // =============================================================================
-//  LAYER 3 — VulkanMemoryManager
+//  LAYER 3 - VulkanMemoryManager
 // =============================================================================
 
 // -----------------------------------------------------------------------------
@@ -439,7 +439,7 @@ void VulkanMemoryManager::Shutdown()
     // Free registry-tracked resources (Persistent + FrameBuffered)
     m_Registry.Shutdown();
 
-    // Free staging ring (not registry-tracked — VMM owns it directly)
+    // Free staging ring (not registry-tracked - VMM owns it directly)
     VmmRawAlloc::FreeBuffer(*m_Device, m_Ring.buffer);
 
     // Free transient blocks
@@ -462,7 +462,7 @@ void VulkanMemoryManager::BeginFrame(uint32_t frameIndex, uint32_t absoluteFrame
     // reset transient storage / free overflow allocs that the GPU may still
     // be reading.
 
-    // Reset the transient block for this frame slot — cursor back to zero,
+    // Reset the transient block for this frame slot - cursor back to zero,
     // all previous sub-allocations are implicitly discarded.
     m_Transient[frameIndex].Reset();
 
@@ -482,12 +482,12 @@ void VulkanMemoryManager::EndFrame(uint32_t frameIndex)
     if (m_StagingOpen)
     {
         // Record the ring's current write head as the tail for this frame slot
-        // (diagnostic only under the current waitIdle model — see header).
+        // (diagnostic only under the current waitIdle model - see header).
         m_Ring.frameTails[frameIndex] = m_Ring.writeHead;
 
         SubmitStagingCmd();
 
-        // SubmitStagingCmd() ends with vkQueueWaitIdle() — every byte the ring
+        // SubmitStagingCmd() ends with vkQueueWaitIdle() - every byte the ring
         // handed out this frame has now been consumed.  Drop the cursor back
         // to zero so the ring can be reused from scratch next frame.
         m_Ring.Reset();
@@ -504,7 +504,7 @@ bool VulkanMemoryManager::StageToBuffer(VmmBuffer&   dst,
 {
     if (!m_Ring.HasSpace(size))
     {
-        LogVk("VMM::StageToBuffer — staging ring full ("
+        LogVk("VMM::StageToBuffer - staging ring full ("
               + std::to_string(m_Ring.writeHead) + "/"
               + std::to_string(m_Ring.capacity) + " bytes used)");
         return false;
@@ -536,7 +536,7 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
 {
     if (!m_Ring.HasSpace(size))
     {
-        LogVk("VMM::StageToImage — staging ring full");
+        LogVk("VMM::StageToImage - staging ring full");
         return false;
     }
 
@@ -588,14 +588,14 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
 }
 
 // -----------------------------------------------------------------------------
-//  FlushStaging — blocking immediate submit
+//  FlushStaging - blocking immediate submit
 // -----------------------------------------------------------------------------
 void VulkanMemoryManager::FlushStaging()
 {
     if (m_StagingOpen)
     {
         SubmitStagingCmd();
-        // Ring fully idle after waitIdle — reclaim all space.
+        // Ring fully idle after waitIdle - reclaim all space.
         m_Ring.Reset();
     }
 }
@@ -612,17 +612,17 @@ VmmBuffer VulkanMemoryManager::AllocTransient(uint32_t     frameIndex,
 
     if (block.HasSpace(size))
     {
-        // Sub-allocate from the block — return a view into it
+        // Sub-allocate from the block - return a view into it
         VkDeviceSize off = block.Claim(size);
 
         VmmBuffer view;
         view.buffer = block.buffer.buffer;   // shared VkBuffer
-        view.alloc  = VK_NULL_HANDLE;        // NOT an owner — do not free
+        view.alloc  = VK_NULL_HANDLE;        // NOT an owner - do not free
         view.size   = size;
         view.mapped = block.buffer.mapped
                           ? static_cast<uint8_t*>(block.buffer.mapped) + off
                           : nullptr;
-        view.id     = 0;   // sub-alloc — not independently registered
+        view.id     = 0;   // sub-alloc - not independently registered
 
         // Sub-allocs are not registered: they have no independent lifetime and
         // tracking each one would swamp the registry.  debugName is intentionally
@@ -633,7 +633,7 @@ VmmBuffer VulkanMemoryManager::AllocTransient(uint32_t     frameIndex,
     }
 
     // Overflow: fall back to a standalone allocation
-    LogVk("VMM::AllocTransient — block full for slot " + std::to_string(frameIndex) +
+    LogVk("VMM::AllocTransient - block full for slot " + std::to_string(frameIndex) +
           ", falling back to standalone alloc for '" +
           std::string(debugName ? debugName : "?") + "'");
 
@@ -715,7 +715,7 @@ void VulkanMemoryManager::FreeImage(VmmImage& img)
 // -----------------------------------------------------------------------------
 void VulkanMemoryManager::LogStats() const
 {
-    LogVk("VMM stats — ring: " +
+    LogVk("VMM stats - ring: " +
           std::to_string(m_Ring.writeHead) + "/" +
           std::to_string(m_Ring.capacity) + " bytes in use");
 

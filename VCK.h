@@ -1,5 +1,5 @@
 // =============================================================================
-//  VCK.h  —  Vulkan Core Kit
+//  VCK.h  -  Vulkan Core Kit
 //
 //  Single-header amalgam of the VCK core Vulkan layer.  Include this file
 //  and you get every core class, struct, macro, and constant in one shot.
@@ -8,9 +8,9 @@
 //
 //  LAYERING
 //  ────────
-//      VCK core      (this file)           — instance, device, swapchain, ...
+//      VCK core      (this file)           - instance, device, swapchain, ...
 //          ↓
-//      VCK expansion (VCKExpansion.h)      — textures, meshes, descriptors, ...
+//      VCK expansion (VCKExpansion.h)      - textures, meshes, descriptors, ...
 //          ↓
 //      VCK memory    (VMM/VulkanMemoryManager.h, optional)
 //          ↓
@@ -22,7 +22,7 @@
 //                    VulkanSwapchain  VulkanBuffer   VulkanImage
 //                    VulkanPipeline   VulkanCommand  VulkanSync
 //
-//  Implementations (.cpp) — function index at the bottom of this file:
+//  Implementations (.cpp) - function index at the bottom of this file:
 //                    VmaImpl         VulkanContext   VulkanDevice
 //                    VulkanSwapchain VulkanBuffer    VulkanImage
 //                    VulkanPipeline  VulkanCommand   VulkanSync
@@ -54,11 +54,11 @@
 //        VCK::FrameScheduler (see HelloExample).
 //    5.  Shut down in reverse order.
 //
-//  Every Initialize(...) has a zero-arg form — if you pass no Config you get
+//  Every Initialize(...) has a zero-arg form - if you pass no Config you get
 //  exactly the same behaviour as before Config existed.  The library never
 //  owns things it did not construct, never hides Vk handles, and every
 //  "preferred" overload is implemented as a one-line forward to the raw-handle
-//  form — so you can always drop down to manual Vulkan for anything VCK is
+//  form - so you can always drop down to manual Vulkan for anything VCK is
 //  not doing for you.
 //
 //  NAMESPACE
@@ -71,7 +71,7 @@
 #pragma once
 
 // ─── System / Vulkan prerequisites ───────────────────────────────────────────
-// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake — do NOT redefine.
+// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine.
 #include <windows.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
@@ -98,7 +98,7 @@
 // -----------------------------------------------------------------------------
 //  VulkanHelpers.h
 //  Global logging utility and VK_CHECK macro.
-//  No namespace — usable everywhere.
+//  No namespace - usable everywhere.
 // -----------------------------------------------------------------------------
 
 // LogVk and VK_CHECK are provided by VulkanHelpers.h (included above).  They
@@ -116,7 +116,7 @@
 
 // The class declarations below were previously inlined in this file; they now
 // live in the per-class headers so there is a single source of truth.  Users
-// still include only "VCK.h" (or "VCKExpansion.h") — the amalgam pulls in the
+// still include only "VCK.h" (or "VCKExpansion.h") - the amalgam pulls in the
 // whole core API.  Internal .cpp files can keep including individual headers.
 
 #include "VulkanContext.h"
@@ -139,7 +139,7 @@
 //  ███████╗██╔╝ ██╗██║     ██║  ██║██║ ╚████║███████║██║╚██████╔╝██║ ╚████║
 //  ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 // =============================================================================
-//  VCKExpansion  —  higher-level building blocks on top of VCK core
+//  VCKExpansion  -  higher-level building blocks on top of VCK core
 //
 //  Declared in VCKExpansion.h (auto-included below).
 //  Implemented in VCKExpansion.cpp.
@@ -164,18 +164,18 @@
 //
 //  CLASSES  (12)
 //  ─────────────
-//  [1]  VulkanOneTimeCommand          — one-shot GPU command using the existing pool
-//  [2]  VulkanFramebufferSet          — per-swapchain-image VkFramebuffers
-//  [3]  VulkanDepthBuffer             — depth/stencil image wrapping VulkanImage
-//  [4]  VulkanSampler                 — VkSampler with nearest / linear factory methods
-//  [5]  VulkanTexture                 — VulkanImage + VulkanSampler, hidden staging upload
-//  [6]  VulkanMesh                    — vertex + index VulkanBuffers with RecordDraw()
-//  [7]  VulkanDescriptorLayoutBuilder — fluent VkDescriptorSetLayout builder
-//  [8]  VulkanDescriptorPool          — VkDescriptorPool + per-frame set allocation
-//  [9]  VulkanUniformSet<T>           — per-frame typed UBO with Write() + GetSet()
-//  [10] VulkanDescriptorAllocator     — general-purpose pool supporting multiple descriptor types
-//  [11] VulkanModelPipeline           — full model pipeline with UBO layouts + push constants
-//  [12] VulkanMipmapGenerator         — blit-based mip chain generation for any VkImage
+//  [1]  VulkanOneTimeCommand          - one-shot GPU command using the existing pool
+//  [2]  VulkanFramebufferSet          - per-swapchain-image VkFramebuffers
+//  [3]  VulkanDepthBuffer             - depth/stencil image wrapping VulkanImage
+//  [4]  VulkanSampler                 - VkSampler with nearest / linear factory methods
+//  [5]  VulkanTexture                 - VulkanImage + VulkanSampler, hidden staging upload
+//  [6]  VulkanMesh                    - vertex + index VulkanBuffers with RecordDraw()
+//  [7]  VulkanDescriptorLayoutBuilder - fluent VkDescriptorSetLayout builder
+//  [8]  VulkanDescriptorPool          - VkDescriptorPool + per-frame set allocation
+//  [9]  VulkanUniformSet<T>           - per-frame typed UBO with Write() + GetSet()
+//  [10] VulkanDescriptorAllocator     - general-purpose pool supporting multiple descriptor types
+//  [11] VulkanModelPipeline           - full model pipeline with UBO layouts + push constants
+//  [12] VulkanMipmapGenerator         - blit-based mip chain generation for any VkImage
 //
 //  HELPER FUNCTION (file-static, internal)
 //  ───────────────────────────────────────
@@ -396,8 +396,8 @@
 //    mesh.Shutdown();   // before device.Shutdown()
 //
 //  RecordDraw() will:
-//    • vkCmdBindVertexBuffers  — binding 0
-//    • vkCmdBindIndexBuffer    — only when an index buffer was uploaded
+//    • vkCmdBindVertexBuffers  - binding 0
+//    • vkCmdBindIndexBuffer    - only when an index buffer was uploaded
 //    • vkCmdDrawIndexed / vkCmdDraw
 //
 //  ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@
 //    Binds buffers and issues one draw call.
 //
 //  ── Accessors ─────────────────────────────────────────────────────────────
-//  bool IsValid()    const   — true if the vertex buffer was uploaded successfully
+//  bool IsValid()    const   - true if the vertex buffer was uploaded successfully
 // -----------------------------------------------------------------------------
 
 
@@ -423,7 +423,7 @@
 //
 //  Fluent builder for VkDescriptorSetLayout.
 //  Chain Add() calls in binding-slot order, then call Build().
-//  The returned layout is caller-owned — destroy it with
+//  The returned layout is caller-owned - destroy it with
 //  vkDestroyDescriptorSetLayout(device.GetDevice(), layout, nullptr) when done.
 //
 //  Usage:
@@ -454,7 +454,7 @@
 //
 //  Creates a VkDescriptorPool pre-sized for one descriptor type and
 //  pre-allocates exactly MAX_FRAMES_IN_FLIGHT (2) descriptor sets from a
-//  given layout in a single Initialize() call — the standard pattern for
+//  given layout in a single Initialize() call - the standard pattern for
 //  per-frame uniform data.
 //
 //  Usage:
@@ -549,7 +549,7 @@
 //  destroys the pool.
 //
 //  Unlike VulkanDescriptorPool (which pre-allocates a fixed number of sets of
-//  one type), this class is suitable for mixed layouts — e.g. a set-0 UBO
+//  one type), this class is suitable for mixed layouts - e.g. a set-0 UBO
 //  layout and a set-1 sampler layout allocated from the same pool.
 //
 //  Usage:
@@ -590,8 +590,8 @@
 //  actually draws with.
 //
 //  Descriptor layout:
-//    set 0, binding 0 — per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
-//    set 1, binding 0 — combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
+//    set 0, binding 0 - per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
+//    set 1, binding 0 - combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
 //
 //  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 64 bytes):
 //    mat4 model
@@ -615,7 +615,7 @@
 //                  VkRenderPass                           renderPass,
 //                  const VulkanPipeline::ShaderInfo&      shaders,
 //                  const VulkanPipeline::VertexInputInfo& vertexInput)
-//    renderPass is borrowed from VulkanPipeline::GetRenderPass() — NOT owned.
+//    renderPass is borrowed from VulkanPipeline::GetRenderPass() - NOT owned.
 //  void Shutdown()
 //    Destroys pipeline, pipeline layout, and both descriptor set layouts.
 //    Must be called before the VulkanPipeline that provided the render pass.
@@ -623,8 +623,8 @@
 //  ── Accessors ─────────────────────────────────────────────────────────────
 //  VkPipeline            GetPipeline()       const
 //  VkPipelineLayout      GetPipelineLayout() const
-//  VkDescriptorSetLayout GetSet0Layout()     const   — use with VulkanDescriptorAllocator
-//  VkDescriptorSetLayout GetSet1Layout()     const   — use with VulkanDescriptorAllocator
+//  VkDescriptorSetLayout GetSet0Layout()     const   - use with VulkanDescriptorAllocator
+//  VkDescriptorSetLayout GetSet1Layout()     const   - use with VulkanDescriptorAllocator
 // -----------------------------------------------------------------------------
 
 
@@ -637,13 +637,13 @@
 /*
 ────────────────────────────────────────────────────────────────────────────────
  VmaImpl.cpp
-   (VMA implementation unit — define VMA_IMPLEMENTATION before including
+   (VMA implementation unit - define VMA_IMPLEMENTATION before including
     vk_mem_alloc.h in exactly one .cpp file)
 ────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────
  VulkanHelpers.cpp
-   (currently empty — LogVk and VK_CHECK are header-inline)
+   (currently empty - LogVk and VK_CHECK are header-inline)
 ────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────

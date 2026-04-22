@@ -7,7 +7,7 @@
 namespace VCK {
 
     class VulkanDevice;
-    class VulkanContext; // forward — avoid pulling in VulkanDevice.h transitively
+    class VulkanContext; // forward - avoid pulling in VulkanDevice.h transitively
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  VulkanSwapchain
@@ -27,10 +27,10 @@ namespace VCK {
         VulkanSwapchain(const VulkanSwapchain&) = delete;
         VulkanSwapchain& operator=(const VulkanSwapchain&) = delete;
 
-        // device   — owns physical/logical device and queue family info
-        // surface  — VkSurfaceKHR from VulkanContext
-        // width/height — initial client area size
-        // Preferred overload — pulls the surface from the context.
+        // device   - owns physical/logical device and queue family info
+        // surface  - VkSurfaceKHR from VulkanContext
+        // width/height - initial client area size
+        // Preferred overload - pulls the surface from the context.
         // Config overloads let the caller pick presentMode / imageCount /
         // surfaceFormat / msaaSamples / depthFormat.
         bool Initialize(VulkanDevice& device, VulkanContext& context,

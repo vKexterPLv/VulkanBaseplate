@@ -15,14 +15,14 @@ namespace VCK {
     //  Owns the graphics command pool and one primary command buffer per frame
     //  slot (MAX_FRAMES_IN_FLIGHT buffers total).
     //
-    //  Pool flag: RESET_COMMAND_BUFFER_BIT — each buffer is individually
+    //  Pool flag: RESET_COMMAND_BUFFER_BIT - each buffer is individually
     //  resettable, so BeginRecording() calls vkResetCommandBuffer instead of
     //  resetting the whole pool.
     //
     //  Usage per frame:
-    //    BeginRecording(frameIndex)   — reset + vkBeginCommandBuffer
+    //    BeginRecording(frameIndex)   - reset + vkBeginCommandBuffer
     //    < record draw commands >
-    //    EndRecording(frameIndex)     — vkEndCommandBuffer
+    //    EndRecording(frameIndex)     - vkEndCommandBuffer
     //    < submit via VkQueue >
     // ─────────────────────────────────────────────────────────────────────────────
     class VulkanCommand

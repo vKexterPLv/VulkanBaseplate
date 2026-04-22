@@ -12,9 +12,9 @@ namespace VCK {
     //  VulkanSync
     //
     //  Owns all per-frame synchronisation primitives:
-    //    • imageAvailableSemaphore  — signals when vkAcquireNextImageKHR is done
-    //    • renderFinishedSemaphore  — signals when the submitted command buffer is done
-    //    • inFlightFence            — CPU waits here before reusing the frame slot
+    //    • imageAvailableSemaphore  - signals when vkAcquireNextImageKHR is done
+    //    • renderFinishedSemaphore  - signals when the submitted command buffer is done
+    //    • inFlightFence            - CPU waits here before reusing the frame slot
     //
     //  All fences are created pre-signalled so the very first frame doesn't block.
     // ─────────────────────────────────────────────────────────────────────────────

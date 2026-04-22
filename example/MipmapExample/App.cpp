@@ -15,7 +15,7 @@
 //  The texture is intentionally created with raw Vulkan calls rather than
 //  VulkanTexture, because VulkanTexture wraps a single mip level and doesn't
 //  expose the mipLevels field.  This is the correct pattern for mip-aware
-//  textures — VulkanMipmapGenerator is designed to pair with this workflow:
+//  textures - VulkanMipmapGenerator is designed to pair with this workflow:
 //
 //    1. Calculate mip count:   VulkanMipmapGenerator::MipLevels(w, h)
 //    2. Create VkImage manually with that mipLevels value and
@@ -24,7 +24,7 @@
 //    4. Create VkImageView spanning all mip levels.
 //    5. Upload base level pixels via staging + VulkanOneTimeCommand,
 //       leaving the image in TRANSFER_DST_OPTIMAL.
-//    6. Call VulkanMipmapGenerator::Generate() — blits each level from the
+//    6. Call VulkanMipmapGenerator::Generate() - blits each level from the
 //       previous, then transitions the whole chain to SHADER_READ_ONLY_OPTIMAL.
 //    7. Create a VkSampler with LINEAR filter and a non-zero maxLod so the
 //       GPU actually selects between mip levels.
@@ -48,7 +48,7 @@ namespace VCK::MipmapExample {
     bool g_Minimized = false;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex — position + UV
+    //  Vertex - position + UV
     // ─────────────────────────────────────────────────────────────────────────
     struct Vertex {
         float position[3];   // location 0
@@ -60,11 +60,11 @@ namespace VCK::MipmapExample {
     // ─────────────────────────────────────────────────────────────────────────
     static constexpr uint32_t  kTexW   = 512;
     static constexpr uint32_t  kTexH   = 512;
-    static constexpr uint32_t  kTile   = 128;    // small tiles — more pattern, sharper mip transitions
+    static constexpr uint32_t  kTile   = 128;    // small tiles - more pattern, sharper mip transitions
     static constexpr VkFormat  kFmt    = VK_FORMAT_R8G8B8A8_UNORM;  // no gamma softening
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vulkan objects — core
+    //  Vulkan objects - core
     // ─────────────────────────────────────────────────────────────────────────
     VulkanContext        context;
     VulkanDevice         device;
@@ -74,7 +74,7 @@ namespace VCK::MipmapExample {
     VulkanSync           sync;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vulkan objects — expansion
+    //  Vulkan objects - expansion
     // ─────────────────────────────────────────────────────────────────────────
     VulkanModelPipeline       modelPipeline;
     VulkanFramebufferSet      framebuffers;
@@ -90,7 +90,7 @@ namespace VCK::MipmapExample {
     VulkanPipeline::VertexInputInfo vertexInput;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Mip-aware texture — owned manually (raw Vulkan + VMA)
+    //  Mip-aware texture - owned manually (raw Vulkan + VMA)
     // ─────────────────────────────────────────────────────────────────────────
     VkImage       g_TexImage     = VK_NULL_HANDLE;
     VkImageView   g_TexView      = VK_NULL_HANDLE;
@@ -99,7 +99,7 @@ namespace VCK::MipmapExample {
     uint32_t      g_MipLevels    = 1;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Per-frame UBO — just a dummy mat4 identity; the quad shader ignores it
+    //  Per-frame UBO - just a dummy mat4 identity; the quad shader ignores it
     //  but VulkanModelPipeline::GetSet0Layout() always has binding 0.
     // ─────────────────────────────────────────────────────────────────────────
     struct alignas(16) DummyUBO { float m[16]; };
@@ -165,7 +165,7 @@ namespace VCK::MipmapExample {
         // ── 2. Create VkImage with full mip chain ─────────────────────────────
         if (!VulkanMipmapGenerator::IsFormatSupported(device, kFmt))
         {
-            LogVk("MipmapExample: linear blitting not supported — mip levels will be 1");
+            LogVk("MipmapExample: linear blitting not supported - mip levels will be 1");
             g_MipLevels = 1;
         }
         else
@@ -253,7 +253,7 @@ namespace VCK::MipmapExample {
         }
         else
         {
-            // Single-level fallback — just transition to SHADER_READ_ONLY
+            // Single-level fallback - just transition to SHADER_READ_ONLY
             VulkanOneTimeCommand otc2;
             otc2.Begin(device, command);
             {
@@ -295,7 +295,7 @@ namespace VCK::MipmapExample {
         // ── 6. Sampler with LINEAR filter + full mip range ────────────────────
         //  minLod = 0, maxLod = g_MipLevels lets the GPU freely choose any level.
         //  Without this (e.g. maxLod = 0) the GPU always uses level 0 regardless
-        //  of how small the texture appears on screen — mip generation would be
+        //  of how small the texture appears on screen - mip generation would be
         //  wasted work.
         VkSamplerCreateInfo sci{};
         sci.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -528,14 +528,14 @@ namespace VCK::MipmapExample {
         //  Viewed from the front (camera looking -Z), CCW means:
         //    tri 0: TL(0) → BL(3) → TR(1)
         //    tri 1: BL(3) → BR(2) → TR(1)
-        //  UVs go to 4.0 so the checkerboard tiles 4x across — this makes
+        //  UVs go to 4.0 so the checkerboard tiles 4x across - this makes
         //  the mip level selection visible: large tiles at full size, the
         //  pattern averaging toward grey as the window shrinks.
         const std::vector<Vertex> verts = {
-            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // 0 — top-left
-            {{ 1.f, -1.f, 0.f}, {4.f, 0.f}},   // 1 — top-right
-            {{ 1.f,  1.f, 0.f}, {4.f, 4.f}},   // 2 — bottom-right
-            {{-1.f,  1.f, 0.f}, {0.f, 4.f}},   // 3 — bottom-left
+            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // 0 - top-left
+            {{ 1.f, -1.f, 0.f}, {4.f, 0.f}},   // 1 - top-right
+            {{ 1.f,  1.f, 0.f}, {4.f, 4.f}},   // 2 - bottom-right
+            {{-1.f,  1.f, 0.f}, {0.f, 4.f}},   // 3 - bottom-left
         };
         const std::vector<uint32_t> indices = { 0,3,1, 3,2,1 };
 

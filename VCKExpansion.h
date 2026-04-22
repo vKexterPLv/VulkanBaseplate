@@ -2,7 +2,7 @@
 //  VCKExpansion.h
 //
 //  Arm extension for VCK.h.
-//  Included automatically at the bottom of VCK.h —
+//  Included automatically at the bottom of VCK.h -
 //  you never need to include this file directly.
 //
 //  DESIGN RULE
@@ -16,33 +16,33 @@
 //
 //  Expansion objects must be shut down BEFORE the base objects.
 //
-//  CLASSES  —  RENDERING BUILDING BLOCKS
+//  CLASSES  -  RENDERING BUILDING BLOCKS
 //  ─────────────────────────────────────
-//  [1]  VulkanOneTimeCommand          — one-shot GPU command using the existing pool
-//  [2]  VulkanFramebufferSet          — per-swapchain-image VkFramebuffers
-//  [3]  VulkanDepthBuffer             — depth image (wraps VulkanImage)
-//  [4]  VulkanSampler                 — VkSampler factory (nearest / linear)
-//  [5]  VulkanTexture                 — VulkanImage + VulkanSampler, staging upload
-//  [6]  VulkanMesh                    — vertex + index VulkanBuffers, RecordDraw()
-//  [7]  VulkanDescriptorLayoutBuilder — fluent VkDescriptorSetLayout builder
-//  [8]  VulkanDescriptorPool          — VkDescriptorPool + per-frame set allocation
-//  [9]  VulkanUniformSet<T>           — per-frame typed UBO with Write() + GetSet()
-//  [10] VulkanDescriptorAllocator     — mixed-type descriptor pool, per-set Allocate()
-//  [11] VulkanModelPipeline           — full model pipeline with UBO layouts + push constants
-//  [12] VulkanMipmapGenerator         — blit-based mip chain generation for any VkImage
+//  [1]  VulkanOneTimeCommand          - one-shot GPU command using the existing pool
+//  [2]  VulkanFramebufferSet          - per-swapchain-image VkFramebuffers
+//  [3]  VulkanDepthBuffer             - depth image (wraps VulkanImage)
+//  [4]  VulkanSampler                 - VkSampler factory (nearest / linear)
+//  [5]  VulkanTexture                 - VulkanImage + VulkanSampler, staging upload
+//  [6]  VulkanMesh                    - vertex + index VulkanBuffers, RecordDraw()
+//  [7]  VulkanDescriptorLayoutBuilder - fluent VkDescriptorSetLayout builder
+//  [8]  VulkanDescriptorPool          - VkDescriptorPool + per-frame set allocation
+//  [9]  VulkanUniformSet<T>           - per-frame typed UBO with Write() + GetSet()
+//  [10] VulkanDescriptorAllocator     - mixed-type descriptor pool, per-set Allocate()
+//  [11] VulkanModelPipeline           - full model pipeline with UBO layouts + push constants
+//  [12] VulkanMipmapGenerator         - blit-based mip chain generation for any VkImage
 //
-//  CLASSES  —  EXECUTION & ORCHESTRATION
+//  CLASSES  -  EXECUTION & ORCHESTRATION
 //  ─────────────────────────────────────
-//  [13] FramePolicy                   — enum: Lockstep / Pipelined / AsyncMax
-//  [14] TimelineSemaphore             — VK_KHR_timeline_semaphore wrapper (opt-in)
-//  [15] DependencyToken               — (TimelineSemaphore*, value) — ordering without fences
-//  [16] QueueSet                      — graphics / compute / transfer queue handles
-//  [17] GpuSubmissionBatcher          — per-queue command-buffer batching, single-flush
-//  [18] BackpressureGovernor          — stalls CPU if it outruns GPU past maxLag
-//  [19] JobGraph                      — CPU thread-pool + dependency DAG, frame-scoped
-//  [20] DebugTimeline                 — text-mode CPU/GPU span recorder + stall log
-//  [21] Frame                         — per-frame work container (slot, fence, batchers, jobs)
-//  [22] FrameScheduler                — top-level orchestrator — owns lifecycle + policy
+//  [13] FramePolicy                   - enum: Lockstep / Pipelined / AsyncMax
+//  [14] TimelineSemaphore             - VK_KHR_timeline_semaphore wrapper (opt-in)
+//  [15] DependencyToken               - (TimelineSemaphore*, value) - ordering without fences
+//  [16] QueueSet                      - graphics / compute / transfer queue handles
+//  [17] GpuSubmissionBatcher          - per-queue command-buffer batching, single-flush
+//  [18] BackpressureGovernor          - stalls CPU if it outruns GPU past maxLag
+//  [19] JobGraph                      - CPU thread-pool + dependency DAG, frame-scoped
+//  [20] DebugTimeline                 - text-mode CPU/GPU span recorder + stall log
+//  [21] Frame                         - per-frame work container (slot, fence, batchers, jobs)
+//  [22] FrameScheduler                - top-level orchestrator - owns lifecycle + policy
 //
 //  See VCK.h (top of file) for the big-picture layer diagram.
 // =============================================================================
@@ -93,7 +93,7 @@ public:
 private:
     VulkanDevice*   m_Device = nullptr;
     VkCommandBuffer m_Cmd    = VK_NULL_HANDLE;
-    VkCommandPool   m_Pool   = VK_NULL_HANDLE;   // borrowed — NOT owned
+    VkCommandPool   m_Pool   = VK_NULL_HANDLE;   // borrowed - NOT owned
 };
 
 
@@ -111,7 +111,7 @@ private:
 //    // in DrawFrame():
 //    rp.framebuffer = fbs.Get(imageIndex);
 // =============================================================================
-// Forward decl — VulkanDepthBuffer is defined below but some VulkanFramebufferSet
+// Forward decl - VulkanDepthBuffer is defined below but some VulkanFramebufferSet
 // overloads take it by reference.
 class VulkanDepthBuffer;
 
@@ -124,7 +124,7 @@ public:
     VulkanFramebufferSet(const VulkanFramebufferSet&)            = delete;
     VulkanFramebufferSet& operator=(const VulkanFramebufferSet&) = delete;
 
-    //  Preferred form — pass the VulkanPipeline (and optionally the depth
+    //  Preferred form - pass the VulkanPipeline (and optionally the depth
     //  buffer).  No `.GetRenderPass()` / `.GetImageView()` plumbing at the
     //  call site:
     //      fbs.Initialize(device, swapchain, pipeline);
@@ -138,7 +138,7 @@ public:
                     VulkanPipeline&   pipeline,
                     VulkanDepthBuffer& depth);
 
-    //  Raw-handle overload — kept for advanced users.
+    //  Raw-handle overload - kept for advanced users.
     bool Initialize(VulkanDevice&    device,
                     VulkanSwapchain& swapchain,
                     VkRenderPass     renderPass,
@@ -242,7 +242,7 @@ private:
 // [5] VulkanTexture
 //
 //  GPU image (R8G8B8A8_SRGB) + linear sampler.  CPU pixels are uploaded via
-//  a staging buffer + VulkanOneTimeCommand — no manual staging required.
+//  a staging buffer + VulkanOneTimeCommand - no manual staging required.
 //
 //  Usage:
 //    VulkanTexture tex;
@@ -310,7 +310,7 @@ public:
                 const uint32_t* indices,
                 uint32_t        indexCount);
 
-    // Backwards-compatible overload — assumes indexed draw; derives vertex
+    // Backwards-compatible overload - assumes indexed draw; derives vertex
     // count only for the indexed path (uses indexCount for vkCmdDrawIndexed).
     // Prefer the form with explicit vertexCount.
     bool Upload(VulkanDevice&   device,
@@ -428,9 +428,9 @@ public:
     VulkanUniformSet(const VulkanUniformSet&)            = delete;
     VulkanUniformSet& operator=(const VulkanUniformSet&) = delete;
 
-    // pool   — provides the pre-allocated descriptor sets
-    // layout — the VkDescriptorSetLayout the sets were allocated from
-    // binding — the binding index to write the UBO into
+    // pool   - provides the pre-allocated descriptor sets
+    // layout - the VkDescriptorSetLayout the sets were allocated from
+    // binding - the binding index to write the UBO into
     bool Initialize(VulkanDevice&        device,
                     VulkanDescriptorPool& pool,
                     uint32_t              binding)
@@ -541,8 +541,8 @@ private:
 //  properly-wired VkPipeline used for actual drawing:
 //
 //  Descriptor layout:
-//    set 0, binding 0 — per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
-//    set 1, binding 0 — combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
+//    set 0, binding 0 - per-frame UBO          (VK_SHADER_STAGE_VERTEX_BIT)
+//    set 1, binding 0 - combined image/sampler (VK_SHADER_STAGE_FRAGMENT_BIT)
 //
 //  Push constant (VK_SHADER_STAGE_VERTEX_BIT, 64 bytes):
 //    mat4 model
@@ -568,7 +568,7 @@ public:
     VulkanModelPipeline(const VulkanModelPipeline&)            = delete;
     VulkanModelPipeline& operator=(const VulkanModelPipeline&) = delete;
 
-    // renderPass — from VulkanPipeline::GetRenderPass() (borrowed, not owned)
+    // renderPass - from VulkanPipeline::GetRenderPass() (borrowed, not owned)
     bool Initialize(VulkanDevice&                              device,
                     VkRenderPass                               renderPass,
                     const VulkanPipeline::ShaderInfo&          shaders,
@@ -601,7 +601,7 @@ private:
 // [12] VulkanMipmapGenerator
 //
 //  Generates a full mip chain for a VkImage by issuing a sequence of
-//  vkCmdBlitImage calls — one blit per mip level — inside a single
+//  vkCmdBlitImage calls - one blit per mip level - inside a single
 //  VulkanOneTimeCommand.
 //
 //  Requirements:
@@ -625,7 +625,7 @@ private:
 //
 //    // 2. Create image with TRANSFER_SRC + TRANSFER_DST + SAMPLED usage,
 //    //    and mipLevels = mips.
-//    //    (Use vkCreateImage directly — VulkanImage wraps a single level;
+//    //    (Use vkCreateImage directly - VulkanImage wraps a single level;
 //    //     mip-aware image creation requires the raw Vulkan call.)
 //
 //    // 3. Upload base level into the image (staging copy, same as VulkanTexture),
@@ -672,7 +672,7 @@ public:
     static uint32_t MipLevels(uint32_t width, uint32_t height);
 
     // Returns true if the device supports linear blitting for the given format.
-    // Call before Generate() — if false, fall back to nearest or skip mips.
+    // Call before Generate() - if false, fall back to nearest or skip mips.
     static bool IsFormatSupported(VulkanDevice& device, VkFormat format);
 
     // Generates mip levels 1..mipLevels-1 from the already-uploaded level 0.
@@ -693,7 +693,7 @@ public:
 //  VCK Core gives you the GPU surface.  This layer gives you a frame loop.
 //
 //  It is entirely opt-in:  if you want to keep driving VulkanSync +
-//  VulkanCommand by hand, everything below this point can be ignored — it
+//  VulkanCommand by hand, everything below this point can be ignored - it
 //  does not modify any core class, it just composes on top of them.
 //
 //  PRINCIPLE
@@ -708,9 +708,9 @@ public:
 // -----------------------------------------------------------------------------
 // [13] FramePolicy
 //
-//   Lockstep    — CPU waits for GPU every frame.  Deterministic.  Slow.
-//   Pipelined   — CPU N+1, GPU N.  Standard Vulkan double-buffering.  Default.
-//   AsyncMax    — CPU may run up to `maxLag` frames ahead.  Requires
+//   Lockstep    - CPU waits for GPU every frame.  Deterministic.  Slow.
+//   Pipelined   - CPU N+1, GPU N.  Standard Vulkan double-buffering.  Default.
+//   AsyncMax    - CPU may run up to `maxLag` frames ahead.  Requires
 //                 BackpressureGovernor to stay bounded.
 // -----------------------------------------------------------------------------
 enum class FramePolicy : uint8_t
@@ -737,11 +737,11 @@ inline const char* FramePolicyName(FramePolicy p)
 //
 //  Thin wrapper over VK_KHR_timeline_semaphore.  A single semaphore carries
 //  a monotonically increasing 64-bit counter that any producer can signal
-//  and any consumer can wait for — no fences, no binary semaphores.
+//  and any consumer can wait for - no fences, no binary semaphores.
 //
 //  Requires device creation with VkPhysicalDeviceTimelineSemaphoreFeatures
 //  { timelineSemaphore = VK_TRUE }.  VCK's current VulkanDevice does NOT
-//  enable that feature, so Initialize() will return false on most setups —
+//  enable that feature, so Initialize() will return false on most setups -
 //  callers should be prepared to fall back to VulkanSync's binary fences.
 //  Adding the feature bit to the device is a one-line core change planned
 //  for a follow-up PR.
@@ -767,7 +767,7 @@ public:
     // CPU waits for counter >= value (blocks up to timeoutNs).  Returns true on success.
     bool Wait(uint64_t value, uint64_t timeoutNs = UINT64_MAX) const;
 
-    // Host-side signal (rarely used in GPU pipelines — prefer GPU-side vkQueueSubmit signal).
+    // Host-side signal (rarely used in GPU pipelines - prefer GPU-side vkQueueSubmit signal).
     bool Signal(uint64_t value);
 
 private:
@@ -805,7 +805,7 @@ struct DependencyToken
 //  Holds VkQueue handles for the three logical queue types VCK cares about.
 //  Falls back to the graphics queue for any type the current device did not
 //  expose a dedicated queue for.  (VCK's current VulkanDevice only creates a
-//  graphics queue — so in practice all three slots point at the same queue.
+//  graphics queue - so in practice all three slots point at the same queue.
 //  The abstraction exists so call sites can be written against multi-queue
 //  intent today and pick up real parallelism when VulkanDevice grows
 //  dedicated compute / transfer queue support.)
@@ -842,7 +842,7 @@ private:
 //
 //  Collects per-frame vkQueueSubmit work into one batch per queue and flushes
 //  it once at end-of-frame.  Keeps per-draw submission overhead off the hot
-//  path.  No reordering is performed here — batches are submitted in the
+//  path.  No reordering is performed here - batches are submitted in the
 //  order calls to QueueX() were made.
 //
 //  Each Queue() call can attach optional (wait, signal) semaphores.  The
@@ -858,7 +858,7 @@ public:
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSemaphore          signalSem = VK_NULL_HANDLE;
 
-        // Explicit default ctor — MinGW g++ (9.x/10.x) rejects `info = {}`
+        // Explicit default ctor - MinGW g++ (9.x/10.x) rejects `info = {}`
         // when the nested struct has NSDMI unless the default ctor is
         // explicitly user-declared.  Cheap fix, zero runtime cost.
         SubmitInfo() = default;
@@ -867,7 +867,7 @@ public:
     bool Initialize(VulkanDevice& device, QueueSet& queues);
     void Shutdown();
 
-    // Overloads instead of a default-argument — avoids the same MinGW
+    // Overloads instead of a default-argument - avoids the same MinGW
     // corner case on `SubmitInfo = {}`.
     void QueueGraphics(VkCommandBuffer cmd, const SubmitInfo& info);
     void QueueCompute (VkCommandBuffer cmd, const SubmitInfo& info);
@@ -881,7 +881,7 @@ public:
     // to vkQueueSubmit on the graphics queue so the CPU can wait on it.
     void FlushAll(VkFence graphicsFence = VK_NULL_HANDLE);
 
-    // Clear without submitting — used when a swapchain recreate aborts a frame.
+    // Clear without submitting - used when a swapchain recreate aborts a frame.
     void DiscardAll();
 
     uint32_t PendingGraphics() const { return static_cast<uint32_t>(m_Graphics.size()); }
@@ -924,11 +924,11 @@ public:
 
     // Non-blocking overrun check (AsyncMax only).  FrameScheduler uses this
     // to decide whether to force an extra fence wait.  The governor itself
-    // never blocks — earlier versions waited on a condition variable, but
+    // never blocks - earlier versions waited on a condition variable, but
     // NoteGpuFrameRetired is always called on the same render thread, which
     // self-deadlocked the CV path the moment the CPU overran.
     bool     IsOverrun() const;
-    uint64_t WaitIfOverrun();   // kept for API compat — always returns 0
+    uint64_t WaitIfOverrun();   // kept for API compat - always returns 0
 
     FramePolicy Policy() const { return m_Policy; }
     uint32_t    MaxLag() const { return m_MaxLag; }
@@ -960,7 +960,7 @@ private:
 //  between frames; Add() during the frame; Execute() runs everything on the
 //  internal worker pool respecting declared deps.
 //
-//  This is NOT a production-grade scheduler — no fibers, no work stealing,
+//  This is NOT a production-grade scheduler - no fibers, no work stealing,
 //  no priority.  It's a correct baseline:  std::thread workers + mutex +
 //  condition_variable + atomic per-job pending-deps counter.  Good enough
 //  to demonstrate the frame / jobs / GPU-submit pipeline; replace with
@@ -989,7 +989,7 @@ public:
     // Kick the graph and block until every job has run.
     void  Execute();
 
-    // Drop all pending jobs — typically called from FrameScheduler::BeginFrame.
+    // Drop all pending jobs - typically called from FrameScheduler::BeginFrame.
     void  Reset();
 
     uint32_t JobCount()    const { return static_cast<uint32_t>(m_Jobs.size()); }
@@ -1029,7 +1029,7 @@ private:
 //  Plain-text span recorder.  Call BeginCpuSpan / EndCpuSpan around chunks of
 //  CPU work; NoteStall() when you discover the CPU was forced to wait; call
 //  RecordGpuSpan() after reading GPU timestamps back.  Dump() prints a
-//  chronological view to LogVk().  Enable per FrameScheduler config — when
+//  chronological view to LogVk().  Enable per FrameScheduler config - when
 //  disabled, every method is a cheap no-op.
 // -----------------------------------------------------------------------------
 class DebugTimeline
@@ -1077,11 +1077,11 @@ private:
 // [21] Frame
 //
 //  Lightweight handle exposed to user code during BeginFrame .. EndFrame.
-//  Not constructed by the user — owned by the FrameScheduler.  Provides
+//  Not constructed by the user - owned by the FrameScheduler.  Provides
 //  typed access to the slot's per-frame primitives plus the per-frame
 //  batcher and job graph.
 // -----------------------------------------------------------------------------
-class FrameScheduler;   // fwd — friendship below
+class FrameScheduler;   // fwd - friendship below
 
 class Frame
 {
@@ -1102,7 +1102,7 @@ public:
     //  GpuSubmissionBatcher.  Equivalent to:
     //      f.Submissions().QueueGraphics(f.PrimaryCmd(), info);
     //  The no-arg overload wires the frame's own ImageAvailable / RenderFinished
-    //  semaphores — the common case for a simple render-then-present loop.
+    //  semaphores - the common case for a simple render-then-present loop.
     void QueueGraphics()
     {
         GpuSubmissionBatcher::SubmitInfo info;
@@ -1144,7 +1144,7 @@ private:
 //
 //    Frame& f = BeginFrame();
 //        1. Advances absolute frame counter.
-//        2. Applies FramePolicy — may block on the slot's in-flight fence
+//        2. Applies FramePolicy - may block on the slot's in-flight fence
 //           (Lockstep / Pipelined) or defer blocking to BackpressureGovernor
 //           (AsyncMax).
 //        3. Resets the slot's JobGraph + batcher.
@@ -1169,7 +1169,7 @@ private:
 //  at sync.Initialize time).  FrameScheduler reads sync.GetFramesInFlight()
 //  and loops over that many per-frame slots, then forwards the count into
 //  BackpressureGovernor so asyncMaxLag is clamped correctly.
-//  FrameScheduler::Config is a SEPARATE, narrower struct — it governs the
+//  FrameScheduler::Config is a SEPARATE, narrower struct - it governs the
 //  scheduler's own knobs (policy, asyncMaxLag, timeline, jobWorkers), not
 //  framesInFlight.
 // -----------------------------------------------------------------------------
@@ -1183,7 +1183,7 @@ public:
         bool        enableTimeline = false;
         uint32_t    jobWorkers     = 0;    // 0 → hardware_concurrency clamped
 
-        // See SubmitInfo above — explicit default ctor works around a
+        // See SubmitInfo above - explicit default ctor works around a
         // MinGW g++ bug with NSDMI + `cfg = {}` default arguments.
         Config() = default;
     };
@@ -1199,7 +1199,7 @@ public:
                     VulkanSync&    sync,
                     Config         cfg);
 
-    // No-config overload — defaults to `Config()`.
+    // No-config overload - defaults to `Config()`.
     bool Initialize(VulkanDevice&  device,
                     VulkanCommand& command,
                     VulkanSync&    sync)
@@ -1208,7 +1208,7 @@ public:
     }
     void Shutdown();
 
-    // Frame lifecycle — must be called in order, once per frame.
+    // Frame lifecycle - must be called in order, once per frame.
     Frame& BeginFrame();
     void   DispatchJobs();
     void   EndFrame();

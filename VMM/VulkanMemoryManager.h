@@ -13,19 +13,19 @@
 //  VCK.  Include this file to get the full VMM API.
 //
 //  ┌──────────────────────────────────────────────────────────────────────┐
-//  │  LAYER 1 — RAW ALLOCATION (VmmRawAlloc)                              │
+//  │  LAYER 1 - RAW ALLOCATION (VmmRawAlloc)                              │
 //  │  Thin typed wrappers around VMA.  Creates buffers and images.        │
 //  │  No knowledge of frames, lifetimes, or render loops.                 │
 //  ├──────────────────────────────────────────────────────────────────────┤
-//  │  LAYER 2 — RESOURCE LIFETIME TRACKING (VmmRegistry)                  │
+//  │  LAYER 2 - RESOURCE LIFETIME TRACKING (VmmRegistry)                  │
 //  │  Every allocation carries a Lifetime tag and ResourceInfo metadata.  │
 //  │  The registry knows what exists, why it exists, and when to free it. │
 //  ├──────────────────────────────────────────────────────────────────────┤
-//  │  LAYER 3 — POOLS / STRATEGIES (VulkanMemoryManager)                  │
+//  │  LAYER 3 - POOLS / STRATEGIES (VulkanMemoryManager)                  │
 //  │  High-level allocation policies:                                     │
-//  │    • StagingRing   — CPU→GPU ring buffer, zero per-frame realloc     │
-//  │    • TransientPool — per-frame scratch; reset each frame             │
-//  │    • PersistentPool— textures, static meshes; lives until shutdown   │
+//  │    • StagingRing   - CPU→GPU ring buffer, zero per-frame realloc     │
+//  │    • TransientPool - per-frame scratch; reset each frame             │
+//  │    • PersistentPool- textures, static meshes; lives until shutdown   │
 //  └──────────────────────────────────────────────────────────────────────┘
 //
 //  USAGE SKETCH
@@ -53,8 +53,8 @@
 //
 //  INIT / SHUTDOWN ORDER
 //  ─────────────────────
-//  vmm.Initialize() — after VulkanDevice and VulkanCommand are ready
-//  vmm.Shutdown()   — before VulkanCommand and VulkanDevice shutdown
+//  vmm.Initialize() - after VulkanDevice and VulkanCommand are ready
+//  vmm.Shutdown()   - before VulkanCommand and VulkanDevice shutdown
 // =============================================================================
 
 #include "vk_mem_alloc.h"
@@ -71,7 +71,7 @@ namespace VCK {
 
 
 // =============================================================================
-//  LAYER 1 — RAW ALLOCATION
+//  LAYER 1 - RAW ALLOCATION
 //  VmmRawAlloc
 //
 //  Thin typed wrappers around vmaCreateBuffer / vmaCreateImage.
@@ -79,13 +79,13 @@ namespace VCK {
 //  VmmImage) carry the raw Vulkan + VMA handles and a mapped pointer for
 //  host-visible allocations.
 //
-//  These are value types — they do NOT own the underlying GPU memory.
+//  These are value types - they do NOT own the underlying GPU memory.
 //  Lifetime management is the responsibility of Layer 2 (VmmRegistry) or
 //  the caller if using raw alloc directly.
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-//  VmmBuffer — raw buffer handle + optional persistent map pointer
+//  VmmBuffer - raw buffer handle + optional persistent map pointer
 // -----------------------------------------------------------------------------
 struct VmmBuffer
 {
@@ -108,7 +108,7 @@ struct VmmBuffer
 };
 
 // -----------------------------------------------------------------------------
-//  VmmImage — raw image handle + view
+//  VmmImage - raw image handle + view
 // -----------------------------------------------------------------------------
 struct VmmImage
 {
@@ -125,25 +125,25 @@ struct VmmImage
 };
 
 // -----------------------------------------------------------------------------
-//  VmmRawAlloc — stateless factory; caller owns the result
+//  VmmRawAlloc - stateless factory; caller owns the result
 // -----------------------------------------------------------------------------
 class VmmRawAlloc
 {
 public:
-    // Buffer — generic
+    // Buffer - generic
     static VmmBuffer CreateBuffer(VulkanDevice&      device,
                                   VkDeviceSize       size,
                                   VkBufferUsageFlags usage,
                                   VmaMemoryUsage     memUsage,
                                   bool               persistentMap = false);
 
-    // Buffer — named convenience variants
+    // Buffer - named convenience variants
     static VmmBuffer CreateStaging  (VulkanDevice& device, VkDeviceSize size); // CPU_ONLY + TRANSFER_SRC, mapped
     static VmmBuffer CreateVertex   (VulkanDevice& device, VkDeviceSize size); // GPU_ONLY + VERTEX | TRANSFER_DST
     static VmmBuffer CreateIndex    (VulkanDevice& device, VkDeviceSize size); // GPU_ONLY + INDEX  | TRANSFER_DST
     static VmmBuffer CreateUniform  (VulkanDevice& device, VkDeviceSize size); // CPU_TO_GPU + UNIFORM, mapped
 
-    // Image — generic
+    // Image - generic
     static VmmImage  CreateImage(VulkanDevice&      device,
                                  uint32_t           width,
                                  uint32_t           height,
@@ -152,24 +152,24 @@ public:
                                  VkImageAspectFlags aspect,
                                  uint32_t           mipLevels = 1);
 
-    // Free — match the type created
+    // Free - match the type created
     static void FreeBuffer(VulkanDevice& device, VmmBuffer& buf);
     static void FreeImage (VulkanDevice& device, VmmImage&  img);
 };
 
 
 // =============================================================================
-//  LAYER 2 — RESOURCE LIFETIME TRACKING
+//  LAYER 2 - RESOURCE LIFETIME TRACKING
 //  VmmRegistry
 //
 //  Every allocation made through the VMM is registered here with a Lifetime
 //  tag and a ResourceInfo struct.  The registry knows what exists and why.
 //
 //  Lifetime semantics:
-//    TransientFrame  — auto-freed at EndFrame() for that frame slot
-//    FrameBuffered   — one copy per MAX_FRAMES_IN_FLIGHT slot; all freed at shutdown
-//    Persistent      — freed at shutdown (or explicit Free call)
-//    Manual          — registry tracks it for debug/stats only; caller frees
+//    TransientFrame  - auto-freed at EndFrame() for that frame slot
+//    FrameBuffered   - one copy per MAX_FRAMES_IN_FLIGHT slot; all freed at shutdown
+//    Persistent      - freed at shutdown (or explicit Free call)
+//    Manual          - registry tracks it for debug/stats only; caller frees
 // =============================================================================
 
 enum class Lifetime : uint8_t
@@ -185,10 +185,10 @@ struct ResourceInfo
     Lifetime    lifetime;
     uint32_t    createdFrame;    // absolute frame counter at creation time
     uint32_t    frameSlot;       // frame slot (0..MAX_FRAMES_IN_FLIGHT-1); 0 for non-frame resources
-    const char* debugName;       // static string — not owned, not freed
+    const char* debugName;       // static string - not owned, not freed
 };
 
-// Internal entry types — one table for buffers, one for images
+// Internal entry types - one table for buffers, one for images
 struct VmmBufferEntry { VmmBuffer buf; ResourceInfo info; };
 struct VmmImageEntry  { VmmImage  img; ResourceInfo info; };
 
@@ -246,7 +246,7 @@ private:
 
 
 // =============================================================================
-//  LAYER 3 — POOLS / STRATEGIES
+//  LAYER 3 - POOLS / STRATEGIES
 //  VulkanMemoryManager  (the public-facing VMM)
 //
 //  Three allocation strategies built on top of Layers 1 and 2:
@@ -261,7 +261,7 @@ private:
 //
 //  Why a ring?  Individual vmaCreateBuffer calls for every upload are slow
 //  (driver sync, allocation overhead).  A ring amortises this to zero per
-//  upload — the large allocation happens once at Initialize().
+//  upload - the large allocation happens once at Initialize().
 //
 //  TransientPool
 //  ─────────────
@@ -303,13 +303,13 @@ public:
     void Shutdown();
 
     // ── Frame boundary ────────────────────────────────────────────────────────
-    // BeginFrame — resets the transient pool for this slot, frees expired
+    // BeginFrame - resets the transient pool for this slot, frees expired
     //              TransientFrame resources from the previous cycle.
-    // EndFrame   — submits any pending staging commands, advances ring tail.
+    // EndFrame   - submits any pending staging commands, advances ring tail.
     void BeginFrame(uint32_t frameIndex, uint32_t absoluteFrame);
     void EndFrame  (uint32_t frameIndex);
 
-    // ── Staging ring — CPU → GPU transfers ────────────────────────────────────
+    // ── Staging ring - CPU → GPU transfers ────────────────────────────────────
     // Records a copy from CPU data into a GPU-side destination buffer.
     // The copy is batched into the current frame's staging command buffer
     // and submitted at EndFrame().  Safe to call multiple times per frame.
@@ -325,13 +325,13 @@ public:
                        uint32_t     width,
                        uint32_t     height);
 
-    // Flush any pending staging commands immediately (blocking — use sparingly).
+    // Flush any pending staging commands immediately (blocking - use sparingly).
     // Useful during Init() to upload persistent resources before the render loop.
     void FlushStaging();
 
-    // ── Transient pool — per-frame scratch ────────────────────────────────────
+    // ── Transient pool - per-frame scratch ────────────────────────────────────
     // Returns a sub-allocated view into the current frame's transient block.
-    // The returned VmmBuffer shares the underlying VkBuffer — do NOT call
+    // The returned VmmBuffer shares the underlying VkBuffer - do NOT call
     // VmmRawAlloc::FreeBuffer on it.  It is auto-reset at the next BeginFrame.
     // debugName must outlive the frame (static or literal strings are ideal).
     VmmBuffer AllocTransient(uint32_t     frameIndex,
@@ -340,7 +340,7 @@ public:
                              VkBufferUsageFlags usage
                                  = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-    // ── Persistent pool — long-lived resources ────────────────────────────────
+    // ── Persistent pool - long-lived resources ────────────────────────────────
     VmmBuffer AllocPersistent(const char*        debugName,
                               VkDeviceSize       size,
                               VkBufferUsageFlags usage);
@@ -371,7 +371,7 @@ private:
     //  means that by the time SubmitStagingCmd() returns, ALL uploads recorded
     //  into the staging command are finished on the GPU.  EndFrame() and
     //  FlushStaging() therefore fully reset writeHead/inFlight right after
-    //  submit — the ring is trivially drained every frame.
+    //  submit - the ring is trivially drained every frame.
     //
     //  frameTails[] is retained as diagnostic / forward-compat metadata for a
     //  future non-blocking staging model (fence-per-frame), but is not
@@ -389,7 +389,7 @@ private:
         bool HasSpace(VkDeviceSize needed) const;
         // Returns the offset at writeHead and advances it (with alignment).
         VkDeviceSize Claim(VkDeviceSize size, VkDeviceSize alignment = 4);
-        // Fully reset the ring — valid only when the GPU is idle on staging work.
+        // Fully reset the ring - valid only when the GPU is idle on staging work.
         void         Reset();
     };
 

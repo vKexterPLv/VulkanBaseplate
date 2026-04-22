@@ -11,10 +11,10 @@
 //  FramePolicy::Pipelined.
 //
 //  Demonstrates:
-//    Core        — VulkanContext, VulkanDevice, VulkanSwapchain,
+//    Core        - VulkanContext, VulkanDevice, VulkanSwapchain,
 //                  VulkanPipeline, VulkanCommand, VulkanSync
-//    Expansion   — VulkanFramebufferSet, VulkanMesh
-//    Execution   — FrameScheduler, Frame, GpuSubmissionBatcher
+//    Expansion   - VulkanFramebufferSet, VulkanMesh
+//    Execution   - FrameScheduler, Frame, GpuSubmissionBatcher
 //
 //  Every frame:
 //

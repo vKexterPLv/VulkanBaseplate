@@ -1,6 +1,6 @@
 #pragma once
 
-// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake — do NOT redefine here.
+// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine here.
 #include <windows.h>
 
 #include <vulkan/vulkan.h>
@@ -20,7 +20,7 @@ namespace VCK {
     //    - VkDebugUtilsMessengerEXT  (debug builds only)
     //    - VkSurfaceKHR              (Win32 surface)
     //
-    //  Does NOT own: physical device, logical device, swapchain — those live in
+    //  Does NOT own: physical device, logical device, swapchain - those live in
     //  VulkanDevice / VulkanSwapchain.
     // ---------------------------------------------------------------------------
     class VulkanContext {
@@ -41,15 +41,15 @@ namespace VCK {
         //
         // Preferred form: pass a VCK::Config with whatever appName /
         // validation / extra layers-and-extensions you want.  Zero-config
-        // form keeps working — it just inflates appName into a default Config.
+        // form keeps working - it just inflates appName into a default Config.
         bool Initialize(HWND windowHandle, const Config& cfg);
         bool Initialize(HWND windowHandle, const std::string& appName);
 
-        // Destroys surface, debug messenger, instance — in correct order.
+        // Destroys surface, debug messenger, instance - in correct order.
         void Shutdown();
 
         // -----------------------------------------------------------------------
-        //  Accessors  (read-only — other systems borrow these, never own them)
+        //  Accessors  (read-only - other systems borrow these, never own them)
         // -----------------------------------------------------------------------
         VkInstance   GetInstance() const { return Instance; }
         VkSurfaceKHR GetSurface()  const { return Surface; }
@@ -70,7 +70,7 @@ namespace VCK {
         bool CheckValidationLayerSupport();
         std::vector<const char*> BuildRequiredExtensions();
 
-        // Vulkan debug callback — static so it matches PFN_vkDebugUtilsMessengerCallbackEXT
+        // Vulkan debug callback - static so it matches PFN_vkDebugUtilsMessengerCallbackEXT
         static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
             VkDebugUtilsMessageSeverityFlagBitsEXT      messageSeverity,
             VkDebugUtilsMessageTypeFlagsEXT             messageType,
@@ -78,7 +78,7 @@ namespace VCK {
             void* pUserData);
 
         // Dynamic loader helpers (vkCreateDebugUtilsMessengerEXT is not in the
-        // static Vulkan lib — must be loaded at runtime via vkGetInstanceProcAddr)
+        // static Vulkan lib - must be loaded at runtime via vkGetInstanceProcAddr)
         PFN_vkCreateDebugUtilsMessengerEXT  fnCreateDebugMessenger = nullptr;
         PFN_vkDestroyDebugUtilsMessengerEXT fnDestroyDebugMessenger = nullptr;
 
@@ -95,7 +95,7 @@ namespace VCK {
         // Snapshot of cfg.context (appName / validation / extra layers+exts).
         Config::ContextCfg         m_CfgContext;
 
-        // Validation layer name — single source of truth
+        // Validation layer name - single source of truth
         static constexpr const char* VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
     };
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include "vk_mem_alloc.h"   // AMD VMA — place vk_mem_alloc.h in src/render/vulkan/
+#include "vk_mem_alloc.h"   // AMD VMA - place vk_mem_alloc.h in src/render/vulkan/
 #include "VulkanHelpers.h"   // VCK::Config
 
 #include <string>
@@ -14,7 +14,7 @@ namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Queue family indices resolved during physical device selection.
-    //  Both families may be the same index (combined queue) — that is valid.
+    //  Both families may be the same index (combined queue) - that is valid.
     // ─────────────────────────────────────────────────────────────────────────────
     struct QueueFamilyIndices
     {
@@ -36,7 +36,7 @@ namespace VCK {
     //  VulkanDevice
     //
     //  Responsibilities:
-    //    1. Enumerate and score physical devices — prefer discrete GPU.
+    //    1. Enumerate and score physical devices - prefer discrete GPU.
     //    2. Discover queue families (graphics + present).
     //    3. Create VkDevice with required extensions (VK_KHR_swapchain).
     //    4. Retrieve graphics and present queue handles.
@@ -51,7 +51,7 @@ namespace VCK {
         VulkanDevice(const VulkanDevice&) = delete;
         VulkanDevice& operator=(const VulkanDevice&) = delete;
 
-        // Preferred overload — pulls instance + surface from the context.
+        // Preferred overload - pulls instance + surface from the context.
         // The Config overloads let the caller control preferDiscreteGpu,
         // extra device extensions, and queue preference.
         bool Initialize(VulkanContext& context);

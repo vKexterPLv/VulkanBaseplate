@@ -18,7 +18,7 @@ static constexpr bool k_WantValidation = false;
 namespace VCK {
 
     // ===========================================================================
-    //  Public — Lifecycle
+    //  Public - Lifecycle
     // ===========================================================================
 
     bool VulkanContext::Initialize(HWND windowHandle, const std::string& appName) {
@@ -40,7 +40,7 @@ namespace VCK {
 
         if (ValidationEnabled) {
             if (!CreateDebugMessenger())
-                LogVk("[VulkanContext] WARNING: debug messenger unavailable — continuing");
+                LogVk("[VulkanContext] WARNING: debug messenger unavailable - continuing");
         }
 
         if (!CreateSurface(windowHandle)) {
@@ -76,7 +76,7 @@ namespace VCK {
     }
 
     // ===========================================================================
-    //  Private — Instance
+    //  Private - Instance
     // ===========================================================================
 
     bool VulkanContext::CreateInstance(const std::string& appName) {
@@ -144,13 +144,13 @@ namespace VCK {
             return false;
         }
 
-        LogVk("[VulkanContext] VkInstance created — API 1.2, extensions: "
+        LogVk("[VulkanContext] VkInstance created - API 1.2, extensions: "
             + std::to_string(EnabledExtensions.size()));
         return true;
     }
 
     // ===========================================================================
-    //  Private — Debug Messenger
+    //  Private - Debug Messenger
     // ===========================================================================
 
     bool VulkanContext::CreateDebugMessenger() {
@@ -188,7 +188,7 @@ namespace VCK {
     }
 
     // ===========================================================================
-    //  Private — Win32 Surface
+    //  Private - Win32 Surface
     // ===========================================================================
 
     bool VulkanContext::CreateSurface(HWND windowHandle) {
@@ -208,7 +208,7 @@ namespace VCK {
     }
 
     // ===========================================================================
-    //  Private — Helpers
+    //  Private - Helpers
     // ===========================================================================
 
     bool VulkanContext::CheckValidationLayerSupport() {
@@ -238,7 +238,7 @@ namespace VCK {
     }
 
     // ===========================================================================
-    //  Static — Debug Callback
+    //  Static - Debug Callback
     // ===========================================================================
 
     VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::DebugCallback(

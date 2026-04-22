@@ -87,7 +87,7 @@ namespace VCK::JobGraphExample {
         g_Resized   = true;
     }
 
-    // Timed job — sleeps a deterministic amount of work and accumulates
+    // Timed job - sleeps a deterministic amount of work and accumulates
     // measured duration into `stats`.
     static void TimedJob(JobStats& stats, std::chrono::microseconds work)
     {

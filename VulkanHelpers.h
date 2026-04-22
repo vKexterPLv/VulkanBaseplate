@@ -1,6 +1,6 @@
 #pragma once
 
-// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake — do NOT redefine here.
+// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine here.
 #include <windows.h>
 #include <vulkan/vulkan.h>
 #include <cstdio>
@@ -9,12 +9,12 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-//  LogVk — routes to BOTH the Visual Studio Output window
+//  LogVk - routes to BOTH the Visual Studio Output window
 //          (OutputDebugStringA) and the console window (stdout / printf).
-//  Global scope — usable from any file, any namespace.
+//  Global scope - usable from any file, any namespace.
 //
 //  Binaries built via example/build.bat use the default g++ console subsystem,
-//  so stdout is already wired to whatever console launched the process — no
+//  so stdout is already wired to whatever console launched the process - no
 //  AllocConsole dance needed.
 // -----------------------------------------------------------------------------
 inline void LogVk(const std::string& message) {
@@ -28,7 +28,7 @@ inline void LogVk(const std::string& message) {
 //  VK_CHECK(expr)
 //
 //  Pass a single VkResult expression.  Stringifies the call for the error log.
-//  Returns bool — true on VK_SUCCESS, false otherwise.
+//  Returns bool - true on VK_SUCCESS, false otherwise.
 //
 //  Usage:
 //    if (!VK_CHECK(vkCreateFoo(...))) return false;
@@ -47,7 +47,7 @@ inline void LogVk(const std::string& message) {
 
 
 // -----------------------------------------------------------------------------
-//  VCK::Config  —  master init-chain configuration
+//  VCK::Config  -  master init-chain configuration
 //
 //  Every VulkanContext/Device/Swapchain/Sync/Command/Pipeline class accepts an
 //  optional `const Config&` overload on its Initialize(...).  The old zero-arg
@@ -61,9 +61,9 @@ namespace VCK {
 
 enum class PresentMode {
     Auto,       // Mailbox if supported, else FIFO.  Default.
-    Fifo,       // VK_PRESENT_MODE_FIFO_KHR       — always supported, vsync.
-    Mailbox,    // VK_PRESENT_MODE_MAILBOX_KHR    — low-latency, tears nothing.
-    Immediate,  // VK_PRESENT_MODE_IMMEDIATE_KHR  — may tear, uncapped.
+    Fifo,       // VK_PRESENT_MODE_FIFO_KHR       - always supported, vsync.
+    Mailbox,    // VK_PRESENT_MODE_MAILBOX_KHR    - low-latency, tears nothing.
+    Immediate,  // VK_PRESENT_MODE_IMMEDIATE_KHR  - may tear, uncapped.
 };
 
 enum class QueuePreference {
@@ -73,7 +73,7 @@ enum class QueuePreference {
 };
 
 // Compile-time upper bound on frames-in-flight.  Runtime `framesInFlight` is
-// capped to this — deeper pipelining requires VK_KHR_timeline_semaphore.
+// capped to this - deeper pipelining requires VK_KHR_timeline_semaphore.
 static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
 struct Config
@@ -101,7 +101,7 @@ struct Config
         // RESERVED: MSAA is not yet wired end-to-end (no resolve attachment /
         // multisampled colour image).  Setting this > 1 logs a warning and is
         // clamped to VK_SAMPLE_COUNT_1_BIT in VulkanPipeline.  Field kept so
-        // the API surface is stable when MSAA lands — see docs/Design.md.
+        // the API surface is stable when MSAA lands - see docs/Design.md.
         VkSampleCountFlagBits      msaaSamples              = VK_SAMPLE_COUNT_1_BIT;
         VkFormat                   depthFormat              = VK_FORMAT_UNDEFINED;     // UNDEFINED = auto
     } swapchain;

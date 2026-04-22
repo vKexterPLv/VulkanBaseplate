@@ -13,7 +13,7 @@
 //    VulkanCommand, VulkanSync, VulkanFramebufferSet, VulkanMesh
 //
 //  No UBOs, no descriptors, no textures, no push constants.
-//  The pipeline uses no descriptor set layouts — the vertex shader reads
+//  The pipeline uses no descriptor set layouts - the vertex shader reads
 //  position and color directly from the vertex buffer.
 // =============================================================================
 

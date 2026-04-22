@@ -48,7 +48,7 @@ namespace VCK {
                 return false;
         }
 
-        LogVk("VulkanSync initialized — " + std::to_string(m_FramesInFlight) + " frames in flight");
+        LogVk("VulkanSync initialized - " + std::to_string(m_FramesInFlight) + " frames in flight");
         return true;
     }
 

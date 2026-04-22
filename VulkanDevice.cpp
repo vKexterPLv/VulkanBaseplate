@@ -11,7 +11,7 @@ namespace VCK {
     //  Public API
     // ─────────────────────────────────────────────────────────────────────────────
 
-    // Preferred overload — forwards to the raw-handle form by pulling
+    // Preferred overload - forwards to the raw-handle form by pulling
     // instance + surface out of the context.  Keeps user call sites free of
     // `.GetInstance()` / `.GetSurface()` plumbing.
     bool VulkanDevice::Initialize(VulkanContext& context)
@@ -35,21 +35,21 @@ namespace VCK {
         LogVk("[Device] Selecting physical device...");
         if (!PickPhysicalDevice(instance, surface))
         {
-            LogVk("[Device] ERROR — no suitable GPU found");
+            LogVk("[Device] ERROR - no suitable GPU found");
             return false;
         }
 
         LogVk("[Device] Creating logical device...");
         if (!CreateLogicalDevice())
         {
-            LogVk("[Device] ERROR — logical device creation failed");
+            LogVk("[Device] ERROR - logical device creation failed");
             return false;
         }
 
         LogVk("[Device] Creating VMA allocator...");
         if (!CreateAllocator(instance))
         {
-            LogVk("[Device] ERROR — VMA allocator creation failed");
+            LogVk("[Device] ERROR - VMA allocator creation failed");
             return false;
         }
 
@@ -296,7 +296,7 @@ namespace VCK {
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.PresentFamily.value(), 0, &m_PresentQueue);
 
-        LogVk("[Device] Queues OK — graphics: " +
+        LogVk("[Device] Queues OK - graphics: " +
             std::to_string(m_QueueFamilyIndices.GraphicsFamily.value()) +
             " | present: " +
             std::to_string(m_QueueFamilyIndices.PresentFamily.value()) +

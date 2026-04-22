@@ -12,7 +12,7 @@ namespace VCK {
     //  Public API
     // ─────────────────────────────────────────────────────────────────────────────
 
-    // Preferred overload — pulls the surface out of the context.
+    // Preferred overload - pulls the surface out of the context.
     bool VulkanSwapchain::Initialize(VulkanDevice& device, VulkanContext& context,
         uint32_t width, uint32_t height)
     {
@@ -43,11 +43,11 @@ namespace VCK {
 
         if (!CreateSwapchain(width, height))
         {
-            LogVk("[Swapchain] ERROR — creation failed");
+            LogVk("[Swapchain] ERROR - creation failed");
             return false;
         }
 
-        LogVk("[Swapchain] Initialized OK — " +
+        LogVk("[Swapchain] Initialized OK - " +
             std::to_string(m_Images.size()) + " images, extent " +
             std::to_string(m_Extent.width) + "x" + std::to_string(m_Extent.height));
 
@@ -77,11 +77,11 @@ namespace VCK {
 
         if (!CreateSwapchain(width, height))
         {
-            LogVk("[Swapchain] ERROR — recreation failed");
+            LogVk("[Swapchain] ERROR - recreation failed");
             return false;
         }
 
-        LogVk("[Swapchain] Recreated OK — extent " +
+        LogVk("[Swapchain] Recreated OK - extent " +
             std::to_string(m_Extent.width) + "x" + std::to_string(m_Extent.height));
 
         return true;
@@ -137,7 +137,7 @@ namespace VCK {
 
         if (!queueIndices.IsCombined())
         {
-            // Two distinct families — images must be shared between them
+            // Two distinct families - images must be shared between them
             uint32_t queueFamilyArray[] = {
                 queueIndices.GraphicsFamily.value(),
                 queueIndices.PresentFamily.value()
@@ -148,7 +148,7 @@ namespace VCK {
         }
         else
         {
-            // Same family — exclusive is faster
+            // Same family - exclusive is faster
             swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
             swapchainInfo.queueFamilyIndexCount = 0;
             swapchainInfo.pQueueFamilyIndices = nullptr;
@@ -204,7 +204,7 @@ namespace VCK {
             vkDestroyImageView(device, view, nullptr);
         m_ImageViews.clear();
 
-        // Images are owned by the swapchain — do NOT call vkDestroyImage on them
+        // Images are owned by the swapchain - do NOT call vkDestroyImage on them
         m_Images.clear();
 
         if (m_Swapchain != VK_NULL_HANDLE)
@@ -226,14 +226,14 @@ namespace VCK {
         // We prefer R8G8B8A8_UNORM over B8G8R8A8_* to avoid RGB/BGR channel
         // confusion.  UNORM is generally preferred for the swapchain format.
         // original D3D7 fixed-function pipeline which performed no gamma
-        // conversion — all vertex colours and textures are stored in display
+        // conversion - all vertex colours and textures are stored in display
         // (gamma-encoded) space and are used as-is.
         //
         // Priority:
-        //   1. VK_FORMAT_R8G8B8A8_UNORM  — preferred (RGBA, linear write)
-        //   2. VK_FORMAT_R8G8B8A8_SRGB   — acceptable (RGBA, sRGB encode)
-        //   3. VK_FORMAT_B8G8R8A8_UNORM  — fallback  (BGRA, linear write)
-        //   4. VK_FORMAT_B8G8R8A8_SRGB   — last resort
+        //   1. VK_FORMAT_R8G8B8A8_UNORM  - preferred (RGBA, linear write)
+        //   2. VK_FORMAT_R8G8B8A8_SRGB   - acceptable (RGBA, sRGB encode)
+        //   3. VK_FORMAT_B8G8R8A8_UNORM  - fallback  (BGRA, linear write)
+        //   4. VK_FORMAT_B8G8R8A8_SRGB   - last resort
 
         // Honour an explicit cfg.swapchain.surfaceFormat if set (non-UNDEFINED).
         if (m_CfgSwapchain.surfaceFormat != VK_FORMAT_UNDEFINED)
@@ -273,7 +273,7 @@ namespace VCK {
         }
 
         // Last resort: use whatever the driver gives us first.
-        LogVk("[Swapchain] No preferred surface format found — using fallback: " +
+        LogVk("[Swapchain] No preferred surface format found - using fallback: " +
               std::to_string(available[0].format));
         return available[0];
     }

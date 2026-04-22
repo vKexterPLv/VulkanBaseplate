@@ -32,7 +32,7 @@ namespace VCK {
 
         if (result != VK_SUCCESS)
         {
-            LogVk("VulkanBuffer::Create failed — vmaCreateBuffer returned "
+            LogVk("VulkanBuffer::Create failed - vmaCreateBuffer returned "
                 + std::to_string(result));
             return false;
         }
@@ -104,7 +104,7 @@ namespace VCK {
 
         if (result != VK_SUCCESS)
         {
-            LogVk("VulkanBuffer::Upload — vmaMapMemory failed: " + std::to_string(result));
+            LogVk("VulkanBuffer::Upload - vmaMapMemory failed: " + std::to_string(result));
             return false;
         }
 

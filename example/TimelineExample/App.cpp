@@ -84,7 +84,7 @@ namespace VCK::TimelineExample {
         ++timelineCounter;
         if (!timeline.Signal(timelineCounter))
         {
-            LogVk("[Timeline] Signal failed — skipping wait.");
+            LogVk("[Timeline] Signal failed - skipping wait.");
             return;
         }
 
@@ -198,16 +198,16 @@ namespace VCK::TimelineExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        // Try timeline — on most current builds this fails because the device
+        // Try timeline - on most current builds this fails because the device
         // feature bit is not enabled.  Log and continue either way.
         timelineAvailable = timeline.Initialize(device, /*initial*/ 0);
         if (timelineAvailable)
         {
-            LogVk("[TimelineExample] TimelineSemaphore OK — will probe every 60 frames.");
+            LogVk("[TimelineExample] TimelineSemaphore OK - will probe every 60 frames.");
         }
         else
         {
-            LogVk("[TimelineExample] TimelineSemaphore unavailable — "
+            LogVk("[TimelineExample] TimelineSemaphore unavailable - "
                   "enable the timelineSemaphore device feature to exercise this path.");
         }
     }

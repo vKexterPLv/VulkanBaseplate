@@ -6,7 +6,7 @@
 namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // Preferred overload — pulls swapchain colour format AND MSAA sample
+    // Preferred overload - pulls swapchain colour format AND MSAA sample
     // count out of the swapchain so the caller does not have to thread them
     // through manually.
     bool VulkanPipeline::Initialize(VulkanDevice&          device,
@@ -28,14 +28,14 @@ namespace VCK {
 
         // MSAA end-to-end requires a resolve attachment in the render pass and
         // a per-swapchain-image multisampled colour image.  Neither is wired
-        // yet — clamp to 1x and warn so users who set cfg.swapchain.msaaSamples
+        // yet - clamp to 1x and warn so users who set cfg.swapchain.msaaSamples
         // > 1 do not trip Vulkan validation / get a broken framebuffer.
         // Full MSAA support is a follow-up (see docs/Design.md "Roadmap").
         if (samples != VK_SAMPLE_COUNT_1_BIT)
         {
             LogVk("[VulkanPipeline] cfg.swapchain.msaaSamples > 1 is not yet "
                   "supported end-to-end (no resolve attachment). Clamping to "
-                  "VK_SAMPLE_COUNT_1_BIT — see docs/Design.md");
+                  "VK_SAMPLE_COUNT_1_BIT - see docs/Design.md");
             samples = VK_SAMPLE_COUNT_1_BIT;
         }
         m_Samples = samples;
@@ -68,7 +68,7 @@ namespace VCK {
     //  Render pass
     //  Single colour attachment.  loadOp = CLEAR, storeOp = STORE.
     //  Subpass: colour only, layout ATTACHMENT_OPTIMAL during pass.
-    //  Final layout: PRESENT_SRC_KHR — ready for vkQueuePresentKHR.
+    //  Final layout: PRESENT_SRC_KHR - ready for vkQueuePresentKHR.
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanPipeline::CreateRenderPass(VkFormat swapchainFormat)
     {
@@ -115,7 +115,7 @@ namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Pipeline layout
-    //  No descriptor sets, no push constants yet — add them when needed.
+    //  No descriptor sets, no push constants yet - add them when needed.
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanPipeline::CreatePipelineLayout()
     {
@@ -187,7 +187,7 @@ namespace VCK {
         inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-        // ── Viewport + scissor (dynamic — set at draw time) ───────────────────────
+        // ── Viewport + scissor (dynamic - set at draw time) ───────────────────────
         std::array<VkDynamicState, 2> dynamicStates = {
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR
@@ -202,7 +202,7 @@ namespace VCK {
         viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
         viewportState.viewportCount = 1;
         viewportState.scissorCount = 1;
-        // pViewports / pScissors left null — filled by vkCmdSetViewport/Scissor
+        // pViewports / pScissors left null - filled by vkCmdSetViewport/Scissor
 
         // ── Rasterizer ────────────────────────────────────────────────────────────
         VkPipelineRasterizationStateCreateInfo rasterizer{};
@@ -221,10 +221,10 @@ namespace VCK {
         multisampling.rasterizationSamples = m_Samples;
         multisampling.sampleShadingEnable = VK_FALSE;
 
-        // ── Depth / stencil (disabled — add when needed) ──────────────────────────
+        // ── Depth / stencil (disabled - add when needed) ──────────────────────────
         // Pass nullptr for pDepthStencilState when no depth attachment exists.
 
-        // ── Colour blend — standard alpha blend ──────────────────────────────────
+        // ── Colour blend - standard alpha blend ──────────────────────────────────
         VkPipelineColorBlendAttachmentState colorBlendAttachment{};
         colorBlendAttachment.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |

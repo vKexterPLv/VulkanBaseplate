@@ -33,7 +33,7 @@ namespace VCK::HelloExample {
     // ─────────────────────────────────────────────────────────────────────────
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
-    std::string title         = "HelloExample — Hello, World";
+    std::string title         = "HelloExample - Hello, World";
     GLFWwindow* window        = nullptr;
     int         window_width  = 1280;
     int         window_height = 720;
@@ -42,7 +42,7 @@ namespace VCK::HelloExample {
     bool g_Minimized = false;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex — matches the layout stb_easy_font emits (16 bytes):
+    //  Vertex - matches the layout stb_easy_font emits (16 bytes):
     //      x,y,z    : float
     //      color[4] : uint8 (RGBA, fed to shader via R8G8B8A8_UNORM)
     // ─────────────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ namespace VCK::HelloExample {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  DrawFrame  —  scheduler-driven
+    //  DrawFrame  -  scheduler-driven
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
@@ -118,14 +118,14 @@ namespace VCK::HelloExample {
         // ── Scheduler takes over the fence wait + cmd.BeginRecording ──────────
         Frame& f = scheduler.BeginFrame();
 
-        // ── Acquire (scheduler does not do this — different sema semantics) ──
+        // ── Acquire (scheduler does not do this - different sema semantics) ──
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                              UINT64_MAX, f.ImageAvailable(),
                                              VK_NULL_HANDLE, &imageIndex);
         if (acq == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            // Cancel this frame cleanly — record an empty pass so the cmd
+            // Cancel this frame cleanly - record an empty pass so the cmd
             // buffer is well-formed, then flush + resize.
             scheduler.EndFrame();
             HandleResize();
@@ -310,7 +310,7 @@ namespace VCK::HelloExample {
     }
 
     // =========================================================================
-    //  Shutdown  —  scheduler first, then expansion objects, then core
+    //  Shutdown  -  scheduler first, then expansion objects, then core
     // =========================================================================
     void Shutdown()
     {
