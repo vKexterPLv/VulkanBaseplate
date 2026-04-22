@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 #include "VulkanHelpers.h"   // VCK::Config, PresentMode
+#include "VulkanImage.h"     // MSAA resolve-source target
 #include <vector>
 
 namespace VCK {
@@ -56,6 +57,13 @@ namespace VCK {
         const std::vector<VkImage>& GetImages()       const { return m_Images; }
         const std::vector<VkImageView>& GetImageViews()   const { return m_ImageViews; }
 
+        // MSAA colour views, one per swapchain image.  Empty vector when
+        // cfg.swapchain.msaaSamples == VK_SAMPLE_COUNT_1_BIT (no MSAA).  The
+        // framebuffer binds MSAA view[i] as the colour attachment and the
+        // swapchain image view as the single-sample resolve attachment.
+        std::vector<VkImageView> GetMSAAColorViews() const;
+        bool                     HasMSAA()           const { return m_CfgSwapchain.msaaSamples != VK_SAMPLE_COUNT_1_BIT; }
+
         // Read back cfg.swapchain knobs after init (VulkanPipeline uses these).
         VkSampleCountFlagBits            GetMSAASamples()         const { return m_CfgSwapchain.msaaSamples;  }
         VkFormat                         GetPreferredDepthFormat()const { return m_CfgSwapchain.depthFormat;  }
@@ -80,6 +88,12 @@ namespace VCK {
 
         std::vector<VkImage>     m_Images;
         std::vector<VkImageView> m_ImageViews;
+
+        // Multisampled colour targets - one per swapchain image.  Only populated
+        // when cfg.swapchain.msaaSamples > 1.  Each target is TRANSIENT (tile
+        // memory on mobile GPUs, VRAM on desktop) and LAZILY_ALLOCATED if the
+        // driver supports it.
+        std::vector<VulkanImage> m_MsaaTargets;
 
         // Snapshot of cfg.swapchain (presentMode / imageCount / surfaceFormat /
         // msaaSamples / depthFormat).  Used by ChoosePresentMode / ChooseSurfaceFormat

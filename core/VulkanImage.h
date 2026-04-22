@@ -48,6 +48,18 @@ namespace VCK {
             VkImageUsageFlags  usageFlags,
             VkImageAspectFlags aspectFlags);
 
+        // MSAA / render-target overload.  samples > 1 produces a multisampled
+        // image; combine with VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT +
+        // VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT to let tile-based GPUs keep
+        // the surface in on-chip memory.
+        bool Create(VulkanDevice& device,
+            uint32_t              width,
+            uint32_t              height,
+            VkFormat              format,
+            VkImageUsageFlags     usageFlags,
+            VkImageAspectFlags    aspectFlags,
+            VkSampleCountFlagBits samples);
+
         void Shutdown();
 
         // ── Command recording ────────────────────────────────────────────────────

@@ -12,10 +12,21 @@ namespace VCK {
         VkImageUsageFlags  usageFlags,
         VkImageAspectFlags aspectFlags)
     {
+        return Create(device, width, height, format, usageFlags, aspectFlags,
+                      VK_SAMPLE_COUNT_1_BIT);
+    }
+
+    bool VulkanImage::Create(VulkanDevice&         device,
+        uint32_t              width,
+        uint32_t              height,
+        VkFormat              format,
+        VkImageUsageFlags     usageFlags,
+        VkImageAspectFlags    aspectFlags,
+        VkSampleCountFlagBits samples)
+    {
         m_Device = &device;
         m_Format = format;
         m_AspectFlags = aspectFlags;
-
         // ── VkImage via VMA ───────────────────────────────────────────────────────
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -24,7 +35,7 @@ namespace VCK {
         imageInfo.extent = { width, height, 1 };
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = 1;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.samples = samples;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;  // GPU-optimal, no linear access
         imageInfo.usage = usageFlags;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;

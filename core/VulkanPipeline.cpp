@@ -48,18 +48,12 @@ namespace VCK {
         m_Device      = &device;
         m_PipelineCfg = pipelineConfig;
 
-        // MSAA end-to-end requires a resolve attachment in the render pass and
-        // a per-swapchain-image multisampled colour image.  Neither is wired
-        // yet - clamp to 1x and warn so users who set cfg.swapchain.msaaSamples
-        // > 1 do not trip Vulkan validation / get a broken framebuffer.
-        // Full MSAA support is a follow-up (see docs/Design.md "Roadmap").
-        if (samples != VK_SAMPLE_COUNT_1_BIT)
-        {
-            LogVk("[VulkanPipeline] cfg.swapchain.msaaSamples > 1 is not yet "
-                  "supported end-to-end (no resolve attachment). Clamping to "
-                  "VK_SAMPLE_COUNT_1_BIT - see docs/Design.md");
-            samples = VK_SAMPLE_COUNT_1_BIT;
-        }
+        // MSAA end-to-end is wired:
+        //   - VulkanSwapchain owns one multisampled colour target per image.
+        //   - Render pass below adds a resolve attachment when samples > 1.
+        //   - VulkanFramebufferSet binds [MSAA view, swapchain view].
+        // Caller still supplies the sample count via the swapchain (see
+        // cfg.swapchain.msaaSamples); we simply mirror it here.
         m_Samples = samples;
 
         if (!CreateRenderPass(swapchainFormat))    return false;
@@ -94,24 +88,49 @@ namespace VCK {
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanPipeline::CreateRenderPass(VkFormat swapchainFormat)
     {
+        const bool useMsaa = (m_Samples != VK_SAMPLE_COUNT_1_BIT);
+
+        // Colour attachment (single-sample or multisampled depending on cfg).
+        // When MSAA is on this attachment is the multisampled render target and
+        // is DONT_CARE after the subpass (contents are consumed by the resolve).
         VkAttachmentDescription colorAttachment{};
-        colorAttachment.format = swapchainFormat;
-        colorAttachment.samples = m_Samples;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.format         = swapchainFormat;
+        colorAttachment.samples        = m_Samples;
+        colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp        = useMsaa ? VK_ATTACHMENT_STORE_OP_DONT_CARE
+                                                 : VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachment.finalLayout    = useMsaa ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                                 : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         VkAttachmentReference colorAttachmentRef{};
         colorAttachmentRef.attachment = 0;
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        // Resolve attachment (single-sample swapchain image) - only present when
+        // MSAA is enabled.  The subpass resolves the multisampled colour image
+        // into this attachment before transitioning it to PRESENT_SRC_KHR.
+        VkAttachmentDescription resolveAttachment{};
+        resolveAttachment.format         = swapchainFormat;
+        resolveAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+        resolveAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolveAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        resolveAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolveAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        resolveAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        resolveAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference resolveAttachmentRef{};
+        resolveAttachmentRef.attachment = 1;
+        resolveAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorAttachmentRef;
+        subpass.pResolveAttachments = useMsaa ? &resolveAttachmentRef : nullptr;
 
         // Dependency: wait for the previous present to finish writing before we
         // start writing colour again.
@@ -123,10 +142,12 @@ namespace VCK {
         dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
+        const VkAttachmentDescription attachments[2] = { colorAttachment, resolveAttachment };
+
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassInfo.attachmentCount = 1;
-        renderPassInfo.pAttachments = &colorAttachment;
+        renderPassInfo.attachmentCount = useMsaa ? 2u : 1u;
+        renderPassInfo.pAttachments    = attachments;
         renderPassInfo.subpassCount = 1;
         renderPassInfo.pSubpasses = &subpass;
         renderPassInfo.dependencyCount = 1;

@@ -569,10 +569,19 @@ public:
     VulkanModelPipeline& operator=(const VulkanModelPipeline&) = delete;
 
     // renderPass - from VulkanPipeline::GetRenderPass() (borrowed, not owned)
+    // samples    - must match the render pass's colour attachment samples.
+    //              Default is 1x; pass swapchain.GetMSAASamples() when using
+    //              an MSAA render pass so the pipeline's multisample state
+    //              lines up with the render pass.
     bool Initialize(VulkanDevice&                              device,
                     VkRenderPass                               renderPass,
                     const VulkanPipeline::ShaderInfo&          shaders,
                     const VulkanPipeline::VertexInputInfo&     vertexInput);
+    bool Initialize(VulkanDevice&                              device,
+                    VkRenderPass                               renderPass,
+                    const VulkanPipeline::ShaderInfo&          shaders,
+                    const VulkanPipeline::VertexInputInfo&     vertexInput,
+                    VkSampleCountFlagBits                      samples);
     void Shutdown();
 
     // ── Accessors ────────────────────────────────────────────────────────────
@@ -586,7 +595,8 @@ private:
     bool BuildPipelineLayout();
     bool BuildGraphicsPipeline(VkRenderPass                              renderPass,
                                const VulkanPipeline::ShaderInfo&         shaders,
-                               const VulkanPipeline::VertexInputInfo&    vertexInput);
+                               const VulkanPipeline::VertexInputInfo&    vertexInput,
+                               VkSampleCountFlagBits                     samples);
     VkShaderModule CreateShaderModule(const std::vector<uint32_t>& spirv);
 
     VulkanDevice*         m_Device         = nullptr;

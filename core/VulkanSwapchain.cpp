@@ -190,6 +190,34 @@ namespace VCK {
             VK_CHECK(vkCreateImageView(m_Device->GetDevice(), &viewInfo, nullptr, &m_ImageViews[i]));
         }
 
+        // -- MSAA colour targets (one per swapchain image) ---------------------
+        // When cfg.swapchain.msaaSamples > 1 we render into a multisampled colour
+        // image and the render pass resolves into the single-sample swapchain
+        // image.  TRANSIENT_ATTACHMENT_BIT lets tile-based GPUs keep the surface
+        // in on-chip memory (zero cost on desktop, big win on mobile).
+        if (m_CfgSwapchain.msaaSamples != VK_SAMPLE_COUNT_1_BIT)
+        {
+            m_MsaaTargets.resize(m_Images.size());
+            for (size_t i = 0; i < m_Images.size(); ++i)
+            {
+                const bool ok = m_MsaaTargets[i].Create(
+                    *m_Device,
+                    m_Extent.width, m_Extent.height,
+                    m_ImageFormat,
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                    VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+                    VK_IMAGE_ASPECT_COLOR_BIT,
+                    m_CfgSwapchain.msaaSamples);
+                if (!ok)
+                {
+                    LogVk("[Swapchain] ERROR - MSAA target[" + std::to_string(i) + "] creation failed");
+                    return false;
+                }
+            }
+            LogVk("[Swapchain] MSAA " + std::to_string(static_cast<int>(m_CfgSwapchain.msaaSamples)) +
+                  "x colour targets created (" + std::to_string(m_Images.size()) + ")");
+        }
+
         return true;
     }
 
@@ -199,6 +227,10 @@ namespace VCK {
             return;
 
         VkDevice device = m_Device->GetDevice();
+
+        for (VulkanImage& target : m_MsaaTargets)
+            target.Shutdown();
+        m_MsaaTargets.clear();
 
         for (VkImageView view : m_ImageViews)
             vkDestroyImageView(device, view, nullptr);
@@ -321,6 +353,15 @@ namespace VCK {
         actual.width = std::clamp(actual.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
         actual.height = std::clamp(actual.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
         return actual;
+    }
+
+    std::vector<VkImageView> VulkanSwapchain::GetMSAAColorViews() const
+    {
+        std::vector<VkImageView> out;
+        out.reserve(m_MsaaTargets.size());
+        for (const VulkanImage& t : m_MsaaTargets)
+            out.push_back(t.GetImageView());
+        return out;
     }
 
 } // namespace VCK

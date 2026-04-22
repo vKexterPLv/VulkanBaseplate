@@ -137,11 +137,31 @@ bool VulkanFramebufferSet::CreateAll(VkRenderPass renderPass, VkImageView depthV
     const auto& views  = m_Swapchain->GetImageViews();
     VkExtent2D  extent = m_Swapchain->GetExtent();
 
+    // When MSAA is enabled the pipeline's render pass declares
+    // [msaaColor, resolveColor] in that order, so the framebuffer has to bind
+    // the per-image MSAA view at slot 0 and the single-sample swapchain view
+    // at slot 1 (as the resolve target).  Without MSAA, slot 0 is just the
+    // swapchain view.  Depth view (when provided) is always appended last so
+    // it matches the render pass attachment order.
+    const bool              useMsaa = m_Swapchain->HasMSAA();
+    std::vector<VkImageView> msaaViews = useMsaa
+        ? m_Swapchain->GetMSAAColorViews()
+        : std::vector<VkImageView>{};
+
     m_Framebuffers.resize(views.size(), VK_NULL_HANDLE);
 
     for (size_t i = 0; i < views.size(); i++)
     {
-        std::vector<VkImageView> attachments = { views[i] };
+        std::vector<VkImageView> attachments;
+        if (useMsaa)
+        {
+            attachments.push_back(msaaViews[i]);   // colour   (multisampled)
+            attachments.push_back(views[i]);       // resolve  (swapchain)
+        }
+        else
+        {
+            attachments.push_back(views[i]);       // colour   (swapchain)
+        }
         if (depthView != VK_NULL_HANDLE)
             attachments.push_back(depthView);
 
@@ -544,11 +564,21 @@ bool VulkanModelPipeline::Initialize(VulkanDevice&                          devi
                                      const VulkanPipeline::ShaderInfo&      shaders,
                                      const VulkanPipeline::VertexInputInfo& vertexInput)
 {
+    return Initialize(device, renderPass, shaders, vertexInput,
+                      VK_SAMPLE_COUNT_1_BIT);
+}
+
+bool VulkanModelPipeline::Initialize(VulkanDevice&                          device,
+                                     VkRenderPass                           renderPass,
+                                     const VulkanPipeline::ShaderInfo&      shaders,
+                                     const VulkanPipeline::VertexInputInfo& vertexInput,
+                                     VkSampleCountFlagBits                  samples)
+{
     m_Device = &device;
 
-    if (!BuildDescriptorLayouts())                           return false;
-    if (!BuildPipelineLayout())                              return false;
-    if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput)) return false;
+    if (!BuildDescriptorLayouts())                                           return false;
+    if (!BuildPipelineLayout())                                              return false;
+    if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput, samples))   return false;
 
     LogVk("VulkanModelPipeline initialized");
     return true;
@@ -635,7 +665,8 @@ VkShaderModule VulkanModelPipeline::CreateShaderModule(const std::vector<uint32_
 bool VulkanModelPipeline::BuildGraphicsPipeline(
     VkRenderPass                              renderPass,
     const VulkanPipeline::ShaderInfo&         shaders,
-    const VulkanPipeline::VertexInputInfo&    vertexInput)
+    const VulkanPipeline::VertexInputInfo&    vertexInput,
+    VkSampleCountFlagBits                     samples)
 {
     VkShaderModule vertMod = CreateShaderModule(shaders.VertexSpirv);
     VkShaderModule fragMod = CreateShaderModule(shaders.FragmentSpirv);
@@ -696,10 +727,13 @@ bool VulkanModelPipeline::BuildGraphicsPipeline(
     raster.rasterizerDiscardEnable = VK_FALSE;
     raster.depthBiasEnable         = VK_FALSE;
 
-    // ── Multisampling (off) ───────────────────────────────────────────────────
+    // ── Multisampling ─────────────────────────────────────────────────────────
+    // Must match the render pass colour attachment samples.  Users of
+    // VulkanModelPipeline with MSAA should pass swapchain.GetMSAASamples() to
+    // Initialize(); the default overload uses 1x.
     VkPipelineMultisampleStateCreateInfo ms{};
     ms.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    ms.rasterizationSamples = samples;
     ms.sampleShadingEnable  = VK_FALSE;
 
     // ── Colour blend (alpha blend) ────────────────────────────────────────────
