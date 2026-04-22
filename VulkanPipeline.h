@@ -49,6 +49,52 @@ namespace VCK {
             std::vector<VkVertexInputAttributeDescription> Attributes;
         };
 
+        // -- Optional pipeline configuration --------------------------------------
+        //
+        // Per-pipeline knobs that used to be baked in.  All fields have sensible
+        // defaults that match the pre-Config behaviour, so existing call sites
+        // continue to work unchanged.  Pass a Config to any Initialize overload
+        // to override:
+        //
+        //   VulkanPipeline::Config pc;
+        //   pc.cullMode             = VK_CULL_MODE_NONE;
+        //   pc.blendEnable          = false;
+        //   pc.descriptorSetLayouts = { myDescLayout };
+        //   pc.pushConstantRanges   = { { VK_SHADER_STAGE_VERTEX_BIT, 0, 64 } };
+        //   pipeline.Initialize(device, swapchain, shaders, vi, pc);
+        //
+        // descriptorSetLayouts and pushConstantRanges are borrowed - the caller
+        // keeps ownership, VulkanPipeline just hands the handles to
+        // vkCreatePipelineLayout.  They must outlive Initialize() but do not
+        // need to outlive the pipeline object.
+        struct Config
+        {
+            // Rasterizer
+            VkPrimitiveTopology   topology       = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            VkPolygonMode         polygonMode    = VK_POLYGON_MODE_FILL;
+            VkCullModeFlags       cullMode       = VK_CULL_MODE_BACK_BIT;
+            VkFrontFace           frontFace      = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            float                 lineWidth      = 1.0f;
+
+            // Colour blend (single attachment matching the swapchain).  The
+            // default matches the pre-Config behaviour: standard alpha blend.
+            bool                  blendEnable         = true;
+            VkBlendFactor         srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            VkBlendFactor         dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            VkBlendOp             colorBlendOp        = VK_BLEND_OP_ADD;
+            VkBlendFactor         srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            VkBlendFactor         dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            VkBlendOp             alphaBlendOp        = VK_BLEND_OP_ADD;
+            VkColorComponentFlags colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+            // Pipeline layout (borrowed handles)
+            std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+            std::vector<VkPushConstantRange>   pushConstantRanges;
+        };
+
+
         // ─────────────────────────────────────────────────────────────────────────
         VulkanPipeline() = default;
         ~VulkanPipeline() = default;
@@ -64,12 +110,25 @@ namespace VCK {
                         const ShaderInfo&      shaders,
                         const VertexInputInfo& vertexInput);
 
+        bool Initialize(VulkanDevice&          device,
+                        VulkanSwapchain&       swapchain,
+                        const ShaderInfo&      shaders,
+                        const VertexInputInfo& vertexInput,
+                        const Config&          pipelineConfig);
+
         // Explicit-format / explicit-samples overload - MSAA = 1x by default.
         bool Initialize(VulkanDevice& device,
             VkFormat               swapchainFormat,
             const ShaderInfo& shaders,
             const VertexInputInfo& vertexInput,
             VkSampleCountFlagBits  samples = VK_SAMPLE_COUNT_1_BIT);
+
+        bool Initialize(VulkanDevice&          device,
+            VkFormat               swapchainFormat,
+            const ShaderInfo&      shaders,
+            const VertexInputInfo& vertexInput,
+            VkSampleCountFlagBits  samples,
+            const Config&          pipelineConfig);
 
         void Shutdown();
 
@@ -92,6 +151,10 @@ namespace VCK {
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline       m_Pipeline = VK_NULL_HANDLE;
         VkSampleCountFlagBits m_Samples = VK_SAMPLE_COUNT_1_BIT;
+
+        // Snapshot of the caller's per-pipeline config.  Defaults match the
+        // pre-Config behaviour, so zero-arg Initialize() is unchanged.
+        Config m_PipelineCfg;
     };
 
 } // namespace VCK

@@ -18,13 +18,35 @@ namespace VCK {
                           swapchain.GetMSAASamples());
     }
 
+    bool VulkanPipeline::Initialize(VulkanDevice&          device,
+                                    VulkanSwapchain&       swapchain,
+                                    const ShaderInfo&      shaders,
+                                    const VertexInputInfo& vertexInput,
+                                    const Config&          pipelineConfig)
+    {
+        return Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput,
+                          swapchain.GetMSAASamples(), pipelineConfig);
+    }
+
     bool VulkanPipeline::Initialize(VulkanDevice& device,
         VkFormat               swapchainFormat,
         const ShaderInfo& shaders,
         const VertexInputInfo& vertexInput,
         VkSampleCountFlagBits  samples)
     {
-        m_Device  = &device;
+        // Zero-config forwarder: matches the pre-Config behaviour.
+        return Initialize(device, swapchainFormat, shaders, vertexInput, samples, Config{});
+    }
+
+    bool VulkanPipeline::Initialize(VulkanDevice&          device,
+        VkFormat               swapchainFormat,
+        const ShaderInfo&      shaders,
+        const VertexInputInfo& vertexInput,
+        VkSampleCountFlagBits  samples,
+        const Config&          pipelineConfig)
+    {
+        m_Device      = &device;
+        m_PipelineCfg = pipelineConfig;
 
         // MSAA end-to-end requires a resolve attachment in the render pass and
         // a per-swapchain-image multisampled colour image.  Neither is wired
@@ -121,10 +143,14 @@ namespace VCK {
     {
         VkPipelineLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layoutInfo.setLayoutCount = 0;
-        layoutInfo.pSetLayouts = nullptr;
-        layoutInfo.pushConstantRangeCount = 0;
-        layoutInfo.pPushConstantRanges = nullptr;
+        layoutInfo.setLayoutCount         = static_cast<uint32_t>(m_PipelineCfg.descriptorSetLayouts.size());
+        layoutInfo.pSetLayouts            = m_PipelineCfg.descriptorSetLayouts.empty()
+                                          ? nullptr
+                                          : m_PipelineCfg.descriptorSetLayouts.data();
+        layoutInfo.pushConstantRangeCount = static_cast<uint32_t>(m_PipelineCfg.pushConstantRanges.size());
+        layoutInfo.pPushConstantRanges    = m_PipelineCfg.pushConstantRanges.empty()
+                                          ? nullptr
+                                          : m_PipelineCfg.pushConstantRanges.data();
 
         return VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout));
     }
@@ -184,7 +210,7 @@ namespace VCK {
         // ── Input assembly ────────────────────────────────────────────────────────
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.topology = m_PipelineCfg.topology;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
 
         // ── Viewport + scissor (dynamic - set at draw time) ───────────────────────
@@ -209,10 +235,10 @@ namespace VCK {
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.polygonMode = m_PipelineCfg.polygonMode;
+        rasterizer.lineWidth   = m_PipelineCfg.lineWidth;
+        rasterizer.cullMode    = m_PipelineCfg.cullMode;
+        rasterizer.frontFace   = m_PipelineCfg.frontFace;
         rasterizer.depthBiasEnable = VK_FALSE;
 
         // ── Multisampling (off) ───────────────────────────────────────────────────
@@ -226,16 +252,14 @@ namespace VCK {
 
         // ── Colour blend - standard alpha blend ──────────────────────────────────
         VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-        colorBlendAttachment.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttachment.blendEnable = VK_TRUE;
-        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.colorWriteMask      = m_PipelineCfg.colorWriteMask;
+        colorBlendAttachment.blendEnable         = m_PipelineCfg.blendEnable ? VK_TRUE : VK_FALSE;
+        colorBlendAttachment.srcColorBlendFactor = m_PipelineCfg.srcColorBlendFactor;
+        colorBlendAttachment.dstColorBlendFactor = m_PipelineCfg.dstColorBlendFactor;
+        colorBlendAttachment.colorBlendOp        = m_PipelineCfg.colorBlendOp;
+        colorBlendAttachment.srcAlphaBlendFactor = m_PipelineCfg.srcAlphaBlendFactor;
+        colorBlendAttachment.dstAlphaBlendFactor = m_PipelineCfg.dstAlphaBlendFactor;
+        colorBlendAttachment.alphaBlendOp        = m_PipelineCfg.alphaBlendOp;
 
         VkPipelineColorBlendStateCreateInfo colorBlending{};
         colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
