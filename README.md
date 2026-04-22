@@ -554,15 +554,44 @@ vmm.EndFrame(slot);   // submits staging batch, resets ring
 
 ## Examples
 
-Three runnable examples, each built with `example/build.bat`:
+Nine runnable examples, each built from the menu in `example/build.bat`.
+Every example follows the same three-file layout:
+
+```
+<ExampleName>/
+    main.cpp       // 4 lines — calls Run()
+    App.h          // namespace + forward decls
+    App.cpp        // Init / DrawFrame / Shutdown / Run
+    assets/        // .glsl source + .spv output
+```
+
+### Core reference (no FrameScheduler)
+
+These three exercise the raw `VulkanSync` / `VulkanCommand` path — use them
+to understand the unscheduled lifecycle.
 
 | # | Example          | Demonstrates |
 |---|------------------|--------------|
-| 1 | `RGBTriangle`    | core-only — coloured triangle, live window resize |
-| 2 | `MipmapExample`  | expansion layer — texture upload + mipmap generation + sampling |
-| 3 | `VMMExample`     | VMM — persistent triangle, transient animated quad, checkerboard texture, `LogStats()` every 120 frames |
+| 1 | `RGBTriangle`    | coloured triangle, live window resize |
+| 2 | `MipmapExample`  | texture upload + mipmap generation + sampling |
+| 3 | `VMMExample`     | persistent triangle, transient animated quad, checkerboard texture, `LogStats()` every 120 frames |
 
-Each example drives `VulkanSync` directly (no `FrameScheduler`) — they're the "core" reference. The [Hello VCK](#hello-vck) snippet above is the `FrameScheduler` reference.
+### VCKExpansion execution layer
+
+Every example in this group uses `FrameScheduler` and the rest of the
+`VCKExpansion` execution layer.  Same triangle scene, different emphasis:
+
+| # | Example                     | Demonstrates |
+|---|-----------------------------|--------------|
+| 4 | `HelloExample`              | smallest `FrameScheduler` program — `BeginFrame` / acquire / record / `QueueGraphics` / `EndFrame` / present |
+| 5 | `JobGraphExample`           | CPU task graph per frame — `physics` ∥ `animate` → `build-cmds`, `audio` parallel, per-job timing logged every 60 frames |
+| 6 | `SchedulerPolicyExample`    | press `1` / `2` / `3` to live-swap `Lockstep` / `Pipelined` / `AsyncMax`; window title shows current policy, average CPU frame µs logged every 120 frames |
+| 7 | `SubmissionBatchingExample` | two independent cmd buffers per frame queued through `GpuSubmissionBatcher` → **one** `vkQueueSubmit` |
+| 8 | `TimelineExample`           | `TimelineSemaphore::Initialize` probe + host-signal / `DependencyToken::WaitHost` round-trip (logs fallback when the device feature is not enabled) |
+| 9 | `DebugTimelineExample`      | `cfg.enableTimeline = true`, user `BeginCpuSpan` / `EndCpuSpan` / `NoteStall`, `scheduler.Timeline().Dump()` every 120 frames |
+
+The [Hello VCK](#hello-vck) snippet in the intro is the reference; `HelloExample`
+is that snippet split into the standard three-file layout.
 
 ---
 

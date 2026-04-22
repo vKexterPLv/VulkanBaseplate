@@ -1318,11 +1318,15 @@ void DebugTimeline::NoteStall(const char* reason, uint64_t frame, uint64_t durat
     if (!m_Enabled) return;
     std::lock_guard<std::mutex> lk(m_Mu);
     Span s;
+    // NoteStall is called *after* the stall has completed, so NowUs() is
+    // the end of the stall, not its beginning.  Anchor the span backwards
+    // by durationUs so Dump() lines it up with the surrounding CPU spans.
+    const uint64_t now = NowUs();
     s.name    = reason ? reason : "stall";
     s.track   = "STALL";
     s.frame   = frame;
-    s.startUs = NowUs();
-    s.endUs   = s.startUs + durationUs;
+    s.startUs = now >= durationUs ? now - durationUs : 0;
+    s.endUs   = now;
     m_Spans.push_back(std::move(s));
 }
 

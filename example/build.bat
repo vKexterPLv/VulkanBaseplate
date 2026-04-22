@@ -78,16 +78,31 @@ set VKB=..\VmaImpl.cpp ..\VulkanBuffer.cpp ..\VulkanCommand.cpp ..\VulkanContext
 echo.
 echo  VCK - example builder
 echo  -----------------------------------
-echo  [1]  RGBTriangle    - coloured triangle, live resize
-echo  [2]  MipmapExample  - mip chain generation and sampling
-echo  [3]  VMMExample     - VulkanMemoryManager all three layers
+echo  [1]  RGBTriangle                - coloured triangle, live resize
+echo  [2]  MipmapExample              - mip chain generation and sampling
+echo  [3]  VMMExample                 - VulkanMemoryManager all three layers
+echo  ---  VCKExpansion execution layer  ---
+echo  [4]  HelloExample               - minimal FrameScheduler + triangle
+echo  [5]  JobGraphExample            - CPU task graph with dependencies
+echo  [6]  SchedulerPolicyExample     - switch Lockstep / Pipelined / AsyncMax at runtime
+echo  [7]  SubmissionBatchingExample  - 2 cmd buffers, 1 vkQueueSubmit
+echo  [8]  TimelineExample            - TimelineSemaphore + DependencyToken smoke test
+echo  [9]  DebugTimelineExample       - span recorder + Dump every 120 frames
+echo  [A]  All  (builds 1..9 in sequence)
 echo  [0]  Exit
 echo.
 set /p CHOICE=" Select: "
 
+if /i "%CHOICE%"=="A" goto BUILD_ALL
 if "%CHOICE%"=="1" goto BUILD_TRIANGLE
 if "%CHOICE%"=="2" goto BUILD_MIPMAP
 if "%CHOICE%"=="3" goto BUILD_VMM
+if "%CHOICE%"=="4" goto BUILD_HELLO
+if "%CHOICE%"=="5" goto BUILD_JOBGRAPH
+if "%CHOICE%"=="6" goto BUILD_POLICY
+if "%CHOICE%"=="7" goto BUILD_BATCHING
+if "%CHOICE%"=="8" goto BUILD_TIMELINE
+if "%CHOICE%"=="9" goto BUILD_DBGTIMELINE
 if "%CHOICE%"=="0" exit /b 0
 echo Unknown: %CHOICE%
 exit /b 1
@@ -147,6 +162,128 @@ if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
 echo.
 echo  OK  %EX%\%EX%.exe
 echo  Run: cd %EX% ^&^& %EX%.exe
+goto END
+
+:: =============================================================================
+:: VCKExpansion execution-layer examples.
+::
+:: All six share the same Vertex layout + shader shape, so we reuse a small
+:: macro-ish pattern: each label sets EX and the assets file stem, compiles
+:: the .vert/.frag, then compiles C++ against the shared VKB list.
+:: =============================================================================
+
+:BUILD_HELLO
+set EX=HelloExample
+set STEM=hello
+goto COMPILE_EX_WITH_STEM
+
+:BUILD_JOBGRAPH
+set EX=JobGraphExample
+set STEM=JobGraphExample
+goto COMPILE_EX_WITH_STEM
+
+:BUILD_POLICY
+set EX=SchedulerPolicyExample
+set STEM=SchedulerPolicyExample
+goto COMPILE_EX_WITH_STEM
+
+:BUILD_BATCHING
+set EX=SubmissionBatchingExample
+set STEM=SubmissionBatchingExample
+goto COMPILE_EX_WITH_STEM
+
+:BUILD_TIMELINE
+set EX=TimelineExample
+set STEM=TimelineExample
+goto COMPILE_EX_WITH_STEM
+
+:BUILD_DBGTIMELINE
+set EX=DebugTimelineExample
+set STEM=DebugTimelineExample
+goto COMPILE_EX_WITH_STEM
+
+:COMPILE_EX_WITH_STEM
+set ASSETS=%EX%\assets
+echo.
+echo [%EX%] Compiling shaders...
+if not exist "%ASSETS%" mkdir "%ASSETS%"
+glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv
+if errorlevel 1 ( echo FAILED: %STEM%.vert & exit /b 1 )
+glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv
+if errorlevel 1 ( echo FAILED: %STEM%.frag & exit /b 1 )
+echo [%EX%] Compiling C++...
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
+if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
+echo.
+echo  OK  %EX%\%EX%.exe
+echo  Run: cd %EX% ^&^& %EX%.exe
+goto END
+
+:: =============================================================================
+:BUILD_ALL
+call :DO_BUILD_TRIANGLE     || exit /b 1
+call :DO_BUILD_MIPMAP       || exit /b 1
+call :DO_BUILD_VMM          || exit /b 1
+set EX=HelloExample              & set STEM=hello                       & call :DO_COMPILE || exit /b 1
+set EX=JobGraphExample           & set STEM=JobGraphExample              & call :DO_COMPILE || exit /b 1
+set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample       & call :DO_COMPILE || exit /b 1
+set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample    & call :DO_COMPILE || exit /b 1
+set EX=TimelineExample           & set STEM=TimelineExample              & call :DO_COMPILE || exit /b 1
+set EX=DebugTimelineExample      & set STEM=DebugTimelineExample         & call :DO_COMPILE || exit /b 1
+echo.
+echo  OK  all examples built.
+goto END
+
+:DO_BUILD_TRIANGLE
+set EX=RGBTriangle
+set ASSETS=%EX%\assets
+echo.
+echo [%EX%] Compiling shaders...
+if not exist "%ASSETS%" mkdir "%ASSETS%"
+glslangValidator -V %ASSETS%\triangle.vert -o %ASSETS%\triangle.vert.spv || exit /b 1
+glslangValidator -V %ASSETS%\triangle.frag -o %ASSETS%\triangle.frag.spv || exit /b 1
+echo [%EX%] Compiling C++...
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
+echo  OK  %EX%\%EX%.exe
+exit /b 0
+
+:DO_BUILD_MIPMAP
+set EX=MipmapExample
+set ASSETS=%EX%\assets
+echo.
+echo [%EX%] Compiling shaders...
+if not exist "%ASSETS%" mkdir "%ASSETS%"
+glslangValidator -V %ASSETS%\mip.vert -o %ASSETS%\mip.vert.spv || exit /b 1
+glslangValidator -V %ASSETS%\mip.frag -o %ASSETS%\mip.frag.spv || exit /b 1
+echo [%EX%] Compiling C++...
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
+echo  OK  %EX%\%EX%.exe
+exit /b 0
+
+:DO_BUILD_VMM
+set EX=VMMExample
+set ASSETS=%EX%\assets
+echo.
+echo [%EX%] Compiling shaders...
+if not exist "%ASSETS%" mkdir "%ASSETS%"
+glslangValidator -V %ASSETS%\vmm.vert -o %ASSETS%\vmm.vert.spv || exit /b 1
+glslangValidator -V %ASSETS%\vmm.frag -o %ASSETS%\vmm.frag.spv || exit /b 1
+echo [%EX%] Compiling C++...
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\VMM\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
+echo  OK  %EX%\%EX%.exe
+exit /b 0
+
+:DO_COMPILE
+set ASSETS=%EX%\assets
+echo.
+echo [%EX%] Compiling shaders...
+if not exist "%ASSETS%" mkdir "%ASSETS%"
+glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv || exit /b 1
+glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv || exit /b 1
+echo [%EX%] Compiling C++...
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
+echo  OK  %EX%\%EX%.exe
+exit /b 0
 
 :END
 echo.
