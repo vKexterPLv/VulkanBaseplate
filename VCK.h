@@ -127,7 +127,7 @@
 #include "core/VulkanPipeline.h"
 #include "core/VulkanSync.h"
 #include "core/VulkanCommand.h"
-#include "core/VCKWindow.h"    // VCK::Window - cross-platform GLFW facade
+#include "VCKCrossplatform.h"   // VCK::Window + platform detection (Windows / Linux / macOS)
 
 
 
