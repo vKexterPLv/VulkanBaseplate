@@ -111,6 +111,10 @@ private:
 //    // in DrawFrame():
 //    rp.framebuffer = fbs.Get(imageIndex);
 // =============================================================================
+// Forward decl — VulkanDepthBuffer is defined below but some VulkanFramebufferSet
+// overloads take it by reference.
+class VulkanDepthBuffer;
+
 class VulkanFramebufferSet
 {
 public:
