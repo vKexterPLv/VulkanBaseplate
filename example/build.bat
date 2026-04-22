@@ -73,7 +73,11 @@ if not exist "deps\glfw\include\GLFW\glfw3.h" (
 )
 
 :: ── Shared flags -------------------------------------------------------------
-set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\core -I"%VULKAN_SDK%\Include"
+:: -DGLFW_INCLUDE_VULKAN makes every TU's first GLFW include pull vulkan.h, so
+:: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
+:: user code includes <GLFW/glfw3.h> before "VCK.h" / "core/VCKWindow.h".
+set DEFINES=-DGLFW_INCLUDE_VULKAN
+set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\core -I"%VULKAN_SDK%\Include" %DEFINES%
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
 set VKB=..\core\VmaImpl.cpp ..\core\VulkanBuffer.cpp ..\core\VulkanCommand.cpp ..\core\VulkanContext.cpp ..\core\VulkanDevice.cpp ..\core\VulkanHelpers.cpp ..\core\VulkanImage.cpp ..\core\VulkanPipeline.cpp ..\core\VulkanSwapchain.cpp ..\core\VulkanSync.cpp ..\VCKExpansion.cpp
 
