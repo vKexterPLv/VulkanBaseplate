@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include "VulkanHelpers.h"   // VCK::Config, PresentMode
 #include <vector>
 
 namespace VCK {
@@ -30,11 +31,17 @@ namespace VCK {
         // surface  — VkSurfaceKHR from VulkanContext
         // width/height — initial client area size
         // Preferred overload — pulls the surface from the context.
+        // Config overloads let the caller pick presentMode / imageCount /
+        // surfaceFormat / msaaSamples / depthFormat.
         bool Initialize(VulkanDevice& device, VulkanContext& context,
             uint32_t width, uint32_t height);
+        bool Initialize(VulkanDevice& device, VulkanContext& context,
+            uint32_t width, uint32_t height, const Config& cfg);
 
         bool Initialize(VulkanDevice& device, VkSurfaceKHR surface,
             uint32_t width, uint32_t height);
+        bool Initialize(VulkanDevice& device, VkSurfaceKHR surface,
+            uint32_t width, uint32_t height, const Config& cfg);
 
         void Shutdown();
 
@@ -48,6 +55,10 @@ namespace VCK {
         uint32_t                          GetImageCount()   const { return static_cast<uint32_t>(m_Images.size()); }
         const std::vector<VkImage>& GetImages()       const { return m_Images; }
         const std::vector<VkImageView>& GetImageViews()   const { return m_ImageViews; }
+
+        // Read back cfg.swapchain knobs after init (VulkanPipeline uses these).
+        VkSampleCountFlagBits            GetMSAASamples()         const { return m_CfgSwapchain.msaaSamples;  }
+        VkFormat                         GetPreferredDepthFormat()const { return m_CfgSwapchain.depthFormat;  }
 
     private:
         bool CreateSwapchain(uint32_t width, uint32_t height);
@@ -69,6 +80,11 @@ namespace VCK {
 
         std::vector<VkImage>     m_Images;
         std::vector<VkImageView> m_ImageViews;
+
+        // Snapshot of cfg.swapchain (presentMode / imageCount / surfaceFormat /
+        // msaaSamples / depthFormat).  Used by ChoosePresentMode / ChooseSurfaceFormat
+        // / imageCount logic and surfaced via GetMSAASamples / GetPreferredDepthFormat.
+        Config::SwapchainCfg     m_CfgSwapchain;
     };
 
 } // namespace VCK

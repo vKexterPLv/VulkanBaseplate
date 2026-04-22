@@ -22,9 +22,18 @@ namespace VCK {
     // ===========================================================================
 
     bool VulkanContext::Initialize(HWND windowHandle, const std::string& appName) {
+        // Zero-config path: inflate appName into a Config and delegate.
+        Config cfg;
+        cfg.context.appName = appName;
+        return Initialize(windowHandle, cfg);
+    }
+
+    bool VulkanContext::Initialize(HWND windowHandle, const Config& cfg) {
         LogVk("[VulkanContext] Initialize begin");
 
-        if (!CreateInstance(appName)) {
+        m_CfgContext = cfg.context;
+
+        if (!CreateInstance(cfg.context.appName)) {
             LogVk("[VulkanContext] FAILED: CreateInstance");
             return false;
         }
@@ -72,13 +81,18 @@ namespace VCK {
 
     bool VulkanContext::CreateInstance(const std::string& appName) {
         // --- Validation layers ---------------------------------------------------
-        ValidationEnabled = k_WantValidation && CheckValidationLayerSupport();
+        // Validation is compiled-in when VULKAN_VALIDATION is defined AND the
+        // user has not disabled it via cfg.context.enableValidation.
+        const bool wantValidation = k_WantValidation && m_CfgContext.enableValidation;
+        ValidationEnabled = wantValidation && CheckValidationLayerSupport();
 
-        if (k_WantValidation && !ValidationEnabled)
+        if (wantValidation && !ValidationEnabled)
             LogVk("[VulkanContext] WARNING: Validation requested but VK_LAYER_KHRONOS_validation not found");
 
         // --- Extensions ----------------------------------------------------------
         EnabledExtensions = BuildRequiredExtensions();
+        for (const char* extra : m_CfgContext.extraInstanceExtensions)
+            EnabledExtensions.push_back(extra);
 
         // --- App info ------------------------------------------------------------
         VkApplicationInfo appInfo{};
@@ -110,16 +124,19 @@ namespace VCK {
         createInfo.enabledExtensionCount = static_cast<uint32_t>(EnabledExtensions.size());
         createInfo.ppEnabledExtensionNames = EnabledExtensions.data();
 
-        const char* validationLayer = VALIDATION_LAYER;
-        if (ValidationEnabled) {
-            createInfo.enabledLayerCount = 1;
-            createInfo.ppEnabledLayerNames = &validationLayer;
+        // Build the final layer list: validation (if requested + available) +
+        // user-supplied extras.  pNext chain only wires the debug messenger when
+        // validation actually came up.
+        std::vector<const char*> enabledLayers;
+        if (ValidationEnabled)
+            enabledLayers.push_back(VALIDATION_LAYER);
+        for (const char* extra : m_CfgContext.extraInstanceLayers)
+            enabledLayers.push_back(extra);
+
+        createInfo.enabledLayerCount   = static_cast<uint32_t>(enabledLayers.size());
+        createInfo.ppEnabledLayerNames = enabledLayers.empty() ? nullptr : enabledLayers.data();
+        if (ValidationEnabled)
             createInfo.pNext = &debugCreateInfo;
-        }
-        else {
-            createInfo.enabledLayerCount = 0;
-            createInfo.ppEnabledLayerNames = nullptr;
-        }
 
         VkResult result = vkCreateInstance(&createInfo, nullptr, &Instance);
         if (result != VK_SUCCESS) {

@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"   // AMD VMA — place vk_mem_alloc.h in src/render/vulkan/
+#include "VulkanHelpers.h"   // VCK::Config
 
 #include <string>
 #include <optional>
@@ -51,8 +52,12 @@ namespace VCK {
         VulkanDevice& operator=(const VulkanDevice&) = delete;
 
         // Preferred overload — pulls instance + surface from the context.
+        // The Config overloads let the caller control preferDiscreteGpu,
+        // extra device extensions, and queue preference.
         bool Initialize(VulkanContext& context);
+        bool Initialize(VulkanContext& context, const Config& cfg);
         bool Initialize(VkInstance instance, VkSurfaceKHR surface);
+        bool Initialize(VkInstance instance, VkSurfaceKHR surface, const Config& cfg);
         void Shutdown();
 
         // ── Core accessors ───────────────────────────────────────────────────────
@@ -92,6 +97,9 @@ namespace VCK {
         VkQueue            m_PresentQueue = VK_NULL_HANDLE;
         VmaAllocator       m_Allocator = VK_NULL_HANDLE;
         QueueFamilyIndices m_QueueFamilyIndices;
+
+        // Snapshot of cfg.device (preferDiscreteGpu / extra exts / queue pref).
+        Config::DeviceCfg  m_CfgDevice;
 
         static constexpr const char* k_RequiredDeviceExtensions[] = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME

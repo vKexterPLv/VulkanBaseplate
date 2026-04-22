@@ -111,6 +111,36 @@ int main()
 }
 ```
 
+## Optional `VCK::Config`
+
+Every `Initialize(...)` in the core has a zero-arg form *and* an overload that
+takes a `const VCK::Config&` — one struct, nested by class. Pass only the
+knobs you care about; everything else uses sensible defaults matching the
+zero-arg behaviour.
+
+```cpp
+VCK::Config cfg;
+cfg.context.appName        = "Hello VCK";
+cfg.context.enableValidation = true;                             // debug only
+cfg.device.preferDiscreteGpu = true;
+cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;          // Auto | Fifo | Mailbox | Immediate
+cfg.swapchain.imageCount   = 3;                                  // 0 = minImageCount + 1
+cfg.swapchain.msaaSamples  = VK_SAMPLE_COUNT_4_BIT;              // wired through pipeline + render pass
+cfg.sync.framesInFlight    = 3;                                  // clamped to MAX_FRAMES_IN_FLIGHT
+
+ctx.Initialize (hwnd, cfg);
+dev.Initialize (ctx,  cfg);
+sc .Initialize (dev, ctx, w, h, cfg);
+sync.Initialize(dev,  cfg);
+cmd.Initialize (dev,  cfg);
+pipe.Initialize(dev, sc, shaders, vi);    // pulls msaaSamples from the swapchain
+```
+
+Mailbox requests fall back to FIFO if the driver doesn't expose it, and
+`framesInFlight` is clamped to the compile-time upper bound
+`VCK::MAX_FRAMES_IN_FLIGHT` (= 3). Deeper pipelining needs
+`VK_KHR_timeline_semaphore` — a separate track.
+
 ## Examples
 
 Nine runnable examples in `example/`. All follow a 3-file + `assets/` layout

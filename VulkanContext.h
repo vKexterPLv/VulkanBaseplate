@@ -5,6 +5,7 @@
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
+#include "VulkanHelpers.h"   // VCK::Config
 
 #include <string>
 #include <vector>
@@ -37,6 +38,11 @@ namespace VCK {
 
         // Creates instance + debug messenger + surface.
         // Returns false and logs reason on failure.
+        //
+        // Preferred form: pass a VCK::Config with whatever appName /
+        // validation / extra layers-and-extensions you want.  Zero-config
+        // form keeps working — it just inflates appName into a default Config.
+        bool Initialize(HWND windowHandle, const Config& cfg);
         bool Initialize(HWND windowHandle, const std::string& appName);
 
         // Destroys surface, debug messenger, instance — in correct order.
@@ -85,6 +91,9 @@ namespace VCK {
 
         std::vector<const char*>   EnabledExtensions;
         bool                       ValidationEnabled = false;
+
+        // Snapshot of cfg.context (appName / validation / extra layers+exts).
+        Config::ContextCfg         m_CfgContext;
 
         // Validation layer name — single source of truth
         static constexpr const char* VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";

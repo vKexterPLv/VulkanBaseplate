@@ -909,7 +909,10 @@ private:
 class BackpressureGovernor
 {
 public:
-    void Initialize(FramePolicy policy, uint32_t maxLag);
+    //  framesInFlight is taken from VulkanSync's runtime count (capped at
+    //  MAX_FRAMES_IN_FLIGHT).  maxLag is clamped to framesInFlight with a
+    //  warning if the user asks for more.
+    void Initialize(FramePolicy policy, uint32_t maxLag, uint32_t framesInFlight = MAX_FRAMES_IN_FLIGHT);
     void Shutdown();
 
     void NoteCpuFrameStart(uint64_t absoluteFrame);
@@ -1230,6 +1233,11 @@ private:
     std::array<Frame,    MAX_FRAMES_IN_FLIGHT> m_Frames{};
     std::array<JobGraph, MAX_FRAMES_IN_FLIGHT> m_Jobs{};
     std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> m_SlotAbsolute{};
+
+    // Runtime frames-in-flight captured from VulkanSync (clamped to
+    // MAX_FRAMES_IN_FLIGHT).  Loops over m_Frames / m_Jobs / m_SlotAbsolute
+    // use this, not the compile-time bound.
+    uint32_t m_FramesInFlight = 2;
 
     uint64_t m_Absolute = 0;
     bool     m_InFrame  = false;

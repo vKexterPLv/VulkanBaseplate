@@ -6,7 +6,21 @@ namespace VCK {
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::Initialize(VulkanDevice& device)
     {
+        // Zero-config path: default Config gives framesInFlight=2.
+        Config cfg;
+        return Initialize(device, cfg);
+    }
+
+    bool VulkanCommand::Initialize(VulkanDevice& device, const Config& cfg)
+    {
         m_Device = &device;
+
+        // Clamp requested count into [1, MAX_FRAMES_IN_FLIGHT].
+        uint32_t requested = cfg.sync.framesInFlight;
+        if (requested == 0) requested = 1;
+        if (requested > MAX_FRAMES_IN_FLIGHT)
+            requested = MAX_FRAMES_IN_FLIGHT;
+        m_FramesInFlight = requested;
 
         // ── Command pool ──────────────────────────────────────────────────────────
         // RESET_COMMAND_BUFFER_BIT: individual buffers can be reset without
@@ -25,13 +39,13 @@ namespace VCK {
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_CommandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.commandBufferCount = m_FramesInFlight;
 
         if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
             return false;
 
         LogVk("VulkanCommand initialized — pool + "
-            + std::to_string(MAX_FRAMES_IN_FLIGHT) + " command buffers");
+            + std::to_string(m_FramesInFlight) + " command buffers");
         return true;
     }
 

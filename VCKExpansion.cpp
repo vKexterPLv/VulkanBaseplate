@@ -1056,23 +1056,26 @@ void GpuSubmissionBatcher::FlushQueue(VkQueue q, std::vector<Entry>& bucket, VkF
 // -----------------------------------------------------------------------------
 // [18] BackpressureGovernor
 // -----------------------------------------------------------------------------
-void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag)
+void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag, uint32_t framesInFlight)
 {
     m_Policy = policy;
 
-    // Clamp maxLag to MAX_FRAMES_IN_FLIGHT.  The slot-fence mechanism already
-    // caps real CPU/GPU lag at that depth — accepting a larger value would
-    // give the user a number Lag() can never actually reach, which is
-    // misleading.  Log a note so the user can correct the config.
+    // Clamp maxLag to the actual number of frames the sync layer can track.
+    // The slot-fence mechanism already caps real CPU/GPU lag at that depth,
+    // so accepting a larger value would give the user a number Lag() can
+    // never actually reach.  Log when clamping so the user can correct cfg.
+    if (framesInFlight == 0) framesInFlight = 1;
+    if (framesInFlight > MAX_FRAMES_IN_FLIGHT) framesInFlight = MAX_FRAMES_IN_FLIGHT;
+
     uint32_t clamped = maxLag == 0 ? 1u : maxLag;
-    if (clamped > MAX_FRAMES_IN_FLIGHT)
+    if (clamped > framesInFlight)
     {
         LogVk(std::string("[BackpressureGovernor] asyncMaxLag=") +
               std::to_string(maxLag) +
-              " exceeds MAX_FRAMES_IN_FLIGHT=" +
-              std::to_string(MAX_FRAMES_IN_FLIGHT) +
+              " exceeds framesInFlight=" +
+              std::to_string(framesInFlight) +
               " — clamped.  Deeper pipelining requires timeline semaphores.");
-        clamped = MAX_FRAMES_IN_FLIGHT;
+        clamped = framesInFlight;
     }
     m_MaxLag = clamped;
 
@@ -1442,10 +1445,17 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
         LogVk("[FrameScheduler] GpuSubmissionBatcher::Initialize failed.");
         return false;
     }
-    m_Governor.Initialize(cfg.policy, cfg.asyncMaxLag);
+    // Runtime framesInFlight comes from VulkanSync (already clamped in its
+    // Initialize).  Every loop over slots below uses this count, not the
+    // compile-time bound.
+    m_FramesInFlight = sync.GetFramesInFlight();
+    if (m_FramesInFlight == 0) m_FramesInFlight = 1;
+    if (m_FramesInFlight > MAX_FRAMES_IN_FLIGHT) m_FramesInFlight = MAX_FRAMES_IN_FLIGHT;
+
+    m_Governor.Initialize(cfg.policy, cfg.asyncMaxLag, m_FramesInFlight);
     m_Timeline.Initialize(cfg.enableTimeline);
 
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
         m_Jobs[i].Initialize(cfg.jobWorkers);
 
@@ -1472,7 +1482,7 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
 
 void FrameScheduler::Shutdown()
 {
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
         m_Jobs[i].Shutdown();
     }
@@ -1525,7 +1535,7 @@ void FrameScheduler::RetireCompletedFrames()
     // Non-blocking probe: for each slot whose fence is signalled, mark its
     // absolute frame as retired.  Cheap — just a device-side query.
     if (m_Device == nullptr || m_Sync == nullptr) return;
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
         if (m_SlotAbsolute[i] == 0) continue;
         VkFence f = m_Sync->GetInFlightFence(i);

@@ -56,16 +56,20 @@ namespace VCK {
         VulkanPipeline(const VulkanPipeline&) = delete;
         VulkanPipeline& operator=(const VulkanPipeline&) = delete;
 
-        // Preferred overload — pulls the colour format from the swapchain.
+        // Preferred overload — pulls the colour format AND MSAA sample
+        // count from the swapchain (cfg.swapchain.msaaSamples).  Use this when
+        // you want MSAA to follow the swapchain config.
         bool Initialize(VulkanDevice&          device,
                         VulkanSwapchain&       swapchain,
                         const ShaderInfo&      shaders,
                         const VertexInputInfo& vertexInput);
 
+        // Explicit-format / explicit-samples overload — MSAA = 1x by default.
         bool Initialize(VulkanDevice& device,
             VkFormat               swapchainFormat,
             const ShaderInfo& shaders,
-            const VertexInputInfo& vertexInput);
+            const VertexInputInfo& vertexInput,
+            VkSampleCountFlagBits  samples = VK_SAMPLE_COUNT_1_BIT);
 
         void Shutdown();
 
@@ -87,6 +91,7 @@ namespace VCK {
         VkRenderPass     m_RenderPass = VK_NULL_HANDLE;
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline       m_Pipeline = VK_NULL_HANDLE;
+        VkSampleCountFlagBits m_Samples = VK_SAMPLE_COUNT_1_BIT;
     };
 
 } // namespace VCK

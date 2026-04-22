@@ -19,6 +19,17 @@ namespace VCK {
         return Initialize(context.GetInstance(), context.GetSurface());
     }
 
+    bool VulkanDevice::Initialize(VulkanContext& context, const Config& cfg)
+    {
+        return Initialize(context.GetInstance(), context.GetSurface(), cfg);
+    }
+
+    bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface, const Config& cfg)
+    {
+        m_CfgDevice = cfg.device;
+        return Initialize(instance, surface);
+    }
+
     bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface)
     {
         LogVk("[Device] Selecting physical device...");
@@ -148,10 +159,21 @@ namespace VCK {
         vkGetPhysicalDeviceProperties(device, &properties);
 
         int score = 0;
-        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-            score += 10000;
-        else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-            score += 1000;
+        if (m_CfgDevice.preferDiscreteGpu)
+        {
+            if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                score += 10000;
+            else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+                score += 1000;
+        }
+        else
+        {
+            // User explicitly opted out of discrete-GPU preference.
+            if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+                score += 10000;
+            else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                score += 1000;
+        }
 
         score += static_cast<int>(properties.limits.maxImageDimension2D);
         return score;
@@ -183,16 +205,20 @@ namespace VCK {
         std::vector<VkExtensionProperties> available(extensionCount);
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, available.data());
 
-        for (const char* required : k_RequiredDeviceExtensions)
+        std::vector<const char*> required(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
+        for (const char* extra : m_CfgDevice.extraDeviceExtensions)
+            required.push_back(extra);
+
+        for (const char* needed : required)
         {
             bool found = false;
             for (const VkExtensionProperties& ext : available)
             {
-                if (strcmp(ext.extensionName, required) == 0) { found = true; break; }
+                if (strcmp(ext.extensionName, needed) == 0) { found = true; break; }
             }
             if (!found)
             {
-                LogVk(std::string("[Device] Missing required extension: ") + required);
+                LogVk(std::string("[Device] Missing required extension: ") + needed);
                 return false;
             }
         }
@@ -252,12 +278,17 @@ namespace VCK {
 
         VkPhysicalDeviceFeatures deviceFeatures{};
 
+        // Build the merged extension list: required + user-supplied extras.
+        std::vector<const char*> enabledExts(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
+        for (const char* extra : m_CfgDevice.extraDeviceExtensions)
+            enabledExts.push_back(extra);
+
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         deviceInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
         deviceInfo.pQueueCreateInfos = queueCreateInfos.data();
-        deviceInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(k_RequiredDeviceExtensions));
-        deviceInfo.ppEnabledExtensionNames = k_RequiredDeviceExtensions;
+        deviceInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExts.size());
+        deviceInfo.ppEnabledExtensionNames = enabledExts.data();
         deviceInfo.pEnabledFeatures = &deviceFeatures;
 
         VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice));

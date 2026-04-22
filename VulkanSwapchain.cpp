@@ -19,6 +19,19 @@ namespace VCK {
         return Initialize(device, context.GetSurface(), width, height);
     }
 
+    bool VulkanSwapchain::Initialize(VulkanDevice& device, VulkanContext& context,
+        uint32_t width, uint32_t height, const Config& cfg)
+    {
+        return Initialize(device, context.GetSurface(), width, height, cfg);
+    }
+
+    bool VulkanSwapchain::Initialize(VulkanDevice& device, VkSurfaceKHR surface,
+        uint32_t width, uint32_t height, const Config& cfg)
+    {
+        m_CfgSwapchain = cfg.swapchain;
+        return Initialize(device, surface, width, height);
+    }
+
     bool VulkanSwapchain::Initialize(VulkanDevice& device, VkSurfaceKHR surface,
         uint32_t width, uint32_t height)
     {
@@ -87,8 +100,13 @@ namespace VCK {
         VkPresentModeKHR   presentMode = ChoosePresentMode(support.PresentModes);
         VkExtent2D         extent = ChooseExtent(support.Capabilities, width, height);
 
-        // Request one extra image over the minimum to avoid stalling on driver
-        uint32_t imageCount = support.Capabilities.minImageCount + 1;
+        // Request one extra image over the minimum by default, or use the
+        // caller-provided count (cfg.swapchain.imageCount).  Always clamp to
+        // the driver-reported min/max.
+        uint32_t imageCount = (m_CfgSwapchain.imageCount != 0)
+                                ? m_CfgSwapchain.imageCount
+                                : support.Capabilities.minImageCount + 1;
+        imageCount = std::max(imageCount, support.Capabilities.minImageCount);
         if (support.Capabilities.maxImageCount > 0)
             imageCount = std::min(imageCount, support.Capabilities.maxImageCount);
 
@@ -217,6 +235,22 @@ namespace VCK {
         //   3. VK_FORMAT_B8G8R8A8_UNORM  — fallback  (BGRA, linear write)
         //   4. VK_FORMAT_B8G8R8A8_SRGB   — last resort
 
+        // Honour an explicit cfg.swapchain.surfaceFormat if set (non-UNDEFINED).
+        if (m_CfgSwapchain.surfaceFormat != VK_FORMAT_UNDEFINED)
+        {
+            for (const VkSurfaceFormatKHR& avail : available)
+            {
+                if (avail.format == m_CfgSwapchain.surfaceFormat &&
+                    avail.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                {
+                    LogVk("[Swapchain] Using caller-requested surface format: " +
+                          std::to_string(avail.format));
+                    return avail;
+                }
+            }
+            LogVk("[Swapchain] Requested surface format not supported, falling back to defaults");
+        }
+
         const VkFormat k_PreferredFormats[] = {
             VK_FORMAT_R8G8B8A8_UNORM,
             VK_FORMAT_R8G8B8A8_SRGB,
@@ -247,19 +281,32 @@ namespace VCK {
     VkPresentModeKHR VulkanSwapchain::ChoosePresentMode(
         const std::vector<VkPresentModeKHR>& available) const
     {
-        // Prefer mailbox (triple-buffer, no tearing, low latency)
-        for (VkPresentModeKHR mode : available)
-        {
-            if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
-            {
-                LogVk("[Swapchain] Present mode: Mailbox");
-                return mode;
-            }
-        }
+        // Honour cfg.swapchain.presentMode if the user set one.  Each
+        // explicit choice falls back to FIFO when the mode is not supported.
+        auto has = [&](VkPresentModeKHR m) {
+            for (VkPresentModeKHR avail : available) if (avail == m) return true;
+            return false;
+        };
 
-        // FIFO is guaranteed to be available (vsync)
-        LogVk("[Swapchain] Present mode: FIFO (vsync)");
-        return VK_PRESENT_MODE_FIFO_KHR;
+        switch (m_CfgSwapchain.presentMode)
+        {
+        case PresentMode::Mailbox:
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { LogVk("[Swapchain] Present mode: Mailbox");   return VK_PRESENT_MODE_MAILBOX_KHR;   }
+            LogVk("[Swapchain] Mailbox requested but unavailable, falling back to FIFO");
+            return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::Immediate:
+            if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) { LogVk("[Swapchain] Present mode: Immediate"); return VK_PRESENT_MODE_IMMEDIATE_KHR; }
+            LogVk("[Swapchain] Immediate requested but unavailable, falling back to FIFO");
+            return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::Fifo:
+            LogVk("[Swapchain] Present mode: FIFO (vsync)");
+            return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::Auto:
+        default:
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { LogVk("[Swapchain] Present mode: Mailbox (auto)"); return VK_PRESENT_MODE_MAILBOX_KHR; }
+            LogVk("[Swapchain] Present mode: FIFO (auto, vsync)");
+            return VK_PRESENT_MODE_FIFO_KHR;
+        }
     }
 
     VkExtent2D VulkanSwapchain::ChooseExtent(const VkSurfaceCapabilitiesKHR& capabilities,

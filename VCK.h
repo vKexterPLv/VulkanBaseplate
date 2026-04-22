@@ -51,6 +51,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 #include "vk_mem_alloc.h"
+#include "VulkanHelpers.h"   // LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
 
 #include <cstdio>
 #include <string>
@@ -75,33 +76,8 @@
 //  No namespace — usable everywhere.
 // -----------------------------------------------------------------------------
 
-// LogVk — routes to BOTH the VS Output window (OutputDebugStringA) and the
-//         process's stdout (console window when launched from cmd.exe / g++
-//         console-subsystem exe).
-inline void LogVk(const std::string& message) {
-    const std::string line = "[VK] " + message + "\n";
-    OutputDebugStringA(line.c_str());
-    std::fputs(line.c_str(), stdout);
-    std::fflush(stdout);
-}
-
-// VK_CHECK(expr)
-//   Pass any VkResult expression.
-//   Returns bool — true on VK_SUCCESS, false (+ log) otherwise.
-//
-//   Usage:
-//     if (!VK_CHECK(vkCreateFoo(...))) return false;
-//     VK_CHECK(vkCreateFoo(...));   // fire-and-forget
-#define VK_CHECK(expr)                                                          \
-    ([&]() -> bool {                                                            \
-        VkResult _vk_r = (expr);                                                \
-        if (_vk_r != VK_SUCCESS) {                                              \
-            LogVk(std::string("[FAILED] " #expr " -> ")                         \
-                  + std::to_string(static_cast<int>(_vk_r)));                   \
-            return false;                                                       \
-        }                                                                       \
-        return true;                                                            \
-    }())
+// LogVk and VK_CHECK are provided by VulkanHelpers.h (included above).  They
+// remain at global scope so every TU can use them without a `using` decl.
 
 
 // =============================================================================
@@ -114,6 +90,34 @@ inline void LogVk(const std::string& message) {
 // =============================================================================
 
 namespace VCK {
+
+// -----------------------------------------------------------------------------
+//  VCK::Config
+//
+//  One struct you optionally build BEFORE the Initialize chain, then pass to
+//  every Initialize(...) call that wants knobs.  Every knob has a default
+//  that matches current VCK behaviour, so you only fill in the fields you
+//  actually care about:
+//
+//      VCK::Config cfg;
+//      cfg.context.appName        = "myapp";
+//      cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;
+//      cfg.sync.framesInFlight    = 3;
+//
+//      ctx.Initialize (hwnd, cfg);
+//      dev.Initialize (ctx, cfg);
+//      sc .Initialize (dev, ctx, w, h, cfg);
+//      cmd.Initialize (dev, cfg);
+//      sync.Initialize(dev, cfg);
+//
+//  Every Initialize() also keeps its original zero-config form — passing no
+//  Config is equivalent to passing a default-constructed one.
+// -----------------------------------------------------------------------------
+
+// VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT all live in
+// VulkanHelpers.h (included above) so the individual class TUs can see them
+// without pulling in the whole amalgam.
+
 
 // -----------------------------------------------------------------------------
 //  VulkanContext.h
@@ -135,6 +139,14 @@ public:
     VulkanContext& operator=(const VulkanContext&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //
+    //  Preferred form — pass a VCK::Config.  All knobs (validation, extra
+    //  layers/extensions, appName) come from cfg.context:
+    //      ctx.Initialize(hwnd, cfg);
+    //
+    //  Raw overload kept for zero-config use — appName inlined, defaults used
+    //  for everything else.
+    bool Initialize(HWND windowHandle, const Config& cfg);
     bool Initialize(HWND windowHandle, const std::string& appName);  // instance + debug messenger + surface
     void Shutdown();                                                  // surface → debug messenger → instance
 
@@ -172,6 +184,10 @@ private:
     std::vector<const char*> EnabledExtensions;
     bool                     ValidationEnabled = false;
 
+    // Snapshot of the caller's context config (extra layers / extensions /
+    // validation hint).  Populated from Config::context in Initialize.
+    Config::ContextCfg       m_CfgContext;
+
     static constexpr const char* VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
 };
 
@@ -207,15 +223,17 @@ public:
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     //
-    //  Preferred form — pass the VulkanContext.  No handle-plucking at the
-    //  call site:
+    //  Preferred form — pass the VulkanContext (+ optional VCK::Config for
+    //  discrete-GPU preference, extra device extensions, queue preference):
     //      device.Initialize(context);
+    //      device.Initialize(context, cfg);
     //
     //  The raw-handle overload is kept for advanced users who manage their
-    //  own VkInstance / VkSurfaceKHR.  Normal VCK programs should use the
-    //  context overload.
+    //  own VkInstance / VkSurfaceKHR.
     bool Initialize(VulkanContext& context);
+    bool Initialize(VulkanContext& context, const Config& cfg);
     bool Initialize(VkInstance instance, VkSurfaceKHR surface);
+    bool Initialize(VkInstance instance, VkSurfaceKHR surface, const Config& cfg);
     void Shutdown();
 
     // ── Core accessors ────────────────────────────────────────────────────────
@@ -255,6 +273,9 @@ private:
     VmaAllocator       m_Allocator          = VK_NULL_HANDLE;
     QueueFamilyIndices m_QueueFamilyIndices;
 
+    // Snapshot of cfg.device (preferDiscreteGpu / extra device exts / queuePreference).
+    Config::DeviceCfg  m_CfgDevice;
+
     static constexpr const char* k_RequiredDeviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
@@ -281,13 +302,14 @@ public:
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     //
-    //  Preferred form — pass the VulkanContext:
+    //  Preferred form — pass the VulkanContext (+ optional VCK::Config for
+    //  presentMode / imageCount / surfaceFormat / msaaSamples / depthFormat):
     //      swapchain.Initialize(device, context, 800, 600);
-    //
-    //  The raw-handle overload is kept for advanced users; normal programs
-    //  should use the context overload.
+    //      swapchain.Initialize(device, context, 800, 600, cfg);
     bool Initialize(VulkanDevice& device, VulkanContext& context, uint32_t width, uint32_t height);
+    bool Initialize(VulkanDevice& device, VulkanContext& context, uint32_t width, uint32_t height, const Config& cfg);
     bool Initialize(VulkanDevice& device, VkSurfaceKHR surface, uint32_t width, uint32_t height);
+    bool Initialize(VulkanDevice& device, VkSurfaceKHR surface, uint32_t width, uint32_t height, const Config& cfg);
     void Shutdown();
 
     // Call from WM_SIZE handler after vkDeviceWaitIdle
@@ -300,6 +322,10 @@ public:
     uint32_t                         GetImageCount()  const { return static_cast<uint32_t>(m_Images.size()); }
     const std::vector<VkImage>&      GetImages()      const { return m_Images; }
     const std::vector<VkImageView>&  GetImageViews()  const { return m_ImageViews; }
+
+    //  Knobs that were captured from Config and should be propagated downstream.
+    VkSampleCountFlagBits            GetMSAASamples()         const { return m_CfgSwapchain.msaaSamples;  }
+    VkFormat                         GetPreferredDepthFormat()const { return m_CfgSwapchain.depthFormat;  }
 
 private:
     // ── Internal helpers (implemented in VulkanSwapchain.cpp) ─────────────────
@@ -321,6 +347,10 @@ private:
 
     std::vector<VkImage>     m_Images;
     std::vector<VkImageView> m_ImageViews;
+
+    // Snapshot of cfg.swapchain (presentMode / imageCount / surfaceFormat /
+    // msaaSamples / depthFormat).  Populated by Initialize.
+    Config::SwapchainCfg     m_CfgSwapchain;
 };
 
 
@@ -504,10 +534,13 @@ public:
                     const ShaderInfo&      shaders,
                     const VertexInputInfo& vertexInput);
 
+    // Explicit-format / explicit-samples overload.  Defaults to 1x MSAA so
+    // existing call sites keep compiling unchanged.
     bool Initialize(VulkanDevice&        device,
                     VkFormat             swapchainFormat,
                     const ShaderInfo&    shaders,
-                    const VertexInputInfo& vertexInput);
+                    const VertexInputInfo& vertexInput,
+                    VkSampleCountFlagBits  samples = VK_SAMPLE_COUNT_1_BIT);
 
     void Shutdown();
 
@@ -528,6 +561,7 @@ private:
     VkRenderPass     m_RenderPass     = VK_NULL_HANDLE;
     VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
     VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
+    VkSampleCountFlagBits m_Samples = VK_SAMPLE_COUNT_1_BIT;
 };
 
 
@@ -544,8 +578,6 @@ private:
 //  All fences created pre-signalled so frame 0 never blocks.
 // -----------------------------------------------------------------------------
 
-static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-
 class VulkanSync
 {
 public:
@@ -556,7 +588,9 @@ public:
     VulkanSync& operator=(const VulkanSync&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //  Zero-config form creates 2 slots.  Pass a Config to change framesInFlight.
     bool Initialize(VulkanDevice& device);
+    bool Initialize(VulkanDevice& device, const Config& cfg);
     void Shutdown();
 
     // ── Per-frame accessors ───────────────────────────────────────────────────
@@ -566,7 +600,8 @@ public:
 
     // ── Frame counter ─────────────────────────────────────────────────────────
     uint32_t GetCurrentFrameIndex() const { return m_CurrentFrame; }
-    void     AdvanceFrame()               { m_CurrentFrame = (m_CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT; }
+    uint32_t GetFramesInFlight()    const { return m_FramesInFlight; }
+    void     AdvanceFrame()               { m_CurrentFrame = (m_CurrentFrame + 1) % m_FramesInFlight; }
 
 private:
     VulkanDevice* m_Device = nullptr;
@@ -575,7 +610,8 @@ private:
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_RenderFinishedSemaphores{};
     std::array<VkFence,     MAX_FRAMES_IN_FLIGHT> m_InFlightFences{};
 
-    uint32_t m_CurrentFrame = 0;
+    uint32_t m_FramesInFlight = 2; // clamped to MAX_FRAMES_IN_FLIGHT by Initialize
+    uint32_t m_CurrentFrame   = 0;
 };
 
 
@@ -601,7 +637,9 @@ public:
     VulkanCommand& operator=(const VulkanCommand&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //  Zero-config form creates 2 slots.  Pass a Config to change framesInFlight.
     bool Initialize(VulkanDevice& device);
+    bool Initialize(VulkanDevice& device, const Config& cfg);
     void Shutdown();
 
     // ── Per-frame recording ───────────────────────────────────────────────────
@@ -611,12 +649,14 @@ public:
     // ── Accessors ─────────────────────────────────────────────────────────────
     VkCommandBuffer GetCommandBuffer(uint32_t frameIndex) const { return m_CommandBuffers[frameIndex]; }
     VkCommandPool   GetCommandPool()                      const { return m_CommandPool; }
+    uint32_t        GetFramesInFlight()                   const { return m_FramesInFlight; }
 
 private:
     VulkanDevice* m_Device = nullptr;
 
     VkCommandPool                                     m_CommandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> m_CommandBuffers{};
+    uint32_t                                          m_FramesInFlight = 2;
 };
 
 
