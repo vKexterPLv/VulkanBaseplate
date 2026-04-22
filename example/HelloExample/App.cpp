@@ -277,18 +277,25 @@ namespace VCK::HelloExample {
             vertices[i] = v;
         }
 
-        // Quads -> triangle-list indices (0,1,2 + 0,2,3 per quad).
+        // Quads -> triangle-list indices.
+        //
+        // stb_easy_font emits vertices in order TL, TR, BR, BL (pixel space,
+        // y-down).  The VCK default pipeline uses VK_FRONT_FACE_COUNTER_CLOCKWISE
+        // with back-face culling; under Vulkan's y-down framebuffer convention
+        // that means triangles with NEGATIVE signed area are front-facing.
+        // So we want visually-CW-on-screen windings: (TL, BR, TR) + (TL, BL, BR)
+        // i.e. (0,2,1) + (0,3,2).  RGBTriangle uses the same visually-CW ordering.
         std::vector<uint32_t> indices;
         indices.reserve(numQuads * 6);
         for (int q = 0; q < numQuads; ++q)
         {
             const uint32_t b = static_cast<uint32_t>(q * 4);
             indices.push_back(b + 0);
+            indices.push_back(b + 2);
             indices.push_back(b + 1);
-            indices.push_back(b + 2);
             indices.push_back(b + 0);
-            indices.push_back(b + 2);
             indices.push_back(b + 3);
+            indices.push_back(b + 2);
         }
 
         mesh.Upload(device, command,
