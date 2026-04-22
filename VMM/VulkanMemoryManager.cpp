@@ -184,9 +184,13 @@ void VmmRegistry::Shutdown()
 }
 
 // -----------------------------------------------------------------------------
-//  Register
+//  Register / Unregister
+//
+//  Register takes its argument by reference and stamps the fresh id onto the
+//  caller's handle so the caller no longer has to do `buf.id = Register(...)`.
+//  The registry stores its own copy (with the id already set).
 // -----------------------------------------------------------------------------
-uint32_t VmmRegistry::Register(VmmBuffer buf, ResourceInfo info)
+uint32_t VmmRegistry::Register(VmmBuffer& buf, ResourceInfo info)
 {
     uint32_t id = m_NextId++;
     buf.id = id;
@@ -194,12 +198,24 @@ uint32_t VmmRegistry::Register(VmmBuffer buf, ResourceInfo info)
     return id;
 }
 
-uint32_t VmmRegistry::Register(VmmImage img, ResourceInfo info)
+uint32_t VmmRegistry::Register(VmmImage& img, ResourceInfo info)
 {
     uint32_t id = m_NextId++;
     img.id = id;
     m_Images[id] = { img, info };
     return id;
+}
+
+void VmmRegistry::UnregisterBuffer(uint32_t id)
+{
+    if (id != 0)
+        m_Buffers.erase(id);
+}
+
+void VmmRegistry::UnregisterImage(uint32_t id)
+{
+    if (id != 0)
+        m_Images.erase(id);
 }
 
 // -----------------------------------------------------------------------------
@@ -235,10 +251,10 @@ void VmmRegistry::FreeTransient(uint32_t frameSlot)
     for (uint32_t id : toFree)
     {
         auto& entry = m_Buffers[id];
-        // Transient buffers that are sub-allocations (offset into a block)
-        // do not own the VkBuffer — only free stand-alone overflow allocations.
-        if (entry.buf.id != 0)   // stand-alone allocation flag: id matches its own key
-            VmmRawAlloc::FreeBuffer(*m_Device, entry.buf);
+        // Every registered TransientFrame entry is a stand-alone overflow
+        // allocation — pure sub-allocations are NOT registered (they have no
+        // independent lifetime).  So unconditionally free here.
+        VmmRawAlloc::FreeBuffer(*m_Device, entry.buf);
         m_Buffers.erase(id);
     }
 
@@ -324,23 +340,11 @@ VkDeviceSize VulkanMemoryManager::StagingRing::Claim(VkDeviceSize size, VkDevice
     return aligned;
 }
 
-void VulkanMemoryManager::StagingRing::RetireFrame(uint32_t frameSlot)
+void VulkanMemoryManager::StagingRing::Reset()
 {
-    // All uploads made during frameSlot have been consumed by the GPU.
-    // Reclaim: move the ring tail forward to the saved position for this slot.
-    // Simple linear model — we just zero inFlight and reset the head if
-    // everything in flight has retired.
-    VkDeviceSize retired = frameTails[frameSlot];
-    if (inFlight >= retired)
-        inFlight -= retired;
-    else
-        inFlight = 0;
-
-    frameTails[frameSlot] = 0;
-
-    // If nothing is in flight, reset the whole ring to maximise contiguous space
-    if (inFlight == 0)
-        writeHead = 0;
+    writeHead = 0;
+    inFlight  = 0;
+    frameTails.fill(0);
 }
 
 // -----------------------------------------------------------------------------
@@ -378,9 +382,7 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
     // ── Staging ring ──────────────────────────────────────────────────────────
     m_Ring.buffer   = VmmRawAlloc::CreateStaging(device, config.stagingRingSize);
     m_Ring.capacity = config.stagingRingSize;
-    m_Ring.writeHead = 0;
-    m_Ring.inFlight  = 0;
-    m_Ring.frameTails.fill(0);
+    m_Ring.Reset();
 
     if (!m_Ring.buffer.IsValid())
     {
@@ -455,17 +457,21 @@ void VulkanMemoryManager::BeginFrame(uint32_t frameIndex, uint32_t absoluteFrame
 {
     m_AbsoluteFrame = absoluteFrame;
 
+    // IMPORTANT: the caller must have already waited on the in-flight fence
+    // for `frameIndex` before calling BeginFrame.  Otherwise we are about to
+    // reset transient storage / free overflow allocs that the GPU may still
+    // be reading.
+
     // Reset the transient block for this frame slot — cursor back to zero,
     // all previous sub-allocations are implicitly discarded.
     m_Transient[frameIndex].Reset();
 
     // Free any overflow stand-alone TransientFrame allocations from the previous
-    // cycle of this slot (they have been consumed by the GPU by now, since we
-    // waited on the in-flight fence before calling BeginFrame).
+    // cycle of this slot.
     m_Registry.FreeTransient(frameIndex);
 
-    // Retire the ring space that was in flight during the last cycle of this slot.
-    m_Ring.RetireFrame(frameIndex);
+    // Staging ring is drained each EndFrame / FlushStaging (waitIdle model),
+    // so no per-slot retire step is needed here.
 }
 
 // -----------------------------------------------------------------------------
@@ -475,12 +481,16 @@ void VulkanMemoryManager::EndFrame(uint32_t frameIndex)
 {
     if (m_StagingOpen)
     {
-        // Record the ring's current write head as the tail for this frame slot.
-        // When this frame slot comes around again, RetireFrame will reclaim up
-        // to this position.
+        // Record the ring's current write head as the tail for this frame slot
+        // (diagnostic only under the current waitIdle model — see header).
         m_Ring.frameTails[frameIndex] = m_Ring.writeHead;
 
         SubmitStagingCmd();
+
+        // SubmitStagingCmd() ends with vkQueueWaitIdle() — every byte the ring
+        // handed out this frame has now been consumed.  Drop the cursor back
+        // to zero so the ring can be reused from scratch next frame.
+        m_Ring.Reset();
     }
 }
 
@@ -583,7 +593,11 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
 void VulkanMemoryManager::FlushStaging()
 {
     if (m_StagingOpen)
+    {
         SubmitStagingCmd();
+        // Ring fully idle after waitIdle — reclaim all space.
+        m_Ring.Reset();
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -610,9 +624,10 @@ VmmBuffer VulkanMemoryManager::AllocTransient(uint32_t     frameIndex,
                           : nullptr;
         view.id     = 0;   // sub-alloc — not independently registered
 
-        // Register in the registry as Manual (no ownership) just for debug tracking
-        ResourceInfo info{ Lifetime::Manual, m_AbsoluteFrame, frameIndex, debugName };
-        // Not registered — sub-allocs are too numerous and have no independent lifetime
+        // Sub-allocs are not registered: they have no independent lifetime and
+        // tracking each one would swamp the registry.  debugName is intentionally
+        // unused in this fast path.
+        (void)debugName;
 
         return view;
     }
@@ -650,7 +665,7 @@ VmmBuffer VulkanMemoryManager::AllocPersistent(const char*        debugName,
     if (!buf.IsValid()) return buf;
 
     ResourceInfo info{ Lifetime::Persistent, m_AbsoluteFrame, 0, debugName };
-    buf.id = m_Registry.Register(buf, info);
+    m_Registry.Register(buf, info);   // stamps buf.id
     return buf;
 }
 
@@ -670,7 +685,7 @@ VmmImage VulkanMemoryManager::AllocPersistentImage(const char*        debugName,
     if (!img.IsValid()) return img;
 
     ResourceInfo info{ Lifetime::Persistent, m_AbsoluteFrame, 0, debugName };
-    img.id = m_Registry.Register(img, info);
+    m_Registry.Register(img, info);   // stamps img.id
     return img;
 }
 
@@ -679,14 +694,20 @@ VmmImage VulkanMemoryManager::AllocPersistentImage(const char*        debugName,
 // -----------------------------------------------------------------------------
 void VulkanMemoryManager::FreeBuffer(VmmBuffer& buf)
 {
+    // Remove the registry entry FIRST so FreeAll() at shutdown cannot double
+    // free the handle.  Then destroy the GPU resource and clear the handle.
     if (buf.id != 0)
-        m_Registry.FindBuffer(buf.id);   // existence check — FreeAll handles it
+        m_Registry.UnregisterBuffer(buf.id);
     VmmRawAlloc::FreeBuffer(*m_Device, buf);
+    buf.id = 0;
 }
 
 void VulkanMemoryManager::FreeImage(VmmImage& img)
 {
+    if (img.id != 0)
+        m_Registry.UnregisterImage(img.id);
     VmmRawAlloc::FreeImage(*m_Device, img);
+    img.id = 0;
 }
 
 // -----------------------------------------------------------------------------

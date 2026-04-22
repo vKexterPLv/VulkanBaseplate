@@ -207,8 +207,15 @@ public:
     // ── Registration ──────────────────────────────────────────────────────────
     // Registers an already-allocated VmmBuffer / VmmImage and returns its ID.
     // The registry takes ownership unless Lifetime::Manual.
-    uint32_t Register(VmmBuffer buf, ResourceInfo info);
-    uint32_t Register(VmmImage  img, ResourceInfo info);
+    // Mutates buf.id / img.id so the caller's handle carries the registry key.
+    uint32_t Register(VmmBuffer& buf, ResourceInfo info);
+    uint32_t Register(VmmImage&  img, ResourceInfo info);
+
+    // Removes an entry without freeing the underlying GPU resource.
+    // Use after VmmRawAlloc::FreeBuffer / FreeImage (or vmm.FreeBuffer /
+    // vmm.FreeImage) so the registry no longer tracks the freed handle.
+    void UnregisterBuffer(uint32_t id);
+    void UnregisterImage (uint32_t id);
 
     // ── Lookup ────────────────────────────────────────────────────────────────
     VmmBuffer* FindBuffer(uint32_t id);
@@ -359,6 +366,16 @@ public:
 
 private:
     // ── Internal staging ring state ───────────────────────────────────────────
+    //
+    //  Current model: SubmitStagingCmd() ends with vkQueueWaitIdle(), which
+    //  means that by the time SubmitStagingCmd() returns, ALL uploads recorded
+    //  into the staging command are finished on the GPU.  EndFrame() and
+    //  FlushStaging() therefore fully reset writeHead/inFlight right after
+    //  submit — the ring is trivially drained every frame.
+    //
+    //  frameTails[] is retained as diagnostic / forward-compat metadata for a
+    //  future non-blocking staging model (fence-per-frame), but is not
+    //  currently used for reclamation.
     struct StagingRing
     {
         VmmBuffer  buffer;         // the ring buffer itself
@@ -366,13 +383,14 @@ private:
         VkDeviceSize writeHead = 0;  // next byte to write into
         VkDeviceSize inFlight  = 0;  // bytes submitted but not yet retired
 
-        // Per-frame "tail" positions so we know when each frame's uploads retire
+        // Per-frame "tail" positions (diagnostic; see note above).
         std::array<VkDeviceSize, MAX_FRAMES_IN_FLIGHT> frameTails{};
 
         bool HasSpace(VkDeviceSize needed) const;
         // Returns the offset at writeHead and advances it (with alignment).
         VkDeviceSize Claim(VkDeviceSize size, VkDeviceSize alignment = 4);
-        void         RetireFrame(uint32_t frameSlot);  // reclaim space from this slot's uploads
+        // Fully reset the ring — valid only when the GPU is idle on staging work.
+        void         Reset();
     };
 
     // ── Internal transient pool state ─────────────────────────────────────────

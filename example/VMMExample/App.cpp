@@ -197,9 +197,18 @@ namespace VulkanBaseplate::VMMExample {
 
         uint32_t frame = sync.GetCurrentFrameIndex();
 
+        // ── Wait for the previous cycle of this frame slot to finish ──────────
+        //  This MUST happen before we touch any per-slot resources:
+        //    • the transient block for this slot (reset by vmm.BeginFrame)
+        //    • per-frame UBO backing memory (written below)
+        //    • any overflow TransientFrame allocations from last cycle
+        //  Otherwise we would modify memory the GPU is still reading.
+        VkFence     fence      = sync.GetInFlightFence(frame);
+        VkSemaphore imageReady = sync.GetImageAvailableSemaphore(frame);
+        vkWaitForFences(device.GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX);
+
         // ── VMM frame start ───────────────────────────────────────────────────
         //  Resets the transient block for this slot (cursor → 0).
-        //  Retires ring space from the previous cycle of this slot.
         //  Frees any overflow TransientFrame registry entries from last cycle.
         vmm.BeginFrame(frame, g_AbsoluteFrame);
 
@@ -214,10 +223,6 @@ namespace VulkanBaseplate::VMMExample {
         uboBuffers[frame].Upload(&ubo, sizeof(ubo));
 
         // ── Acquire swapchain image ───────────────────────────────────────────
-        VkFence     fence      = sync.GetInFlightFence(frame);
-        VkSemaphore imageReady = sync.GetImageAvailableSemaphore(frame);
-        vkWaitForFences(device.GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX);
-
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                               UINT64_MAX, imageReady, VK_NULL_HANDLE, &imageIndex);
