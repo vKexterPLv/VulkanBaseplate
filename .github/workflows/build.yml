@@ -37,56 +37,34 @@ jobs:
           cache: false
           stripdown: false
 
-      # ─── Ensure vk_video/*.h headers are present. ──────────────────────────
-      # jakoch/install-vulkan-sdk-action@v1 ships the Windows SDK installer
-      # with the 'vulkan_video' component deselected (the official LunarG
-      # installer treats it as optional).  vulkan_core.h on 1.3.290 however
-      # hard-includes "vk_video/vulkan_video_codec_av1std_encode.h" etc, so
-      # every TU that pulls <vulkan/vulkan.h> fails with "No such file".
-      # We restore the missing directory from the official KhronosGroup
-      # Vulkan-Headers tag that matches our SDK version.
-      - name: Ensure vk_video headers are present
+      # ─── Restore the full vk_video/*.h directory. ───────────────────────────
+      # jakoch/install-vulkan-sdk-action@v1 runs the Windows SDK installer
+      # with the 'vulkan_video' component deselected (it's optional in the
+      # official LunarG installer).  At the same time, the SDK's bundled
+      # vulkan_core.h hard-includes roughly a dozen vk_video/*.h files -
+      # av1std_encode.h, vp9std.h, and more may be added as the SDK tracks
+      # newer Khronos revisions.  Enumerating the known file list drifts.
+      #
+      # We mirror the entire vk_video/ directory from the Khronos
+      # Vulkan-Headers repo at a recent 1.4.x SDK tag (the video-codec
+      # headers are additive and forward-compatible).  `git sparse-checkout`
+      # pulls just that one directory so the download is small (~50 KB).
+      - name: Restore vk_video/*.h headers
         shell: pwsh
         run: |
-          $dst = Join-Path $env:VULKAN_SDK 'Include\vk_video'
-          $needed = @(
-            'vulkan_video_codec_av1std.h',
-            'vulkan_video_codec_av1std_decode.h',
-            'vulkan_video_codec_av1std_encode.h',
-            'vulkan_video_codec_h264std.h',
-            'vulkan_video_codec_h264std_decode.h',
-            'vulkan_video_codec_h264std_encode.h',
-            'vulkan_video_codec_h265std.h',
-            'vulkan_video_codec_h265std_decode.h',
-            'vulkan_video_codec_h265std_encode.h',
-            'vulkan_video_codecs_common.h'
-          )
-          $missing = @()
+          $dst    = Join-Path $env:VULKAN_SDK 'Include\vk_video'
+          $tag    = 'vulkan-sdk-1.4.321.0'
+          $tmp    = Join-Path $env:RUNNER_TEMP 'Vulkan-Headers'
+
+          if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+          git clone --depth 1 --filter=blob:none --sparse `
+            --branch $tag https://github.com/KhronosGroup/Vulkan-Headers.git $tmp
+          git -C $tmp sparse-checkout set include/vk_video
+
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          foreach ($f in $needed) {
-            if (-not (Test-Path (Join-Path $dst $f))) { $missing += $f }
-          }
-          if ($missing.Count -eq 0) {
-            "vk_video headers already present under $dst" | Write-Host
-          } else {
-            # KhronosGroup/Vulkan-Headers tags <= 1.3.296 don't contain
-            # av1std_encode.h yet (it was added after 1.3.x was branched).
-            # The LunarG SDK 1.3.290 *does* ship a vulkan_core.h that hard-
-            # includes it, so the bundle is self-consistent only when the
-            # action installs the vulkan_video component too.  When we have
-            # to fetch the headers manually we use a 1.4.x tag - the files
-            # are additive, forward-compatible and safe to drop in under a
-            # 1.3.290 SDK.
-            $tag = 'vulkan-sdk-1.4.321.0'
-            $base = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/$tag/include/vk_video"
-            foreach ($f in $missing) {
-              $url = "$base/$f"
-              $out = Join-Path $dst $f
-              "fetch $url" | Write-Host
-              Invoke-WebRequest $url -OutFile $out
-            }
-          }
-          Get-ChildItem $dst | Format-Table -AutoSize
+          Copy-Item (Join-Path $tmp 'include\vk_video\*') $dst -Force
+
+          Get-ChildItem $dst | Format-Table Name, Length -AutoSize
 
       # ─── MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
       # on PATH.  Prepending the MSYS2 mingw64 bin directory is enough - we
