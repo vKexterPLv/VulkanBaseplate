@@ -4,6 +4,46 @@
 
 namespace VCK {
 
+    // --------------------------------------------------------------------
+    VulkanImage::VulkanImage(VulkanImage&& other) noexcept
+        : m_Device      (other.m_Device)
+        , m_Image       (other.m_Image)
+        , m_ImageView   (other.m_ImageView)
+        , m_Allocation  (other.m_Allocation)
+        , m_Format      (other.m_Format)
+        , m_AspectFlags (other.m_AspectFlags)
+    {
+        other.m_Device      = nullptr;
+        other.m_Image       = VK_NULL_HANDLE;
+        other.m_ImageView   = VK_NULL_HANDLE;
+        other.m_Allocation  = VK_NULL_HANDLE;
+        other.m_Format      = VK_FORMAT_UNDEFINED;
+        other.m_AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
+    VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Shutdown();
+            m_Device      = other.m_Device;
+            m_Image       = other.m_Image;
+            m_ImageView   = other.m_ImageView;
+            m_Allocation  = other.m_Allocation;
+            m_Format      = other.m_Format;
+            m_AspectFlags = other.m_AspectFlags;
+
+            other.m_Device      = nullptr;
+            other.m_Image       = VK_NULL_HANDLE;
+            other.m_ImageView   = VK_NULL_HANDLE;
+            other.m_Allocation  = VK_NULL_HANDLE;
+            other.m_Format      = VK_FORMAT_UNDEFINED;
+            other.m_AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+        return *this;
+    }
+
+
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanImage::Create(VulkanDevice& device,
         uint32_t           width,

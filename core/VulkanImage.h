@@ -40,6 +40,11 @@ namespace VCK {
         VulkanImage(const VulkanImage&) = delete;
         VulkanImage& operator=(const VulkanImage&) = delete;
 
+        // Movable so std::vector<VulkanImage> (used by VulkanSwapchain's MSAA
+        // target set) can grow / resize without copy-constructing handles.
+        VulkanImage(VulkanImage&& other) noexcept;
+        VulkanImage& operator=(VulkanImage&& other) noexcept;
+
         // ── Creation ─────────────────────────────────────────────────────────────
         bool Create(VulkanDevice& device,
             uint32_t           width,
