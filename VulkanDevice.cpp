@@ -1,4 +1,5 @@
 #include "VulkanDevice.h"
+#include "VulkanContext.h"
 #include "VulkanHelpers.h"
 
 #include <set>
@@ -9,6 +10,14 @@ namespace VCK {
     // ─────────────────────────────────────────────────────────────────────────────
     //  Public API
     // ─────────────────────────────────────────────────────────────────────────────
+
+    // Preferred overload — forwards to the raw-handle form by pulling
+    // instance + surface out of the context.  Keeps user call sites free of
+    // `.GetInstance()` / `.GetSurface()` plumbing.
+    bool VulkanDevice::Initialize(VulkanContext& context)
+    {
+        return Initialize(context.GetInstance(), context.GetSurface());
+    }
 
     bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface)
     {

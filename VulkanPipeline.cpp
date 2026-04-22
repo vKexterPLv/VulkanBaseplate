@@ -1,10 +1,21 @@
 #include "VulkanPipeline.h"
 #include "VulkanDevice.h"
+#include "VulkanSwapchain.h"
 #include <array>
 
 namespace VCK {
 
     // ─────────────────────────────────────────────────────────────────────────────
+    // Preferred overload — pulls the swapchain colour format out of the
+    // swapchain so the caller does not need `.GetImageFormat()`.
+    bool VulkanPipeline::Initialize(VulkanDevice&          device,
+                                    VulkanSwapchain&       swapchain,
+                                    const ShaderInfo&      shaders,
+                                    const VertexInputInfo& vertexInput)
+    {
+        return Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+    }
+
     bool VulkanPipeline::Initialize(VulkanDevice& device,
         VkFormat               swapchainFormat,
         const ShaderInfo& shaders,

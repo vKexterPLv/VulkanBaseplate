@@ -62,7 +62,7 @@ namespace VCK::DebugTimelineExample {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     void OnFramebufferResize(GLFWwindow*, int w, int h)
@@ -166,8 +166,8 @@ namespace VCK::DebugTimelineExample {
         glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
 
         context.Initialize(glfwGetWin32Window(window), title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         shaders.VertexSpirv   = LoadSpv("./assets/DebugTimelineExample.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/DebugTimelineExample.frag.spv");
@@ -176,10 +176,10 @@ namespace VCK::DebugTimelineExample {
             { .location=0, .binding=0, .format=VK_FORMAT_R32G32B32_SFLOAT,    .offset=offsetof(Vertex,position) },
             { .location=1, .binding=0, .format=VK_FORMAT_R32G32B32A32_SFLOAT, .offset=offsetof(Vertex,color)    },
         };
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         FrameScheduler::Config cfg;
         cfg.policy         = FramePolicy::Pipelined;

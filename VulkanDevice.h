@@ -9,6 +9,8 @@
 
 namespace VCK {
 
+    class VulkanContext;
+
     // ─────────────────────────────────────────────────────────────────────────────
     //  Queue family indices resolved during physical device selection.
     //  Both families may be the same index (combined queue) — that is valid.
@@ -48,6 +50,8 @@ namespace VCK {
         VulkanDevice(const VulkanDevice&) = delete;
         VulkanDevice& operator=(const VulkanDevice&) = delete;
 
+        // Preferred overload — pulls instance + surface from the context.
+        bool Initialize(VulkanContext& context);
         bool Initialize(VkInstance instance, VkSurfaceKHR surface);
         void Shutdown();
 

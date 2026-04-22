@@ -49,9 +49,9 @@ VCK::VulkanPipeline  pipe;
 VCK::VulkanCommand   cmd;
 VCK::VulkanSync      sync;
 
-ctx.Initialize("myapp", glfwGetWin32Window(win), GetModuleHandle(nullptr));
-dev.Initialize(ctx.GetInstance(), ctx.GetSurface());
-sc.Initialize (dev, ctx.GetSurface(), win);
+ctx.Initialize (glfwGetWin32Window(win), "myapp");
+dev.Initialize (ctx);
+sc .Initialize (dev, ctx, 800, 600);
 // ... pipeline setup ...
 cmd.Initialize(dev);
 sync.Initialize(dev);

@@ -129,7 +129,7 @@ namespace VCK::VMMExample {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     void OnFramebufferResize(GLFWwindow*, int w, int h)
@@ -356,8 +356,8 @@ namespace VCK::VMMExample {
 
         // ── Core init (unchanged from any other example) ───────────────────────
         context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         shaders.VertexSpirv   = LoadSpv("./assets/vmm.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/vmm.frag.spv");
@@ -374,11 +374,11 @@ namespace VCK::VMMExample {
             { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
         modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── VMM LAYER 3 — Initialize ──────────────────────────────────────────
         //  16 MB staging ring (smaller than default — fine for this example).

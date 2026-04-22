@@ -1,5 +1,6 @@
 #include "VulkanSwapchain.h"
 #include "VulkanDevice.h"
+#include "VulkanContext.h"
 #include "VulkanHelpers.h"
 
 #include <algorithm>
@@ -10,6 +11,13 @@ namespace VCK {
     // ─────────────────────────────────────────────────────────────────────────────
     //  Public API
     // ─────────────────────────────────────────────────────────────────────────────
+
+    // Preferred overload — pulls the surface out of the context.
+    bool VulkanSwapchain::Initialize(VulkanDevice& device, VulkanContext& context,
+        uint32_t width, uint32_t height)
+    {
+        return Initialize(device, context.GetSurface(), width, height);
+    }
 
     bool VulkanSwapchain::Initialize(VulkanDevice& device, VkSurfaceKHR surface,
         uint32_t width, uint32_t height)

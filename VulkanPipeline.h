@@ -7,6 +7,7 @@
 namespace VCK {
 
     class VulkanDevice;
+    class VulkanSwapchain;
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  VulkanPipeline
@@ -54,6 +55,12 @@ namespace VCK {
 
         VulkanPipeline(const VulkanPipeline&) = delete;
         VulkanPipeline& operator=(const VulkanPipeline&) = delete;
+
+        // Preferred overload — pulls the colour format from the swapchain.
+        bool Initialize(VulkanDevice&          device,
+                        VulkanSwapchain&       swapchain,
+                        const ShaderInfo&      shaders,
+                        const VertexInputInfo& vertexInput);
 
         bool Initialize(VulkanDevice& device,
             VkFormat               swapchainFormat,

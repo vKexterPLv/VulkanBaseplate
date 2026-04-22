@@ -66,8 +66,8 @@ int main()
     VCK::VulkanSync      sync;
 
     ctx.Initialize (glfwGetWin32Window(win), "hello");
-    dev.Initialize (ctx.GetInstance(), ctx.GetSurface());
-    sc .Initialize (dev, ctx.GetSurface(), 800, 600);
+    dev.Initialize (ctx);
+    sc .Initialize (dev, ctx, 800, 600);
     cmd.Initialize (dev);
     sync.Initialize(dev);
 
@@ -89,21 +89,20 @@ int main()
 
         // ... begin render pass, clear, end render pass on f.PrimaryCmd() ...
 
-        VCK::GpuSubmissionBatcher::SubmitInfo si;
-        si.waitSem   = f.ImageAvailable();
-        si.waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        si.signalSem = f.RenderFinished();
-        f.Submissions().QueueGraphics(f.PrimaryCmd(), si);
+        // One-liner — wires ImageAvailable / RenderFinished on the frame's
+        // own semaphores and submits f.PrimaryCmd() on the graphics queue.
+        f.QueueGraphics();
 
         sched.EndFrame();
 
+        VkSemaphore     renderDone = f.RenderFinished();
+        VkSwapchainKHR  sw         = sc.GetSwapchain();
         VkPresentInfoKHR p{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
         p.waitSemaphoreCount = 1;
-        p.pWaitSemaphores    = &f.RenderFinished();
-        VkSwapchainKHR sw = sc.GetSwapchain();
-        p.swapchainCount = 1;
-        p.pSwapchains    = &sw;
-        p.pImageIndices  = &imageIndex;
+        p.pWaitSemaphores    = &renderDone;
+        p.swapchainCount     = 1;
+        p.pSwapchains        = &sw;
+        p.pImageIndices      = &imageIndex;
         vkQueuePresentKHR(dev.GetGraphicsQueue(), &p);
     }
 

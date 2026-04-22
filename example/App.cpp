@@ -116,7 +116,7 @@ namespace GTA_Sandbox::App {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -262,8 +262,8 @@ namespace GTA_Sandbox::App {
         HWND hwnd = glfwGetWin32Window(window);
 
         context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         shaders.VertexSpirv   = LoadSpv("../assets/model.vert.spv");
         shaders.FragmentSpirv = LoadSpv("../assets/model_vertcolor.frag.spv");
@@ -280,11 +280,11 @@ namespace GTA_Sandbox::App {
             { .location = 3, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
         modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── Descriptor pool: 2 UBOs/frame + 1 combined sampler ───────────────
         descAllocator.Initialize(device,

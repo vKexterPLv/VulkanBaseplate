@@ -79,7 +79,7 @@ namespace VCK::HelloExample {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     void OnFramebufferResize(GLFWwindow*, int w, int h)
@@ -198,8 +198,8 @@ namespace VCK::HelloExample {
         HWND hwnd = glfwGetWin32Window(window);
 
         context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         shaders.VertexSpirv   = LoadSpv("./assets/hello.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/hello.frag.spv");
@@ -214,10 +214,10 @@ namespace VCK::HelloExample {
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // Scheduler: Pipelined policy (the default).  Timeline enabled so
         // LogVk prints per-frame spans if you enable Dump().

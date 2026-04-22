@@ -25,9 +25,11 @@ One `VkFramebuffer` per swapchain image.
 
 ```cpp
 VCK::VulkanFramebufferSet fbs;
-fbs.Initialize(dev, sc, pipeline.GetRenderPass());
+fbs.Initialize(dev, sc, pipeline);
+// (with depth attachment)  fbs.Initialize(dev, sc, pipeline, depth);
 // on resize:
-fbs.Recreate(pipeline.GetRenderPass());
+fbs.Recreate(pipeline);
+// (with depth)               fbs.Recreate(pipeline, depth);
 // in DrawFrame():
 rp.framebuffer = fbs.Get(imageIndex);
 ```

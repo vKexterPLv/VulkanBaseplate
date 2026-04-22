@@ -83,7 +83,7 @@ namespace VCK::RGBTriangle {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     void OnFramebufferResize(GLFWwindow*, int w, int h)
@@ -210,8 +210,8 @@ namespace VCK::RGBTriangle {
         HWND hwnd = glfwGetWin32Window(window);
 
         context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         // Shaders: position (location 0) + color (location 1) → output color.
         // No descriptor sets, no push constants.
@@ -228,10 +228,10 @@ namespace VCK::RGBTriangle {
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── RGB triangle, CCW winding, NDC-space ──────────────────────────────
         const std::vector<Vertex> vertices = {

@@ -120,6 +120,21 @@ public:
     VulkanFramebufferSet(const VulkanFramebufferSet&)            = delete;
     VulkanFramebufferSet& operator=(const VulkanFramebufferSet&) = delete;
 
+    //  Preferred form — pass the VulkanPipeline (and optionally the depth
+    //  buffer).  No `.GetRenderPass()` / `.GetImageView()` plumbing at the
+    //  call site:
+    //      fbs.Initialize(device, swapchain, pipeline);
+    //      fbs.Initialize(device, swapchain, pipeline, depth);
+    bool Initialize(VulkanDevice&    device,
+                    VulkanSwapchain& swapchain,
+                    VulkanPipeline&  pipeline);
+
+    bool Initialize(VulkanDevice&     device,
+                    VulkanSwapchain&  swapchain,
+                    VulkanPipeline&   pipeline,
+                    VulkanDepthBuffer& depth);
+
+    //  Raw-handle overload — kept for advanced users.
     bool Initialize(VulkanDevice&    device,
                     VulkanSwapchain& swapchain,
                     VkRenderPass     renderPass,
@@ -128,6 +143,8 @@ public:
     void Shutdown();
 
     // Destroys and recreates all framebuffers (call after swapchain.Recreate()).
+    bool Recreate(VulkanPipeline& pipeline);
+    bool Recreate(VulkanPipeline& pipeline, VulkanDepthBuffer& depth);
     bool Recreate(VkRenderPass renderPass,
                   VkImageView  depthView = VK_NULL_HANDLE);
 
@@ -279,7 +296,19 @@ public:
     VulkanMesh& operator=(const VulkanMesh&) = delete;
 
     // vertices / vertexSize : raw vertex data + byte size
+    // vertexCount           : number of vertices (required for non-indexed draw)
     // indices / indexCount  : uint32_t index array (pass nullptr / 0 for non-indexed)
+    bool Upload(VulkanDevice&   device,
+                VulkanCommand&  command,
+                const void*     vertices,
+                VkDeviceSize    vertexSize,
+                uint32_t        vertexCount,
+                const uint32_t* indices,
+                uint32_t        indexCount);
+
+    // Backwards-compatible overload — assumes indexed draw; derives vertex
+    // count only for the indexed path (uses indexCount for vkCmdDrawIndexed).
+    // Prefer the form with explicit vertexCount.
     bool Upload(VulkanDevice&   device,
                 VulkanCommand&  command,
                 const void*     vertices,
@@ -297,7 +326,8 @@ public:
 private:
     VulkanBuffer m_VertexBuffer;
     VulkanBuffer m_IndexBuffer;
-    uint32_t     m_IndexCount = 0;
+    uint32_t     m_VertexCount = 0;
+    uint32_t     m_IndexCount  = 0;
 };
 
 
@@ -1060,6 +1090,25 @@ public:
 
     GpuSubmissionBatcher& Submissions() { return *m_Submissions; }
     JobGraph&             Jobs()        { return *m_Jobs;        }
+
+    //  Convenience: queue PrimaryCmd onto the graphics bucket of the per-frame
+    //  GpuSubmissionBatcher.  Equivalent to:
+    //      f.Submissions().QueueGraphics(f.PrimaryCmd(), info);
+    //  The no-arg overload wires the frame's own ImageAvailable / RenderFinished
+    //  semaphores — the common case for a simple render-then-present loop.
+    void QueueGraphics()
+    {
+        GpuSubmissionBatcher::SubmitInfo info;
+        info.waitSem   = m_ImageAvailable;
+        info.waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        info.signalSem = m_RenderFinished;
+        m_Submissions->QueueGraphics(m_PrimaryCmd, info);
+    }
+
+    void QueueGraphics(const GpuSubmissionBatcher::SubmitInfo& info)
+    {
+        m_Submissions->QueueGraphics(m_PrimaryCmd, info);
+    }
 
 private:
     friend class FrameScheduler;

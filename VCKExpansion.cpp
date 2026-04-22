@@ -57,15 +57,15 @@ void VulkanOneTimeCommand::End()
 {
     if (!m_Cmd) return;
 
-    vkEndCommandBuffer(m_Cmd);
+    VK_CHECK(vkEndCommandBuffer(m_Cmd));
 
     VkSubmitInfo si{};
     si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     si.commandBufferCount = 1;
     si.pCommandBuffers    = &m_Cmd;
 
-    vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(m_Device->GetGraphicsQueue());
+    VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
 
     vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
     m_Cmd = VK_NULL_HANDLE;
@@ -75,6 +75,22 @@ void VulkanOneTimeCommand::End()
 // =============================================================================
 //  [2] VulkanFramebufferSet
 // =============================================================================
+
+bool VulkanFramebufferSet::Initialize(VulkanDevice& device, VulkanSwapchain& swapchain,
+                                       VulkanPipeline& pipeline)
+{
+    m_Device    = &device;
+    m_Swapchain = &swapchain;
+    return CreateAll(pipeline.GetRenderPass(), VK_NULL_HANDLE);
+}
+
+bool VulkanFramebufferSet::Initialize(VulkanDevice& device, VulkanSwapchain& swapchain,
+                                       VulkanPipeline& pipeline, VulkanDepthBuffer& depth)
+{
+    m_Device    = &device;
+    m_Swapchain = &swapchain;
+    return CreateAll(pipeline.GetRenderPass(), depth.GetImageView());
+}
 
 bool VulkanFramebufferSet::Initialize(VulkanDevice& device, VulkanSwapchain& swapchain,
                                        VkRenderPass renderPass, VkImageView depthView)
@@ -89,6 +105,18 @@ void VulkanFramebufferSet::Shutdown()
     DestroyAll();
     m_Device    = nullptr;
     m_Swapchain = nullptr;
+}
+
+bool VulkanFramebufferSet::Recreate(VulkanPipeline& pipeline)
+{
+    DestroyAll();
+    return CreateAll(pipeline.GetRenderPass(), VK_NULL_HANDLE);
+}
+
+bool VulkanFramebufferSet::Recreate(VulkanPipeline& pipeline, VulkanDepthBuffer& depth)
+{
+    DestroyAll();
+    return CreateAll(pipeline.GetRenderPass(), depth.GetImageView());
 }
 
 bool VulkanFramebufferSet::Recreate(VkRenderPass renderPass, VkImageView depthView)
@@ -273,7 +301,17 @@ bool VulkanMesh::Upload(VulkanDevice& device, VulkanCommand& command,
                          const void* vertices, VkDeviceSize vertexSize,
                          const uint32_t* indices, uint32_t indexCount)
 {
-    m_IndexCount = indexCount;
+    // Back-compat entry point — treats the mesh as purely indexed.
+    return Upload(device, command, vertices, vertexSize, 0u, indices, indexCount);
+}
+
+bool VulkanMesh::Upload(VulkanDevice& device, VulkanCommand& command,
+                         const void* vertices, VkDeviceSize vertexSize,
+                         uint32_t vertexCount,
+                         const uint32_t* indices, uint32_t indexCount)
+{
+    m_VertexCount = vertexCount;
+    m_IndexCount  = indexCount;
 
     // ── Vertex buffer ────────────────────────────────────────────────────────
     {
@@ -345,7 +383,8 @@ void VulkanMesh::Shutdown()
 {
     m_IndexBuffer.Shutdown();
     m_VertexBuffer.Shutdown();
-    m_IndexCount = 0;
+    m_VertexCount = 0;
+    m_IndexCount  = 0;
 }
 
 void VulkanMesh::RecordDraw(VkCommandBuffer cmd) const
@@ -361,7 +400,11 @@ void VulkanMesh::RecordDraw(VkCommandBuffer cmd) const
     }
     else
     {
-        vkCmdDraw(cmd, m_IndexCount, 1, 0, 0);
+        // Non-indexed: use explicit vertex count if supplied; fall back to
+        // m_IndexCount for legacy callers that used the older Upload overload
+        // with a non-null index array.
+        const uint32_t count = m_VertexCount != 0 ? m_VertexCount : m_IndexCount;
+        vkCmdDraw(cmd, count, 1, 0, 0);
     }
 }
 
@@ -1016,7 +1059,23 @@ void GpuSubmissionBatcher::FlushQueue(VkQueue q, std::vector<Entry>& bucket, VkF
 void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag)
 {
     m_Policy = policy;
-    m_MaxLag = maxLag == 0 ? 1u : maxLag;
+
+    // Clamp maxLag to MAX_FRAMES_IN_FLIGHT.  The slot-fence mechanism already
+    // caps real CPU/GPU lag at that depth — accepting a larger value would
+    // give the user a number Lag() can never actually reach, which is
+    // misleading.  Log a note so the user can correct the config.
+    uint32_t clamped = maxLag == 0 ? 1u : maxLag;
+    if (clamped > MAX_FRAMES_IN_FLIGHT)
+    {
+        LogVk(std::string("[BackpressureGovernor] asyncMaxLag=") +
+              std::to_string(maxLag) +
+              " exceeds MAX_FRAMES_IN_FLIGHT=" +
+              std::to_string(MAX_FRAMES_IN_FLIGHT) +
+              " — clamped.  Deeper pipelining requires timeline semaphores.");
+        clamped = MAX_FRAMES_IN_FLIGHT;
+    }
+    m_MaxLag = clamped;
+
     m_CpuFrame.store(0);
     m_GpuFrame.store(0);
 }

@@ -123,7 +123,7 @@ namespace VCK::MipmapExample {
         if (window_width == 0 || window_height == 0) return;
         vkDeviceWaitIdle(device.GetDevice());
         swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
+        framebuffers.Recreate(pipeline);
     }
 
     void OnFramebufferResize(GLFWwindow*, int w, int h)
@@ -452,8 +452,8 @@ namespace VCK::MipmapExample {
         HWND hwnd = glfwGetWin32Window(window);
 
         context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window_width, window_height);
 
         // Shaders: position (loc 0) + uv (loc 1) → texture sample
         shaders.VertexSpirv   = LoadSpv("./assets/mip.vert.spv");
@@ -469,11 +469,11 @@ namespace VCK::MipmapExample {
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,    .offset = offsetof(Vertex, uv)       },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
         modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── Descriptor pool: 1 UBO/frame + 1 sampler ─────────────────────────
         descAllocator.Initialize(device,

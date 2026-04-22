@@ -206,6 +206,15 @@ public:
     VulkanDevice& operator=(const VulkanDevice&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //
+    //  Preferred form — pass the VulkanContext.  No handle-plucking at the
+    //  call site:
+    //      device.Initialize(context);
+    //
+    //  The raw-handle overload is kept for advanced users who manage their
+    //  own VkInstance / VkSurfaceKHR.  Normal VCK programs should use the
+    //  context overload.
+    bool Initialize(VulkanContext& context);
     bool Initialize(VkInstance instance, VkSurfaceKHR surface);
     void Shutdown();
 
@@ -271,6 +280,13 @@ public:
     VulkanSwapchain& operator=(const VulkanSwapchain&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //
+    //  Preferred form — pass the VulkanContext:
+    //      swapchain.Initialize(device, context, 800, 600);
+    //
+    //  The raw-handle overload is kept for advanced users; normal programs
+    //  should use the context overload.
+    bool Initialize(VulkanDevice& device, VulkanContext& context, uint32_t width, uint32_t height);
     bool Initialize(VulkanDevice& device, VkSurfaceKHR surface, uint32_t width, uint32_t height);
     void Shutdown();
 
@@ -477,6 +493,17 @@ public:
     VulkanPipeline& operator=(const VulkanPipeline&) = delete;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    //
+    //  Preferred form — pass the VulkanSwapchain:
+    //      pipeline.Initialize(device, swapchain, shaders, vertexInput);
+    //
+    //  The raw-format overload is kept for advanced users who build
+    //  pipelines that do not target a swapchain.
+    bool Initialize(VulkanDevice&          device,
+                    VulkanSwapchain&       swapchain,
+                    const ShaderInfo&      shaders,
+                    const VertexInputInfo& vertexInput);
+
     bool Initialize(VulkanDevice&        device,
                     VkFormat             swapchainFormat,
                     const ShaderInfo&    shaders,
