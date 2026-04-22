@@ -69,7 +69,15 @@ jobs:
           if ($missing.Count -eq 0) {
             "vk_video headers already present under $dst" | Write-Host
           } else {
-            $tag = 'vulkan-sdk-1.3.290.0'
+            # KhronosGroup/Vulkan-Headers tags <= 1.3.296 don't contain
+            # av1std_encode.h yet (it was added after 1.3.x was branched).
+            # The LunarG SDK 1.3.290 *does* ship a vulkan_core.h that hard-
+            # includes it, so the bundle is self-consistent only when the
+            # action installs the vulkan_video component too.  When we have
+            # to fetch the headers manually we use a 1.4.x tag - the files
+            # are additive, forward-compatible and safe to drop in under a
+            # 1.3.290 SDK.
+            $tag = 'vulkan-sdk-1.4.321.0'
             $base = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/$tag/include/vk_video"
             foreach ($f in $missing) {
               $url = "$base/$f"
