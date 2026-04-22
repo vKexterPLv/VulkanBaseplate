@@ -2,305 +2,270 @@
 setlocal enabledelayedexpansion
 
 :: =============================================================================
-::  build.bat  -  VCK example builder
-::  Run from the example\ folder.
+::  VCK example builder
+:: =============================================================================
+::  Run from the repo's example\ folder.  Requires:
+::    - VULKAN_SDK env var pointing at your Vulkan SDK root
+::    - glslangValidator on PATH  (ships with the SDK)
+::    - g++ on PATH               (MinGW-w64)
+::    - example\deps\ populated   (see deps layout below)
 ::
-::  Expected deps layout:
+::  Dependency layout:
 ::    example\
-::      build.bat
 ::      deps\
 ::        vk_mem_alloc.h
 ::        libglfw3.a
-::        glfw\
-::          include\
-::            GLFW\
-::              glfw3.h
-::              glfw3native.h
+::        glfw\include\GLFW\glfw3.h
+::        glfw\include\GLFW\glfw3native.h
 ::
-::  GLFW: download "Windows pre-compiled binaries" from https://www.glfw.org
-::  Copy include\GLFW\ into example\deps\glfw\include\GLFW\
-::  Copy lib-mingw-w64\libglfw3.a into example\deps\libglfw3.a
-::
-::  Requirements on PATH:
-::    glslangValidator  (Vulkan SDK\Bin)
-::    g++               (MinGW-w64)
-::
-::  VULKAN_SDK env var must point to your Vulkan SDK root.
+::  GLFW: download the "Windows pre-compiled binaries" from https://www.glfw.org
+::        - copy include\GLFW\           → deps\glfw\include\GLFW\
+::        - copy lib-mingw-w64\libglfw3.a → deps\libglfw3.a
 :: =============================================================================
 
-:: ── Checks -------------------------------------------------------------------
+:: ── ANSI colour setup --------------------------------------------------------
+:: Capture a literal ESC byte into %ESC% so we can emit ANSI escape sequences.
+:: Works on Windows 10 1511+ conhost / Terminal.  Older shells print raw codes,
+:: which is ugly but not broken.
+for /f %%E in ('"prompt $E & for %%a in (1) do rem"') do set "ESC=%%E"
+set "C_RESET=%ESC%[0m"
+set "C_BOLD=%ESC%[1m"
+set "C_DIM=%ESC%[2m"
+set "C_RED=%ESC%[91m"
+set "C_GRN=%ESC%[92m"
+set "C_YEL=%ESC%[93m"
+set "C_BLU=%ESC%[94m"
+set "C_MAG=%ESC%[95m"
+set "C_CYN=%ESC%[96m"
+set "C_WHT=%ESC%[97m"
+
+:: ── Precondition checks ------------------------------------------------------
 if "%VULKAN_SDK%"=="" (
-    echo ERROR: VULKAN_SDK is not set.
+    call :BANNER
+    call :ERR "VULKAN_SDK is not set.  Install the Vulkan SDK and set VULKAN_SDK."
     exit /b 1
 )
 where glslangValidator >nul 2>&1
-if errorlevel 1 ( echo ERROR: glslangValidator not on PATH. & exit /b 1 )
+if errorlevel 1 ( call :BANNER & call :ERR "glslangValidator not on PATH." & exit /b 1 )
 where g++ >nul 2>&1
-if errorlevel 1 ( echo ERROR: g++ not on PATH. & exit /b 1 )
+if errorlevel 1 ( call :BANNER & call :ERR "g++ not on PATH  (install MinGW-w64)." & exit /b 1 )
 if not exist "deps\vk_mem_alloc.h" (
-    echo ERROR: deps\vk_mem_alloc.h not found.
+    call :BANNER
+    call :ERR "deps\vk_mem_alloc.h is missing."
     exit /b 1
 )
 if not exist "deps\libglfw3.a" (
-    echo ERROR: deps\libglfw3.a not found.
+    call :BANNER
+    call :ERR "deps\libglfw3.a is missing."
     exit /b 1
 )
 if not exist "deps\glfw\include\GLFW\glfw3.h" (
-    echo ERROR: deps\glfw\include\GLFW\glfw3.h not found.
-    echo        Download GLFW Windows pre-compiled from https://www.glfw.org
-    echo        Copy include\GLFW\ to example\deps\glfw\include\GLFW\
+    call :BANNER
+    call :ERR "deps\glfw\include\GLFW\glfw3.h is missing."
+    echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
+    echo        and copy include\GLFW\ into deps\glfw\include\GLFW\.
     exit /b 1
 )
 
 :: ── Shared flags -------------------------------------------------------------
-::
-::  Include search order:
-::    1. deps\                   vk_mem_alloc.h
-::    2. deps\glfw\include       GLFW/glfw3.h, GLFW/glfw3native.h
-::    3. ..                      VCK.h and all Vulkan*.h (project root)
-::    4. VULKAN_SDK\Include      vulkan/vulkan.h and full vk_video/ tree
-::
-::  Note: we do NOT add the bundled vulkan\ folder in the project root to
-::  the include path — it is incomplete (missing vk_video/).
-::  The SDK headers are always complete.
-::
 set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I"%VULKAN_SDK%\Include"
-
-::  Lib search + link:
-::    deps\libglfw3.a   GLFW static (MinGW)
-::    VULKAN_SDK\Lib    vulkan-1.lib
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
-
-::  VCK core .cpp files (shared by all examples)
 set VKB=..\VmaImpl.cpp ..\VulkanBuffer.cpp ..\VulkanCommand.cpp ..\VulkanContext.cpp ..\VulkanDevice.cpp ..\VulkanHelpers.cpp ..\VulkanImage.cpp ..\VulkanPipeline.cpp ..\VulkanSwapchain.cpp ..\VulkanSync.cpp ..\VCKExpansion.cpp
 
-:: ── Menu ---------------------------------------------------------------------
+:: ── Banner + menu ------------------------------------------------------------
+call :BANNER
+
+echo  %C_BOLD%%C_WHT%Core reference%C_RESET%          %C_DIM%(core VulkanSync / VulkanCommand path)%C_RESET%
+echo    %C_YEL%[1]%C_RESET%  %C_WHT%RGBTriangle%C_RESET%                 coloured triangle, live resize
+echo    %C_YEL%[2]%C_RESET%  %C_WHT%MipmapExample%C_RESET%               mip chain generation and sampling
+echo    %C_YEL%[3]%C_RESET%  %C_WHT%VMMExample%C_RESET%                  VMM all three layers
 echo.
-echo  VCK - example builder
-echo  -----------------------------------
-echo  [1]  RGBTriangle                - coloured triangle, live resize
-echo  [2]  MipmapExample              - mip chain generation and sampling
-echo  [3]  VMMExample                 - VulkanMemoryManager all three layers
-echo  ---  VCKExpansion execution layer  ---
-echo  [4]  HelloExample               - minimal FrameScheduler + triangle
-echo  [5]  JobGraphExample            - CPU task graph with dependencies
-echo  [6]  SchedulerPolicyExample     - switch Lockstep / Pipelined / AsyncMax at runtime
-echo  [7]  SubmissionBatchingExample  - 2 cmd buffers, 1 vkQueueSubmit
-echo  [8]  TimelineExample            - TimelineSemaphore + DependencyToken smoke test
-echo  [9]  DebugTimelineExample       - span recorder + Dump every 120 frames
-echo  [A]  All  (builds 1..9 in sequence)
-echo  [0]  Exit
+echo  %C_BOLD%%C_WHT%VCKExpansion execution layer%C_RESET%
+echo    %C_YEL%[4]%C_RESET%  %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
+echo    %C_YEL%[5]%C_RESET%  %C_WHT%JobGraphExample%C_RESET%             CPU task graph with dependencies
+echo    %C_YEL%[6]%C_RESET%  %C_WHT%SchedulerPolicyExample%C_RESET%      Lockstep / Pipelined / AsyncMax at runtime
+echo    %C_YEL%[7]%C_RESET%  %C_WHT%SubmissionBatchingExample%C_RESET%   2 cmd buffers, 1 vkQueueSubmit
+echo    %C_YEL%[8]%C_RESET%  %C_WHT%TimelineExample%C_RESET%             TimelineSemaphore + DependencyToken
+echo    %C_YEL%[9]%C_RESET%  %C_WHT%DebugTimelineExample%C_RESET%        span recorder + Dump every 120 frames
 echo.
-set /p CHOICE=" Select: "
+echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
+echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
+echo.
+set /p CHOICE=   %C_BOLD%%C_CYN%select^>%C_RESET% 
 
 if /i "%CHOICE%"=="A" goto BUILD_ALL
 if "%CHOICE%"=="1" goto BUILD_TRIANGLE
 if "%CHOICE%"=="2" goto BUILD_MIPMAP
 if "%CHOICE%"=="3" goto BUILD_VMM
-if "%CHOICE%"=="4" goto BUILD_HELLO
-if "%CHOICE%"=="5" goto BUILD_JOBGRAPH
-if "%CHOICE%"=="6" goto BUILD_POLICY
-if "%CHOICE%"=="7" goto BUILD_BATCHING
-if "%CHOICE%"=="8" goto BUILD_TIMELINE
-if "%CHOICE%"=="9" goto BUILD_DBGTIMELINE
+if "%CHOICE%"=="4" ( set EX=HelloExample              & set STEM=hello                     & goto BUILD_ONE )
+if "%CHOICE%"=="5" ( set EX=JobGraphExample           & set STEM=JobGraphExample            & goto BUILD_ONE )
+if "%CHOICE%"=="6" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample     & goto BUILD_ONE )
+if "%CHOICE%"=="7" ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
+if "%CHOICE%"=="8" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
+if "%CHOICE%"=="9" ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
 if "%CHOICE%"=="0" exit /b 0
-echo Unknown: %CHOICE%
+call :ERR "unknown selection '%CHOICE%'"
 exit /b 1
 
+
 :: =============================================================================
+::  Single-example builds
+:: =============================================================================
+
 :BUILD_TRIANGLE
 set EX=RGBTriangle
-set ASSETS=%EX%\assets
-echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\triangle.vert -o %ASSETS%\triangle.vert.spv
-if errorlevel 1 ( echo FAILED: triangle.vert & exit /b 1 )
-glslangValidator -V %ASSETS%\triangle.frag -o %ASSETS%\triangle.frag.spv
-if errorlevel 1 ( echo FAILED: triangle.frag & exit /b 1 )
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
-echo.
-echo  OK  %EX%\%EX%.exe
-echo  Run: cd %EX% ^&^& %EX%.exe
+set STEM=triangle
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+call :OK_RUN
 goto END
 
-:: =============================================================================
 :BUILD_MIPMAP
 set EX=MipmapExample
-set ASSETS=%EX%\assets
-echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\mip.vert -o %ASSETS%\mip.vert.spv
-if errorlevel 1 ( echo FAILED: mip.vert & exit /b 1 )
-glslangValidator -V %ASSETS%\mip.frag -o %ASSETS%\mip.frag.spv
-if errorlevel 1 ( echo FAILED: mip.frag & exit /b 1 )
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
-echo.
-echo  OK  %EX%\%EX%.exe
-echo  Run: cd %EX% ^&^& %EX%.exe
+set STEM=mip
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+call :OK_RUN
 goto END
 
-:: =============================================================================
 :BUILD_VMM
 set EX=VMMExample
-set ASSETS=%EX%\assets
-echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\vmm.vert -o %ASSETS%\vmm.vert.spv
-if errorlevel 1 ( echo FAILED: vmm.vert & exit /b 1 )
-glslangValidator -V %ASSETS%\vmm.frag -o %ASSETS%\vmm.frag.spv
-if errorlevel 1 ( echo FAILED: vmm.frag & exit /b 1 )
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\VMM\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
-echo.
-echo  OK  %EX%\%EX%.exe
-echo  Run: cd %EX% ^&^& %EX%.exe
+set STEM=vmm
+call :COMPILE_SHADERS                 || exit /b 1
+call :COMPILE_CPP_WITH_VMM            || exit /b 1
+call :OK_RUN
 goto END
 
-:: =============================================================================
-:: VCKExpansion execution-layer examples.
-::
-:: All six share the same Vertex layout + shader shape, so we reuse a small
-:: macro-ish pattern: each label sets EX and the assets file stem, compiles
-:: the .vert/.frag, then compiles C++ against the shared VKB list.
-:: =============================================================================
-
-:BUILD_HELLO
-set EX=HelloExample
-set STEM=hello
-goto COMPILE_EX_WITH_STEM
-
-:BUILD_JOBGRAPH
-set EX=JobGraphExample
-set STEM=JobGraphExample
-goto COMPILE_EX_WITH_STEM
-
-:BUILD_POLICY
-set EX=SchedulerPolicyExample
-set STEM=SchedulerPolicyExample
-goto COMPILE_EX_WITH_STEM
-
-:BUILD_BATCHING
-set EX=SubmissionBatchingExample
-set STEM=SubmissionBatchingExample
-goto COMPILE_EX_WITH_STEM
-
-:BUILD_TIMELINE
-set EX=TimelineExample
-set STEM=TimelineExample
-goto COMPILE_EX_WITH_STEM
-
-:BUILD_DBGTIMELINE
-set EX=DebugTimelineExample
-set STEM=DebugTimelineExample
-goto COMPILE_EX_WITH_STEM
-
-:COMPILE_EX_WITH_STEM
-set ASSETS=%EX%\assets
-echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv
-if errorlevel 1 ( echo FAILED: %STEM%.vert & exit /b 1 )
-glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv
-if errorlevel 1 ( echo FAILED: %STEM%.frag & exit /b 1 )
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( echo FAILED: C++ compilation & exit /b 1 )
-echo.
-echo  OK  %EX%\%EX%.exe
-echo  Run: cd %EX% ^&^& %EX%.exe
+:BUILD_ONE
+:: Trim any trailing space left by the inline ( ... & ... ) assignment.
+for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
+for /f "tokens=* delims= " %%A in ("!STEM!") do set "STEM=%%A"
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+call :OK_RUN
 goto END
 
+
 :: =============================================================================
+::  Build-all  (inlined to preserve on-screen colour output)
+:: =============================================================================
+
 :BUILD_ALL
-call :DO_BUILD_TRIANGLE || exit /b 1
-call :DO_BUILD_MIPMAP   || exit /b 1
-call :DO_BUILD_VMM      || exit /b 1
-:: No alignment padding here — in cmd.exe `set VAR=value <spaces>& ...`
-:: folds the trailing spaces into the variable's value, which then shows
-:: up as `HelloExample              \assets\hello.vert` and breaks the
-:: glslangValidator call.  One `set` per line keeps the values clean.
+call :STEP "[1/9] RGBTriangle"
+set EX=RGBTriangle
+set STEM=triangle
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[2/9] MipmapExample"
+set EX=MipmapExample
+set STEM=mip
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[3/9] VMMExample"
+set EX=VMMExample
+set STEM=vmm
+call :COMPILE_SHADERS          || exit /b 1
+call :COMPILE_CPP_WITH_VMM     || exit /b 1
+
+call :STEP "[4/9] HelloExample"
 set EX=HelloExample
 set STEM=hello
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[5/9] JobGraphExample"
 set EX=JobGraphExample
 set STEM=JobGraphExample
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[6/9] SchedulerPolicyExample"
 set EX=SchedulerPolicyExample
 set STEM=SchedulerPolicyExample
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[7/9] SubmissionBatchingExample"
 set EX=SubmissionBatchingExample
 set STEM=SubmissionBatchingExample
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[8/9] TimelineExample"
 set EX=TimelineExample
 set STEM=TimelineExample
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[9/9] DebugTimelineExample"
 set EX=DebugTimelineExample
 set STEM=DebugTimelineExample
-call :DO_COMPILE || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
 echo.
-echo  OK  all examples built.
+echo %C_GRN%  all 9 examples built.%C_RESET%
+echo.
 goto END
 
-:DO_BUILD_TRIANGLE
-set EX=RGBTriangle
-set ASSETS=%EX%\assets
+
+:: =============================================================================
+::  Helpers  (called as :LABEL)
+:: =============================================================================
+
+:BANNER
 echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\triangle.vert -o %ASSETS%\triangle.vert.spv || exit /b 1
-glslangValidator -V %ASSETS%\triangle.frag -o %ASSETS%\triangle.frag.spv || exit /b 1
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
-echo  OK  %EX%\%EX%.exe
+echo  %C_CYN%+---------------------------------------------------------+%C_RESET%
+echo  %C_CYN%^|%C_RESET%   %C_BOLD%%C_WHT%V C K%C_RESET%   %C_DIM%Vulkan Core Kit  -  example builder%C_RESET%    %C_CYN%^|%C_RESET%
+echo  %C_CYN%+---------------------------------------------------------+%C_RESET%
+echo.
 exit /b 0
 
-:DO_BUILD_MIPMAP
-set EX=MipmapExample
-set ASSETS=%EX%\assets
+:STEP
+:: %~1 = header text, e.g. "[4/9] HelloExample"
 echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\mip.vert -o %ASSETS%\mip.vert.spv || exit /b 1
-glslangValidator -V %ASSETS%\mip.frag -o %ASSETS%\mip.frag.spv || exit /b 1
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
-echo  OK  %EX%\%EX%.exe
+echo %C_MAG%>%C_RESET% %C_BOLD%%~1%C_RESET%
 exit /b 0
 
-:DO_BUILD_VMM
-set EX=VMMExample
-set ASSETS=%EX%\assets
+:ERR
+:: %~1 = error text
 echo.
-echo [%EX%] Compiling shaders...
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\vmm.vert -o %ASSETS%\vmm.vert.spv || exit /b 1
-glslangValidator -V %ASSETS%\vmm.frag -o %ASSETS%\vmm.frag.spv || exit /b 1
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\VMM\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
-echo  OK  %EX%\%EX%.exe
+echo %C_RED%  ERROR:%C_RESET% %~1
+echo.
 exit /b 0
 
-:DO_COMPILE
+:COMPILE_SHADERS
 set ASSETS=%EX%\assets
-echo.
-echo [%EX%] Compiling shaders...
 if not exist "%ASSETS%" mkdir "%ASSETS%"
-glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv || exit /b 1
-glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv || exit /b 1
-echo [%EX%] Compiling C++...
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS% || exit /b 1
-echo  OK  %EX%\%EX%.exe
+echo   %C_DIM%glslang %STEM%.vert%C_RESET%
+glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv >nul
+if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.vert" & exit /b 1 )
+echo   %C_DIM%glslang %STEM%.frag%C_RESET%
+glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv >nul
+if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.frag" & exit /b 1 )
+exit /b 0
+
+:COMPILE_CPP
+echo   %C_DIM%g++      %EX%.exe%C_RESET%
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
+if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
+echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
+exit /b 0
+
+:COMPILE_CPP_WITH_VMM
+echo   %C_DIM%g++      %EX%.exe  (+VMM)%C_RESET%
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\VMM\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
+if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
+echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
+exit /b 0
+
+:OK_RUN
+echo.
+echo   %C_CYN%run:%C_RESET%   cd %EX%  ^&^&  %EX%.exe
+echo.
 exit /b 0
 
 :END
-echo.
 endlocal
