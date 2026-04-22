@@ -35,22 +35,3 @@ up (see [[Publishing this wiki]](#publishing-this-wiki)).
 
 Everything lives in `namespace VCK`. `LogVk` and `VK_CHECK` are global so any
 TU can use them without a `using` declaration.
-
-## Publishing this wiki
-
-GitHub Wikis are separate git repos at `<repo>.wiki.git`. To populate the Wiki
-from these files:
-
-1. Visit the **Wiki** tab of the repo on GitHub once and click _"Create the
-   first page"_ to initialise the wiki repo.
-2. Clone and push:
-   ```
-   git clone https://github.com/vKexterPLv/VCK.wiki.git
-   cp docs/*.md VCK.wiki/
-   cd VCK.wiki
-   git add . && git commit -m "Seed wiki from docs/"
-   git push
-   ```
-3. On the Wiki, rename `Home.md` to the `Home` page (GitHub strips the `.md`
-   extension automatically). Page names with hyphens, like `Core-API.md`,
-   show up as `Core API` in the Wiki sidebar.
