@@ -1121,14 +1121,6 @@ bool BackpressureGovernor::IsOverrun() const
     return cpu > gpu && (cpu - gpu) > static_cast<uint64_t>(m_MaxLag);
 }
 
-uint64_t BackpressureGovernor::WaitIfOverrun()
-{
-    // Kept for API compatibility - no longer blocks.  Real backpressure is
-    // implemented in FrameScheduler::BeginFrame via fence polling.
-    return 0;
-}
-
-
 // -----------------------------------------------------------------------------
 // [19] JobGraph
 // -----------------------------------------------------------------------------

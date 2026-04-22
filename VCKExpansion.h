@@ -928,7 +928,6 @@ public:
     // NoteGpuFrameRetired is always called on the same render thread, which
     // self-deadlocked the CV path the moment the CPU overran.
     bool     IsOverrun() const;
-    uint64_t WaitIfOverrun();   // kept for API compat - always returns 0
 
     FramePolicy Policy() const { return m_Policy; }
     uint32_t    MaxLag() const { return m_MaxLag; }
