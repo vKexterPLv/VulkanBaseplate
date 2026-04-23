@@ -134,17 +134,78 @@ Expansion / Execution / VMM / Tools layers.
 
 ## Done (previously on the roadmap)
 
-- **MSAA end-to-end.** `cfg.swapchain.msaaSamples > 1` now works end-to-end:
+- **MSAA end-to-end.** `cfg.swapchain.msaaSamples > 1` works end-to-end:
   `VulkanSwapchain` owns the per-image multisampled `VkImage`+view,
   `VulkanPipeline` configures the render pass with a resolve attachment,
-  `VulkanFramebufferSet` binds `[msaaView, swapchainView]`, and the
-  recreate path on resize rebuilds both. Zero-config unchanged (defaults
-  to 1x).
+  `VulkanFramebufferSet` binds `[msaaView, swapchainView]`, recreate on
+  resize rebuilds both. Zero-config unchanged. `MSAA_AUTO` sentinel +
+  `DetectRecommendedMSAA` pick a sensible sample count on first
+  `Initialize` (integrated → 1x, mid discrete → 4x, high discrete → 8x,
+  clamped to `framebufferColorSampleCounts` ∩ depth counts).
+- **AA auto-detection (first `Initialize`).** `cfg.aa.technique =
+  AATechnique::Auto` runs `DetectRecommendedAA(device, forwardRenderer,
+  motionVectors)` — 5-step decision tree (VRAM tier → renderer path →
+  motion-vector support) picks MSAA / MSAA_A2C / SampleRate / FXAA /
+  SMAA_1x / SMAA_T2x / TAA / TAAU. Sample-based techniques are wired by
+  VCK end-to-end; post-process techniques are name-only and the renderer
+  implements the shader (rule 15/16 — `VCK` is not a renderer).
+  `VulkanSwapchain::GetAATechnique()` returns the resolved pick.
+- **Logger polish.** `VCKLog` gained an explicit `Level` enum (`Info`
+  debug-gated, `Notice`/`Warn`/`Error` always visible), a consecutive-line
+  dedup that prints `(repeated N more times)` on the next distinct line,
+  and a `SetDebug(bool)` knob tied to `cfg.debug`. Legacy `LogVk("[Tag]
+  msg")` sites auto-parse the `[Tag]` prefix into `VCKLog::Info(tag, body)`
+  so no mass call-site churn was needed.
 - **Cross-platform facade.** `VCK::Window` + `VCKCrossplatform.{h,cpp}`
   cover Windows/Linux/macOS; all 9 examples use it, no raw GLFW/HWND in
   user code. `example/build.sh` mirrors `build.bat` on Linux/macOS.
 - **Live resize as a first-class feature.** `VCK::HandleLiveResize()`
   one-call-per-frame, auto-tracks size, logs `[LiveResize]` spans.
+
+## Anti-aliasing — scope + detector
+
+VCK splits AA into two families and implements exactly one of them:
+
+| Family        | Techniques                                        | Who implements? |
+|---------------|---------------------------------------------------|-----------------|
+| Sample-based  | `MSAA`, `MSAA_A2C`, `SampleRate`                  | **VCK**         |
+| Post-process  | `FXAA`, `SMAA_1x`, `SMAA_T2x`, `TAA`, `TAAU`      | **Caller**      |
+
+Sample-based techniques map directly to `VkPipelineMultisampleStateCreateInfo`
+fields (`rasterizationSamples`, `alphaToCoverageEnable`,
+`sampleShadingEnable` + `minSampleShading`). Post-process techniques are
+render-pass features that belong to a renderer — shipping them would grow
+the core beyond rules 15/16. VCK picks the technique name, exposes it
+via `VulkanSwapchain::GetAATechnique()`, and the application's own
+post-process pass implements the shader.
+
+Vendor-specific techniques (CSAA/EQAA/TXAA/MFAA) are intentionally not
+offered — they require vendor extensions that break the cross-platform
+promise. Any app that needs one should pin the samples and enable the
+extension directly; VCK's escape hatch (rule 9) is right there.
+
+### The 5-step detector
+
+`DetectRecommendedAA(VkPhysicalDevice, forwardRenderer, motionVectors)`:
+
+1. **Query hardware** — `VkPhysicalDeviceProperties` +
+   `VkPhysicalDeviceMemoryProperties` (device-local heap sum).
+2. **Classify tier** — LOW (integrated OR ≤ 2 GB), MID (≤ 6 GB),
+   HIGH (> 6 GB).
+3. **Detect renderer path** — caller-supplied (`forwardRenderer`);
+   deferred pipelines can't use MSAA efficiently.
+4. **Select method**:
+   - LOW → `FXAA`
+   - MID + forward → `MSAA_A2C`
+   - MID + deferred → `SMAA_T2x` (if motion vectors) else `SMAA_1x`
+   - HIGH + forward → `TAA` (if motion vectors) else `MSAA_A2C`
+   - HIGH + deferred → `TAA` (if motion vectors) else `SMAA_1x`
+5. **Clamp MSAA samples** — `DetectRecommendedMSAA` picks an actual
+   sample count (1/2/4/8) clamped to both
+   `framebufferColorSampleCounts` AND `framebufferDepthSampleCounts`.
+
+Every decision logs a `VCKLog::Notice("AA", ...)` line so the user sees
+what got picked without enabling debug.
 
 ## Roadmap
 

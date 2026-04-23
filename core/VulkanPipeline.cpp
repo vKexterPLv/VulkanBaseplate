@@ -262,11 +262,24 @@ namespace VCK {
         rasterizer.frontFace   = m_PipelineCfg.frontFace;
         rasterizer.depthBiasEnable = VK_FALSE;
 
-        // ── Multisampling (off) ───────────────────────────────────────────────────
+        // ── Multisampling ─────────────────────────────────────────────────────────
+        // rasterizationSamples is driven by cfg.swapchain.msaaSamples via the
+        // Initialize overloads.  A2C + sample-rate-shading are per-pipeline
+        // knobs that only take effect when samples > 1 (Vulkan spec makes
+        // them no-ops at 1x; we still guard them so cfg = true is safe).
+        const bool msaaActive = (m_Samples != VK_SAMPLE_COUNT_1_BIT);
+
         VkPipelineMultisampleStateCreateInfo multisampling{};
         multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = m_Samples;
-        multisampling.sampleShadingEnable = VK_FALSE;
+        multisampling.rasterizationSamples  = m_Samples;
+        multisampling.sampleShadingEnable   =
+            (m_PipelineCfg.sampleRateShading && msaaActive) ? VK_TRUE : VK_FALSE;
+        multisampling.minSampleShading      =
+            (m_PipelineCfg.sampleRateShading && msaaActive)
+                ? m_PipelineCfg.minSampleShadingRate
+                : 1.0f;
+        multisampling.alphaToCoverageEnable =
+            (m_PipelineCfg.alphaToCoverage && msaaActive) ? VK_TRUE : VK_FALSE;
 
         // ── Depth / stencil (disabled - add when needed) ──────────────────────────
         // Pass nullptr for pDepthStencilState when no depth attachment exists.
@@ -320,4 +333,4 @@ namespace VCK {
         return success;
     }
 
-} // namespace VCK
+} // namespace VCK

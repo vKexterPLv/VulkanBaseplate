@@ -92,6 +92,20 @@ namespace VCK {
             // Pipeline layout (borrowed handles)
             std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
             std::vector<VkPushConstantRange>   pushConstantRanges;
+
+            // Alpha-to-coverage (A2C).  Complements MSAA for alpha-tested
+            // geometry (foliage, fences, decals).  Ignored when the pipeline
+            // samples == 1x - Vulkan spec is a no-op there, but we guard it
+            // anyway so cfg.pipeline.alphaToCoverage = true is always safe.
+            bool                               alphaToCoverage      = false;
+
+            // Sample-rate shading - evaluate the fragment shader once per
+            // sample instead of once per pixel.  Improves interior AA at the
+            // cost of shading rate.  Ignored when samples == 1x.  minRate is
+            // passed through to VkPipelineMultisampleStateCreateInfo.minSampleShading
+            // (1.0 = full rate, 0.25 = 1 in 4 samples, etc.).
+            bool                               sampleRateShading    = false;
+            float                              minSampleShadingRate = 0.2f;
         };
 
 
@@ -157,4 +171,4 @@ namespace VCK {
         Config m_PipelineCfg;
     };
 
-} // namespace VCK
+} // namespace VCK

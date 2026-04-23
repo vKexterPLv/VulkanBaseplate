@@ -31,7 +31,11 @@ namespace VCK {
     }
 
     bool VulkanContext::Initialize(const Window& window, const Config& cfg) {
-        LogVk("[VulkanContext] Initialize begin (" VCK_PLATFORM_NAME ")");
+        // cfg.debug flips verbose Info-level logging for the whole process.
+        // Done first so the rest of init respects it.
+        VCKLog::SetDebug(cfg.debug);
+
+        VCKLog::Info("Context", std::string("Initialize begin (") + VCK_PLATFORM_NAME + ")");
 
         m_CfgContext = cfg.context;
 
@@ -40,21 +44,21 @@ namespace VCK {
         const auto surfaceExts = Window::RequiredInstanceExtensions();
 
         if (!CreateInstance(cfg.context.appName, surfaceExts)) {
-            LogVk("[VulkanContext] FAILED: CreateInstance");
+            VCKLog::Error("Context", "CreateInstance failed");
             return false;
         }
 
         if (ValidationEnabled) {
             if (!CreateDebugMessenger())
-                LogVk("[VulkanContext] WARNING: debug messenger unavailable - continuing");
+                VCKLog::Warn("Context", "debug messenger unavailable - continuing");
         }
 
         if (!CreateSurface(window)) {
-            LogVk("[VulkanContext] FAILED: CreateSurface");
+            VCKLog::Error("Context", "CreateSurface failed");
             return false;
         }
 
-        LogVk("[VulkanContext] Initialize OK");
+        VCKLog::Notice("Context", std::string("Initialized on ") + VCK_PLATFORM_NAME);
         return true;
     }
 
@@ -69,7 +73,9 @@ namespace VCK {
     }
 
     bool VulkanContext::Initialize(HWND windowHandle, const Config& cfg) {
-        LogVk("[VulkanContext] Initialize begin (HWND legacy)");
+        VCKLog::SetDebug(cfg.debug);
+
+        VCKLog::Info("Context", "Initialize begin (HWND legacy)");
 
         m_CfgContext = cfg.context;
 
@@ -79,27 +85,27 @@ namespace VCK {
         };
 
         if (!CreateInstance(cfg.context.appName, surfaceExts)) {
-            LogVk("[VulkanContext] FAILED: CreateInstance");
+            VCKLog::Error("Context", "CreateInstance failed");
             return false;
         }
 
         if (ValidationEnabled) {
             if (!CreateDebugMessenger())
-                LogVk("[VulkanContext] WARNING: debug messenger unavailable - continuing");
+                VCKLog::Warn("Context", "debug messenger unavailable - continuing");
         }
 
         if (!CreateSurface(windowHandle)) {
-            LogVk("[VulkanContext] FAILED: CreateSurface");
+            VCKLog::Error("Context", "CreateSurface failed");
             return false;
         }
 
-        LogVk("[VulkanContext] Initialize OK");
+        VCKLog::Notice("Context", "Initialized on Windows (HWND legacy)");
         return true;
     }
 #endif
 
     void VulkanContext::Shutdown() {
-        LogVk("[VulkanContext] Shutdown");
+        VCKLog::Info("Context", "Shutdown");
 
         // Order matters: surface → debug messenger → instance
         if (Surface != VK_NULL_HANDLE) {
@@ -312,4 +318,4 @@ namespace VCK {
         return VK_FALSE;
     }
 
-} // namespace VCK
+} // namespace VCK

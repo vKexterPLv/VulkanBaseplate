@@ -68,6 +68,14 @@ namespace VCK {
         VkSampleCountFlagBits            GetMSAASamples()         const { return m_CfgSwapchain.msaaSamples;  }
         VkFormat                         GetPreferredDepthFormat()const { return m_CfgSwapchain.depthFormat;  }
 
+        // AA technique resolved at Initialize.  If cfg.aa.technique was
+        // Auto it reflects the detector's pick (TAA / SMAA_1x / FXAA /
+        // MSAA_A2C etc.).  Post-process techniques (IsPostProcessAA()) are
+        // not implemented inside VCK - the renderer reads this value and
+        // runs the matching post-process pass itself.
+        AATechnique                      GetAATechnique()         const { return m_ResolvedAA;             }
+        const Config::AACfg&             GetAACfg()               const { return m_CfgAA;                 }
+
     private:
         bool CreateSwapchain(uint32_t width, uint32_t height);
         void DestroySwapchainResources();
@@ -99,6 +107,12 @@ namespace VCK {
         // msaaSamples / depthFormat).  Used by ChoosePresentMode / ChooseSurfaceFormat
         // / imageCount logic and surfaced via GetMSAASamples / GetPreferredDepthFormat.
         Config::SwapchainCfg     m_CfgSwapchain;
+
+        // Snapshot of cfg.aa + the resolved technique.  m_ResolvedAA equals
+        // m_CfgAA.technique unless the latter was AATechnique::Auto, in which
+        // case DetectRecommendedAA fills it in.
+        Config::AACfg            m_CfgAA;
+        AATechnique              m_ResolvedAA = AATechnique::Off;
     };
 
 } // namespace VCK

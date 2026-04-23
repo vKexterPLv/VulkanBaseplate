@@ -29,6 +29,7 @@ namespace VCK {
         uint32_t width, uint32_t height, const Config& cfg)
     {
         m_CfgSwapchain = cfg.swapchain;
+        m_CfgAA        = cfg.aa;
         return Initialize(device, surface, width, height);
     }
 
@@ -38,16 +39,74 @@ namespace VCK {
         m_Device = &device;
         m_Surface = surface;
 
-        LogVk("[Swapchain] Initializing (" +
+        // ── AA technique resolve ─────────────────────────────────────────────
+        // Step 1: pick the AA family.  If the caller pinned cfg.aa.technique
+        // we honour it as-is; otherwise DetectRecommendedAA walks the 5-step
+        // decision tree (tier -> forward/deferred -> motion vectors).
+        m_ResolvedAA = m_CfgAA.technique;
+        if (m_ResolvedAA == AATechnique::Auto)
+        {
+            m_ResolvedAA = DetectRecommendedAA(device.GetPhysicalDevice(),
+                                               m_CfgAA.forwardRenderer,
+                                               m_CfgAA.supportsMotionVectors);
+            VCKLog::Notice("AA",
+                std::string("Auto-detected: ") + ToString(m_ResolvedAA));
+        }
+        else
+        {
+            VCKLog::Notice("AA",
+                std::string("Pinned: ") + ToString(m_ResolvedAA));
+        }
+
+        // Step 2: reconcile MSAA sample count with the chosen technique.
+        //   Sample-based (MSAA / MSAA_A2C / SampleRate): resolve MSAA_AUTO
+        //                                                or respect a pinned
+        //                                                value.
+        //   Post-process (FXAA / SMAA / TAA / TAAU) + Off: force 1 sample.
+        //                                                The post-process
+        //                                                pass runs after
+        //                                                the main render at
+        //                                                1x.
+        if (IsSampleBasedAA(m_ResolvedAA))
+        {
+            if (m_CfgSwapchain.msaaSamples == MSAA_AUTO)
+            {
+                const VkSampleCountFlagBits picked =
+                    DetectRecommendedMSAA(device.GetPhysicalDevice());
+                m_CfgSwapchain.msaaSamples = picked;
+                VCKLog::Notice("Swapchain",
+                    std::string("MSAA auto-detected: ") +
+                    std::to_string(static_cast<int>(picked)) + "x");
+            }
+        }
+        else
+        {
+            if (m_CfgSwapchain.msaaSamples == MSAA_AUTO ||
+                m_CfgSwapchain.msaaSamples != VK_SAMPLE_COUNT_1_BIT)
+            {
+                if (m_CfgSwapchain.msaaSamples != MSAA_AUTO &&
+                    m_CfgSwapchain.msaaSamples != VK_SAMPLE_COUNT_1_BIT)
+                {
+                    // User set an MSAA count but the resolved technique is
+                    // post-process - clamp to 1x and warn so the user knows.
+                    VCKLog::Warn("Swapchain",
+                        std::string("msaaSamples clamped to 1x - technique ") +
+                        ToString(m_ResolvedAA) + " runs as post-process");
+                }
+                m_CfgSwapchain.msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+            }
+        }
+
+        VCKLog::Info("Swapchain", "Initializing (" +
             std::to_string(width) + "x" + std::to_string(height) + ")...");
 
         if (!CreateSwapchain(width, height))
         {
-            LogVk("[Swapchain] ERROR - creation failed");
+            VCKLog::Error("Swapchain", "creation failed");
             return false;
         }
 
-        LogVk("[Swapchain] Initialized OK - " +
+        VCKLog::Notice("Swapchain", "Initialized - " +
             std::to_string(m_Images.size()) + " images, extent " +
             std::to_string(m_Extent.width) + "x" + std::to_string(m_Extent.height));
 
@@ -67,8 +126,8 @@ namespace VCK {
         if (width == 0 || height == 0)
             return true;
 
-        LogVk("[Swapchain] Recreating (" +
-            std::to_string(width) + "x" + std::to_string(height) + ")...");
+        VCKLog::Notice("Swapchain", "Recreating (" +
+            std::to_string(width) + "x" + std::to_string(height) + ")");
 
         // Wait for all in-flight work to complete before touching the swapchain
         vkDeviceWaitIdle(m_Device->GetDevice());
@@ -77,11 +136,11 @@ namespace VCK {
 
         if (!CreateSwapchain(width, height))
         {
-            LogVk("[Swapchain] ERROR - recreation failed");
+            VCKLog::Error("Swapchain", "recreation failed");
             return false;
         }
 
-        LogVk("[Swapchain] Recreated OK - extent " +
+        VCKLog::Notice("Swapchain", "Recreated - extent " +
             std::to_string(m_Extent.width) + "x" + std::to_string(m_Extent.height));
 
         return true;
@@ -214,8 +273,8 @@ namespace VCK {
                     return false;
                 }
             }
-            LogVk("[Swapchain] MSAA " + std::to_string(static_cast<int>(m_CfgSwapchain.msaaSamples)) +
-                  "x colour targets created (" + std::to_string(m_Images.size()) + ")");
+            VCKLog::Notice("Swapchain", "MSAA " + std::to_string(static_cast<int>(m_CfgSwapchain.msaaSamples)) +
+                  "x colour targets created (" + std::to_string(m_Images.size()) + " images)");
         }
 
         return true;
@@ -320,23 +379,26 @@ namespace VCK {
             return false;
         };
 
+        // Present mode is a user-visible choice (affects input latency,
+        // tearing, power).  Log with Notice so it shows up even when
+        // cfg.debug = false.  Fallback lines use Warn to stand out.
         switch (m_CfgSwapchain.presentMode)
         {
         case PresentMode::Mailbox:
-            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { LogVk("[Swapchain] Present mode: Mailbox");   return VK_PRESENT_MODE_MAILBOX_KHR;   }
-            LogVk("[Swapchain] Mailbox requested but unavailable, falling back to FIFO");
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { VCKLog::Notice("Swapchain", "Present mode: Mailbox");   return VK_PRESENT_MODE_MAILBOX_KHR;   }
+            VCKLog::Warn("Swapchain", "Mailbox requested but unavailable, falling back to FIFO");
             return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::Immediate:
-            if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) { LogVk("[Swapchain] Present mode: Immediate"); return VK_PRESENT_MODE_IMMEDIATE_KHR; }
-            LogVk("[Swapchain] Immediate requested but unavailable, falling back to FIFO");
+            if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) { VCKLog::Notice("Swapchain", "Present mode: Immediate"); return VK_PRESENT_MODE_IMMEDIATE_KHR; }
+            VCKLog::Warn("Swapchain", "Immediate requested but unavailable, falling back to FIFO");
             return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::Fifo:
-            LogVk("[Swapchain] Present mode: FIFO (vsync)");
+            VCKLog::Notice("Swapchain", "Present mode: FIFO (vsync)");
             return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::Auto:
         default:
-            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { LogVk("[Swapchain] Present mode: Mailbox (auto)"); return VK_PRESENT_MODE_MAILBOX_KHR; }
-            LogVk("[Swapchain] Present mode: FIFO (auto, vsync)");
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { VCKLog::Notice("Swapchain", "Present mode: Mailbox (auto)"); return VK_PRESENT_MODE_MAILBOX_KHR; }
+            VCKLog::Notice("Swapchain", "Present mode: FIFO (auto, vsync)");
             return VK_PRESENT_MODE_FIFO_KHR;
         }
     }
@@ -364,4 +426,4 @@ namespace VCK {
         return out;
     }
 
-} // namespace VCK
+} // namespace VCK
