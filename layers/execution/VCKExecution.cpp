@@ -835,5 +835,6 @@ bool HandleLiveResize(Window&               window,
     const bool ok = HandleLiveResize(window, device, swapchain, framebuffers, pipeline, depth);
     if (timeline.Enabled()) timeline.EndCpuSpan("HandleLiveResize", frame);
     return ok;
+}
 
 } // namespace VCK

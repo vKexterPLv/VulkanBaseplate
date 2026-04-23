@@ -244,8 +244,6 @@ bool HandleLiveResize(Window&               window,
     return true;
 }
 
-}
-
 
 // =============================================================================
 //  [3] VulkanDepthBuffer
