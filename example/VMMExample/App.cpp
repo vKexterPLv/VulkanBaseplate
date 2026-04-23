@@ -346,7 +346,13 @@ namespace VCK::VMMExample {
         pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
+        // IMPORTANT: the pipeline's render pass was auto-configured with MSAA
+        // (see cfg.aa / swapchain.GetMSAASamples()).  VulkanModelPipeline's
+        // default overload hardcodes 1x samples; if we use it with an MSAA
+        // render pass Vulkan rasterises to a sub-region of the attachment.
+        // Always forward swapchain.GetMSAASamples() explicitly.
+        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput,
+                                 swapchain.GetMSAASamples());
         framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── VMM LAYER 3 - Initialize ──────────────────────────────────────────

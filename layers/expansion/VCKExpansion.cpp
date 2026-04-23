@@ -619,6 +619,15 @@ bool VulkanModelPipeline::Initialize(VulkanDevice&                          devi
                                      const VulkanPipeline::ShaderInfo&      shaders,
                                      const VulkanPipeline::VertexInputInfo& vertexInput)
 {
+    // 4-arg convenience overload: assumes 1x MSAA.  Emit a loud warning so
+    // users do not silently ship a pipeline whose sample count does not match
+    // an MSAA render pass (Vulkan spec: rasterisation is undefined when
+    // pipeline.multisample.rasterizationSamples != subpass.samples; on NVIDIA
+    // this commonly appears as rendering confined to the top-left quadrant).
+    VCKLog::Warn("VulkanModelPipeline",
+        "Initialize(4 args) assumes VK_SAMPLE_COUNT_1_BIT; if the render pass "
+        "uses MSAA (see swapchain.GetMSAASamples()) pass it explicitly via the "
+        "5-arg overload to avoid sample-count mismatch.");
     return Initialize(device, renderPass, shaders, vertexInput,
                       VK_SAMPLE_COUNT_1_BIT);
 }
