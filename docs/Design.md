@@ -10,8 +10,6 @@ Rules · status · honest caveats · roadmap
 
 ## Rules (strict)
 
-## Rules (strict)
-
 1. **Explicit > magic.** No hidden allocations, no singletons, no implicit
    lifetimes. Every `Initialize` has a matching `Shutdown` in a documented
    order.
