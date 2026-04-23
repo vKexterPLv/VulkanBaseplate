@@ -34,13 +34,9 @@ namespace VCK::HelloExample {
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
     std::string title         = "HelloExample - Hello, World";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     // ─────────────────────────────────────────────────────────────────────────
     //  Vertex - matches the layout stb_easy_font emits (16 bytes):
     //      x,y,z    : float
@@ -84,37 +80,16 @@ namespace VCK::HelloExample {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width  = w;
-        window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     //  DrawFrame  -  scheduler-driven
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
+        if (window.IsMinimized()) return;
 
-        if (g_Resized)
-        {
-            g_Resized = false;
-            HandleResize();
-            if (window_width == 0 || window_height == 0) return;
-        }
-
+        // Live resize: swapchain + framebuffers auto-rebuild when the
+        // OS fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         // ── Scheduler takes over the fence wait + cmd.BeginRecording ──────────
         Frame& f = scheduler.BeginFrame();
 
@@ -128,11 +103,9 @@ namespace VCK::HelloExample {
             // Cancel this frame cleanly - record an empty pass so the cmd
             // buffer is well-formed, then flush + resize.
             scheduler.EndFrame();
-            HandleResize();
             return;
         }
-        if (acq == VK_SUBOPTIMAL_KHR) g_Resized = true;
-
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         // ── Record the render pass into the scheduler's primary cmd ──────────
         VkClearValue clear{};
         clear.color = { {0.06f, 0.07f, 0.09f, 1.0f} };
@@ -184,32 +157,26 @@ namespace VCK::HelloExample {
         present.pImageIndices      = &imageIndex;
 
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &present);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
+        (void)pres; // live-resize picks up OUT_OF_DATE / SUBOPTIMAL next frame
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     // =========================================================================
     //  Init
     // =========================================================================
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        HWND hwnd = glfwGetWin32Window(window);
-
-        context.Initialize(hwnd, title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/hello.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/hello.frag.spv");
@@ -328,8 +295,7 @@ namespace VCK::HelloExample {
         device.Shutdown();
         context.Shutdown();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     // =========================================================================
@@ -338,10 +304,10 @@ namespace VCK::HelloExample {
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

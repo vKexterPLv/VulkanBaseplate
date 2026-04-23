@@ -40,13 +40,9 @@ namespace VCK::MipmapExample {
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
     std::string title         = "MipmapExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     // ─────────────────────────────────────────────────────────────────────────
     //  Vertex - position + UV
     // ─────────────────────────────────────────────────────────────────────────
@@ -116,23 +112,6 @@ namespace VCK::MipmapExample {
         file.seekg(0);
         file.read(reinterpret_cast<char*>(buf.data()), size);
         return buf;
-    }
-
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width  = w;
-        window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -326,15 +305,11 @@ namespace VCK::MipmapExample {
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
+        if (window.IsMinimized()) return;
 
-        if (g_Resized)
-        {
-            g_Resized = false;
-            HandleResize();
-            if (window_width == 0 || window_height == 0) return;
-        }
-
+        // Live resize: swapchain + framebuffers auto-rebuild when the
+        // OS fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         uint32_t frame = sync.GetCurrentFrameIndex();
 
         // Upload dummy UBO
@@ -351,9 +326,8 @@ namespace VCK::MipmapExample {
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                               UINT64_MAX, imageReady, VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR)          g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         vkResetFences(device.GetDevice(), 1, &fence);
 
         // ── Record ────────────────────────────────────────────────────────────
@@ -426,34 +400,27 @@ namespace VCK::MipmapExample {
         present.pImageIndices      = &imageIndex;
 
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &present);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         sync.AdvanceFrame();
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     // =========================================================================
     //  Init
     // =========================================================================
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        HWND hwnd = glfwGetWin32Window(window);
-
-        context.Initialize(hwnd, title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         // Shaders: position (loc 0) + uv (loc 1) → texture sample
         shaders.VertexSpirv   = LoadSpv("./assets/mip.vert.spv");
@@ -566,8 +533,7 @@ namespace VCK::MipmapExample {
         device.Shutdown();
         context.Shutdown();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     // =========================================================================
@@ -576,10 +542,10 @@ namespace VCK::MipmapExample {
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

@@ -124,6 +124,40 @@ public:
     void WaitEvents()  const;
     void GetFramebufferSize(int& width, int& height) const;
 
+    // Live-resize support (first-class for resizable windows).
+    //
+    //   GetWidth()/GetHeight()  Current framebuffer size (auto-tracked via
+    //                           the backend callback; also reflects minimise).
+    //   IsMinimized()           width == 0 or height == 0 - skip drawing.
+    //   WasResized()            Edge-triggered flag cleared by ClearResized()
+    //                           or by VCK::HandleLiveResize().
+    //
+    // These work on any platform where the window is created with
+    // resizable = true; the OS resize callback populates them automatically.
+    int  GetWidth()     const { return m_Width;  }
+    int  GetHeight()    const { return m_Height; }
+    bool IsMinimized()  const { return m_Width == 0 || m_Height == 0; }
+    bool WasResized()   const { return m_Resized; }
+    void ClearResized()       { m_Resized = false; }
+
+    // Event callbacks.  Set these before the first PollEvents() and the
+    // backend will invoke them on the main thread.  Pass nullptr to clear.
+    //
+    // FramebufferSizeCallback fires whenever the drawable size changes (user
+    //   drags the window edge, DPI change, system unmaximise, etc.).
+    // WindowRefreshCallback fires when the OS tells us the surface needs to
+    //   be redrawn - useful so the window does not go black mid-resize.
+    using FramebufferSizeCallback = void (*)(int newWidth, int newHeight);
+    using WindowRefreshCallback   = void (*)();
+
+    void SetFramebufferSizeCallback(FramebufferSizeCallback cb);
+    void SetWindowRefreshCallback  (WindowRefreshCallback   cb);
+
+    // Accessors used by the backend's callback forwarders.  Not part of the
+    // public usage recipe - call Set*Callback() to register handlers.
+    FramebufferSizeCallback GetFramebufferSizeCallback() const { return m_FbSizeCb;  }
+    WindowRefreshCallback   GetWindowRefreshCallback()   const { return m_RefreshCb; }
+
     // Vulkan integration.
     //
     // RequiredInstanceExtensions() returns the instance extensions the backend
@@ -145,6 +179,25 @@ public:
 
 private:
     void* m_Handle = nullptr;
+
+    // Callback slots.  Populated by Set*Callback() and dispatched from
+    // thin static forwarders registered with the backend in Create().
+    FramebufferSizeCallback m_FbSizeCb  = nullptr;
+    WindowRefreshCallback   m_RefreshCb = nullptr;
+
+    // Auto-tracked framebuffer size + resize latch; driven by the backend's
+    // framebuffer-size callback inside VCKCrossplatform.cpp.  Users read
+    // through GetWidth / GetHeight / WasResized / IsMinimized.
+    int  m_Width   = 0;
+    int  m_Height  = 0;
+    bool m_Resized = false;
+
+    // Backend forwarders need to poke the private latch without exposing it.
+    friend void SetWindowResizedInternal(Window& w, int width, int height);
 };
+
+// Forward declaration - internal helper defined in VCKCrossplatform.cpp, used
+// by the backend callback forwarders to update Window's auto-tracked size.
+void SetWindowResizedInternal(Window& w, int width, int height);
 
 } // namespace VCK

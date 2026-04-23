@@ -17,13 +17,9 @@
 namespace VCK::SchedulerPolicyExample {
 
     std::string title         = "SchedulerPolicyExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     struct Vertex { float position[3]; float color[4]; };
 
     VulkanContext        context;
@@ -81,7 +77,7 @@ namespace VCK::SchedulerPolicyExample {
         cpuUsSum          = 0;
 
         std::string t = title + " - " + PolicyName(p);
-        glfwSetWindowTitle(window, t.c_str());
+        glfwSetWindowTitle(static_cast<GLFWwindow*>(window.NativeHandle()), t.c_str());
         LogVk(std::string("[SchedulerPolicy] switched to ") + PolicyName(p));
     }
 
@@ -93,27 +89,13 @@ namespace VCK::SchedulerPolicyExample {
         if (key == GLFW_KEY_3) ApplyPolicy(FramePolicy::AsyncMax);
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width = w; window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
-        if (g_Resized) { g_Resized = false; HandleResize(); if (window_width == 0) return; }
+        if (window.IsMinimized()) return;
 
+        // Live resize: swapchain + framebuffers auto-rebuild when the OS
+        // fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         const auto frameT0 = std::chrono::steady_clock::now();
 
         Frame& f = scheduler.BeginFrame();
@@ -122,9 +104,8 @@ namespace VCK::SchedulerPolicyExample {
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                              UINT64_MAX, f.ImageAvailable(),
                                              VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR) g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         VkClearValue clear{};
         clear.color = { {0.05f, 0.08f, 0.12f, 1.0f} };
         VkRenderPassBeginInfo rp{};
@@ -166,9 +147,7 @@ namespace VCK::SchedulerPolicyExample {
         pi.pSwapchains        = &swap;
         pi.pImageIndices      = &imageIndex;
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &pi);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         const auto frameT1 = std::chrono::steady_clock::now();
         cpuUsSum += std::chrono::duration_cast<std::chrono::microseconds>(frameT1 - frameT0).count();
         ++framesSinceSwitch;
@@ -182,22 +161,23 @@ namespace VCK::SchedulerPolicyExample {
         }
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-        window = glfwCreateWindow(window_width, window_height, (title + " - Pipelined").c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-        glfwSetKeyCallback(window,             OnKey);
-
-        context.Initialize(glfwGetWin32Window(window), title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title + " - Pipelined";
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        // Extra GLFW callbacks retained through NativeHandle().  When VCK::Window
+        // grows cross-platform input APIs these will move behind it as well.
+        glfwSetKeyCallback(static_cast<GLFWwindow*>(window.NativeHandle()),             OnKey);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/SchedulerPolicyExample.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/SchedulerPolicyExample.frag.spv");
@@ -236,17 +216,16 @@ namespace VCK::SchedulerPolicyExample {
         framebuffers.Shutdown();
         sync.Shutdown(); command.Shutdown(); pipeline.Shutdown();
         swapchain.Shutdown(); device.Shutdown(); context.Shutdown();
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

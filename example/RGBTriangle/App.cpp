@@ -20,11 +20,12 @@
 //  The vertex shader reads position + color straight from the vertex buffer.
 //
 //  Resize path:
-//    OnFramebufferResize sets g_Resized.
+//    VCK::Window auto-tracks framebuffer size via its internal GLFW callback.
 //    OnWindowRefresh calls DrawFrame() during the OS drag loop so the window
 //    keeps painting while the user is actively resizing.
-//    HandleResize() calls vkDeviceWaitIdle, then recreates the swapchain and
-//    framebuffers in place - no objects are destroyed and rebuilt.
+//    VCK::HandleLiveResize() runs once per frame; when the Window's resize
+//    latch is set it does vkDeviceWaitIdle + swapchain.Recreate +
+//    framebuffers.Recreate in place (no rebuild).
 // =============================================================================
 
 namespace VCK::RGBTriangle {
@@ -33,13 +34,9 @@ namespace VCK::RGBTriangle {
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
     std::string title         = "RGBTriangle";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     // ─────────────────────────────────────────────────────────────────────────
     //  Vertex - position + color only.  No normals, no UVs needed.
     // ─────────────────────────────────────────────────────────────────────────
@@ -78,37 +75,16 @@ namespace VCK::RGBTriangle {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width  = w;
-        window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     //  DrawFrame
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
+        if (window.IsMinimized()) return;
 
-        if (g_Resized)
-        {
-            g_Resized = false;
-            HandleResize();
-            if (window_width == 0 || window_height == 0) return;
-        }
-
+        // Live resize: swapchain + framebuffers auto-rebuild when the
+        // OS fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         uint32_t frame = sync.GetCurrentFrameIndex();
 
         // ── Fence wait + acquire ──────────────────────────────────────────────
@@ -119,9 +95,8 @@ namespace VCK::RGBTriangle {
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                               UINT64_MAX, imageReady, VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR)          g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         vkResetFences(device.GetDevice(), 1, &fence);
 
         // ── Record ────────────────────────────────────────────────────────────
@@ -184,34 +159,27 @@ namespace VCK::RGBTriangle {
         present.pImageIndices      = &imageIndex;
 
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &present);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         sync.AdvanceFrame();
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     // =========================================================================
     //  Init
     // =========================================================================
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        HWND hwnd = glfwGetWin32Window(window);
-
-        context.Initialize(hwnd, title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         // Shaders: position (location 0) + color (location 1) → output color.
         // No descriptor sets, no push constants.
@@ -263,8 +231,7 @@ namespace VCK::RGBTriangle {
         device.Shutdown();
         context.Shutdown();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     // =========================================================================
@@ -273,10 +240,10 @@ namespace VCK::RGBTriangle {
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

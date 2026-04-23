@@ -1,10 +1,14 @@
 #pragma once
 
-// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine here.
-#include <windows.h>
+#include "../VCKCrossplatform.h"   // VCK_PLATFORM_* + VCK::Window
+
+#if VCK_PLATFORM_WINDOWS
+    // WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine here.
+    #include <windows.h>
+    #include <vulkan/vulkan_win32.h>
+#endif
 
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_win32.h>
 #include "VulkanHelpers.h"   // VCK::Config
 
 #include <string>
@@ -18,10 +22,18 @@ namespace VCK {
     //  Owns:
     //    - VkInstance
     //    - VkDebugUtilsMessengerEXT  (debug builds only)
-    //    - VkSurfaceKHR              (Win32 surface)
+    //    - VkSurfaceKHR              (created via VCK::Window on every platform)
     //
     //  Does NOT own: physical device, logical device, swapchain - those live in
     //  VulkanDevice / VulkanSwapchain.
+    //
+    //  Platforms:
+    //    - Cross-platform (recommended):  Initialize(VCK::Window&, ...).  Works
+    //      on Windows / Linux / macOS; the Window reports its required instance
+    //      extensions and creates the surface.
+    //    - Windows-only (legacy):         Initialize(HWND, ...).  Compiled only
+    //      when VCK_PLATFORM_WINDOWS is 1.  Kept so existing Windows-only code
+    //      keeps building unchanged.
     // ---------------------------------------------------------------------------
     class VulkanContext {
     public:
@@ -33,17 +45,24 @@ namespace VCK {
         VulkanContext& operator=(const VulkanContext&) = delete;
 
         // -----------------------------------------------------------------------
-        //  Lifecycle
+        //  Lifecycle  (cross-platform)
         // -----------------------------------------------------------------------
 
-        // Creates instance + debug messenger + surface.
-        // Returns false and logs reason on failure.
-        //
-        // Preferred form: pass a VCK::Config with whatever appName /
-        // validation / extra layers-and-extensions you want.  Zero-config
-        // form keeps working - it just inflates appName into a default Config.
+        // Preferred, cross-platform entry point.  Creates instance + debug
+        // messenger + surface.  Required surface extensions are discovered from
+        // VCK::Window::RequiredInstanceExtensions().
+        bool Initialize(const Window& window, const Config& cfg);
+        bool Initialize(const Window& window, const std::string& appName);
+
+        // -----------------------------------------------------------------------
+        //  Lifecycle  (Windows legacy)
+        // -----------------------------------------------------------------------
+#if VCK_PLATFORM_WINDOWS
+        // Windows-only: build the surface via vkCreateWin32SurfaceKHR directly.
+        // Kept for backward compatibility; new code should use the Window form.
         bool Initialize(HWND windowHandle, const Config& cfg);
         bool Initialize(HWND windowHandle, const std::string& appName);
+#endif
 
         // Destroys surface, debug messenger, instance - in correct order.
         void Shutdown();
@@ -63,12 +82,15 @@ namespace VCK {
         // -----------------------------------------------------------------------
         //  Internal helpers
         // -----------------------------------------------------------------------
-        bool CreateInstance(const std::string& appName);
+        bool CreateInstance(const std::string& appName,
+                            const std::vector<const char*>& surfaceExtensions);
         bool CreateDebugMessenger();
+        bool CreateSurface(const Window& window);
+#if VCK_PLATFORM_WINDOWS
         bool CreateSurface(HWND windowHandle);
+#endif
 
         bool CheckValidationLayerSupport();
-        std::vector<const char*> BuildRequiredExtensions();
 
         // Vulkan debug callback - static so it matches PFN_vkDebugUtilsMessengerCallbackEXT
         static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(

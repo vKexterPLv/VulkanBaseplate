@@ -191,6 +191,51 @@ void VulkanFramebufferSet::DestroyAll()
 
 
 // =============================================================================
+//  HandleLiveResize  -  free function; lives here so the swapchain /
+//  framebuffer / pipeline / (optional) depth references are all in scope.
+// =============================================================================
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    vkDeviceWaitIdle(device.GetDevice());
+    if (!swapchain.Recreate(w, h))          { window.ClearResized(); return false; }
+    if (!framebuffers.Recreate(pipeline))   { window.ClearResized(); return false; }
+    window.ClearResized();
+    return true;
+}
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    vkDeviceWaitIdle(device.GetDevice());
+    if (!swapchain.Recreate(w, h))                 { window.ClearResized(); return false; }
+    if (!depth.Recreate(w, h))                     { window.ClearResized(); return false; }
+    if (!framebuffers.Recreate(pipeline, depth))   { window.ClearResized(); return false; }
+    window.ClearResized();
+    return true;
+}
+
+
+// =============================================================================
 //  [3] VulkanDepthBuffer
 // =============================================================================
 

@@ -20,13 +20,9 @@
 namespace VCK::SubmissionBatchingExample {
 
     std::string title         = "SubmissionBatchingExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     struct Vertex { float position[3]; float color[4]; };
 
     VulkanContext        context;
@@ -59,22 +55,6 @@ namespace VCK::SubmissionBatchingExample {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width = w; window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // Record a trivial "pre" command buffer.  In a real app this might do
     // image layout transitions, compute prep, or async uploads.  Here we
     // just record an empty buffer to keep the demo focused on batching.
@@ -91,9 +71,11 @@ namespace VCK::SubmissionBatchingExample {
 
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
-        if (g_Resized) { g_Resized = false; HandleResize(); if (window_width == 0) return; }
+        if (window.IsMinimized()) return;
 
+        // Live resize: swapchain + framebuffers auto-rebuild when the OS
+        // fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         Frame& f = scheduler.BeginFrame();
 
         // ── Record the "pre" cmd and queue it (no wait sema, no signal sema) ─
@@ -108,9 +90,8 @@ namespace VCK::SubmissionBatchingExample {
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                              UINT64_MAX, f.ImageAvailable(),
                                              VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR) g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         // ── Record the main render pass into the scheduler's primary cmd ─────
         VkClearValue clear{};
         clear.color = { {0.04f, 0.08f, 0.14f, 1.0f} };
@@ -155,9 +136,7 @@ namespace VCK::SubmissionBatchingExample {
         pi.pSwapchains        = &swap;
         pi.pImageIndices      = &imageIndex;
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &pi);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         if ((++frameCounter % 120) == 0)
         {
             LogVk("[SubmissionBatching] frame=" + std::to_string(frameCounter) +
@@ -166,21 +145,20 @@ namespace VCK::SubmissionBatchingExample {
         }
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        context.Initialize(glfwGetWin32Window(window), title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/SubmissionBatchingExample.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/SubmissionBatchingExample.frag.spv");
@@ -240,17 +218,16 @@ namespace VCK::SubmissionBatchingExample {
         framebuffers.Shutdown();
         sync.Shutdown(); command.Shutdown(); pipeline.Shutdown();
         swapchain.Shutdown(); device.Shutdown(); context.Shutdown();
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

@@ -71,10 +71,22 @@
 #pragma once
 
 // ─── System / Vulkan prerequisites ───────────────────────────────────────────
-// WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine.
-#include <windows.h>
+// Platform detection lives in VCKCrossplatform.h - include it first so
+// the VCK_PLATFORM_* macros are defined before we use them below.
+#include "VCKCrossplatform.h"
+
+#if VCK_PLATFORM_WINDOWS
+    // WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake / build.bat -
+    // do NOT redefine here.
+    #include <windows.h>
+#endif
+
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_win32.h>
+
+#if VCK_PLATFORM_WINDOWS
+    #include <vulkan/vulkan_win32.h>
+#endif
+
 #include "vk_mem_alloc.h"
 #include "core/VulkanHelpers.h"   // LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
 

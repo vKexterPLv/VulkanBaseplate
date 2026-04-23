@@ -166,6 +166,44 @@ private:
 
 
 // =============================================================================
+//  HandleLiveResize  -  one-call resize for resizable windows
+//
+//  Wires VCK::Window's auto-tracked size + resize latch straight into the
+//  swapchain and framebuffer set.  Call once per frame, before DrawFrame():
+//
+//      while (!window.ShouldClose())
+//      {
+//          if (window.IsMinimized()) { window.WaitEvents(); continue; }
+//          window.PollEvents();
+//          VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
+//          DrawFrame();
+//      }
+//
+//  Behaviour:
+//    - If !window.WasResized()         -> returns false, no work done.
+//    - If window.IsMinimized()         -> returns false (nothing to rebuild).
+//    - Else: vkDeviceWaitIdle(device), swapchain.Recreate(w, h),
+//            framebuffers.Recreate(pipeline), clears the latch, returns true.
+//
+//  The overload taking a VulkanDepthBuffer also rebuilds the depth image.
+// =============================================================================
+class Window;                         // forward decl (defined in VCKCrossplatform.h)
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline);
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth);
+
+
+// =============================================================================
 // [3] VulkanDepthBuffer
 //
 //  Depth image backed by VulkanImage.  Format is chosen automatically

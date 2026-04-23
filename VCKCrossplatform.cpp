@@ -54,11 +54,64 @@ namespace
         g_GlfwInit = true;
         return true;
     }
+
+    // ------------------------------------------------------------------
+    //  Callback forwarders.
+    //  Every platform backend happens to use GLFW today, which is strongly
+    //  typed.  We hang the VCK::Window* off glfwSetWindowUserPointer and
+    //  forward into its stored callback slots.  If a future backend swaps
+    //  GLFW for XCB/Cocoa/Win32 it just needs to reproduce this routing.
+    // ------------------------------------------------------------------
+    void GlfwFramebufferSizeForwarder(GLFWwindow* w, int width, int height)
+    {
+        auto* self = static_cast<VCK::Window*>(glfwGetWindowUserPointer(w));
+        if (!self) return;
+        // Auto-track the new size + set the resize latch before any user
+        // callback runs, so a callback that reads Window::WasResized() /
+        // Window::GetWidth() gets consistent values.
+        VCK::SetWindowResizedInternal(*self, width, height);
+        if (auto cb = self->GetFramebufferSizeCallback())
+            cb(width, height);
+    }
+
+    void GlfwWindowRefreshForwarder(GLFWwindow* w)
+    {
+        auto* self = static_cast<VCK::Window*>(glfwGetWindowUserPointer(w));
+        if (!self) return;
+        if (auto cb = self->GetWindowRefreshCallback())
+            cb();
+    }
+
+    // Wires a freshly-created GLFWwindow into the forwarders above.
+    // Called at the tail of each platform's Create() branch.
+    void InstallGlfwCallbacks(GLFWwindow* w, VCK::Window* self)
+    {
+        glfwSetWindowUserPointer(w, self);
+        glfwSetFramebufferSizeCallback(w, &GlfwFramebufferSizeForwarder);
+        glfwSetWindowRefreshCallback  (w, &GlfwWindowRefreshForwarder);
+    }
 }
 
 namespace VCK {
 
 Window::~Window() { Destroy(); }
+
+// Callback setters are identical on every platform because the backend is
+// always GLFW today; the forwarders above do the dispatch.  If a future
+// backend replaces GLFW on one OS, move these inside the matching #if block
+// and register the equivalent native callbacks there.
+void Window::SetFramebufferSizeCallback(FramebufferSizeCallback cb) { m_FbSizeCb  = cb; }
+void Window::SetWindowRefreshCallback  (WindowRefreshCallback   cb) { m_RefreshCb = cb; }
+
+// Internal helper used by the backend forwarders to update VCK::Window's
+// private size + resize latch.  Kept out of the public API so users can't
+// spoof a resize event.
+void SetWindowResizedInternal(Window& w, int width, int height)
+{
+    w.m_Width   = width;
+    w.m_Height  = height;
+    w.m_Resized = true;
+}
 
 // =============================================================================
 //  Windows implementation
@@ -88,6 +141,15 @@ bool Window::Create(const WindowCreateInfo& info)
         return false;
     }
     m_Handle = w;
+    InstallGlfwCallbacks(w, this);
+
+    // Seed auto-tracked size from the real framebuffer.  On high-DPI /
+    // retina displays this may differ from the requested logical size.
+    int fbw = 0, fbh = 0;
+    glfwGetFramebufferSize(w, &fbw, &fbh);
+    m_Width   = fbw;
+    m_Height  = fbh;
+    m_Resized = false;
 
     VCKLog::Info("Window",
         "Windows: created " + std::to_string(info.width) + "x" +
@@ -171,6 +233,15 @@ bool Window::Create(const WindowCreateInfo& info)
         return false;
     }
     m_Handle = w;
+    InstallGlfwCallbacks(w, this);
+
+    // Seed auto-tracked size from the real framebuffer.  On high-DPI /
+    // retina displays this may differ from the requested logical size.
+    int fbw = 0, fbh = 0;
+    glfwGetFramebufferSize(w, &fbw, &fbh);
+    m_Width   = fbw;
+    m_Height  = fbh;
+    m_Resized = false;
 
     VCKLog::Info("Window",
         "Linux: created " + std::to_string(info.width) + "x" +
@@ -254,6 +325,15 @@ bool Window::Create(const WindowCreateInfo& info)
         return false;
     }
     m_Handle = w;
+    InstallGlfwCallbacks(w, this);
+
+    // Seed auto-tracked size from the real framebuffer.  On high-DPI /
+    // retina displays this may differ from the requested logical size.
+    int fbw = 0, fbh = 0;
+    glfwGetFramebufferSize(w, &fbw, &fbh);
+    m_Width   = fbw;
+    m_Height  = fbh;
+    m_Resized = false;
 
     VCKLog::Info("Window",
         "macOS: created " + std::to_string(info.width) + "x" +

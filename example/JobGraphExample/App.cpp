@@ -25,13 +25,9 @@
 namespace VCK::JobGraphExample {
 
     std::string title         = "JobGraphExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     struct Vertex { float position[3]; float color[4]; };
 
     VulkanContext        context;
@@ -71,22 +67,6 @@ namespace VCK::JobGraphExample {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width = w; window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // Timed job - sleeps a deterministic amount of work and accumulates
     // measured duration into `stats`.
     static void TimedJob(JobStats& stats, std::chrono::microseconds work)
@@ -100,9 +80,11 @@ namespace VCK::JobGraphExample {
 
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
-        if (g_Resized) { g_Resized = false; HandleResize(); if (window_width == 0) return; }
+        if (window.IsMinimized()) return;
 
+        // Live resize: swapchain + framebuffers auto-rebuild when the OS
+        // fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         Frame& f = scheduler.BeginFrame();
 
         // ── Register CPU jobs for this frame ─────────────────────────────────
@@ -120,9 +102,8 @@ namespace VCK::JobGraphExample {
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                              UINT64_MAX, f.ImageAvailable(),
                                              VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR) g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         VkClearValue clear{};
         clear.color = { {0.08f, 0.10f, 0.12f, 1.0f} };
         VkRenderPassBeginInfo rp{};
@@ -165,9 +146,7 @@ namespace VCK::JobGraphExample {
         pi.pSwapchains        = &swap;
         pi.pImageIndices      = &imageIndex;
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &pi);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // live-resize picks up OUT_OF_DATE / SUBOPTIMAL next frame
         // ── Periodic stats dump ──────────────────────────────────────────────
         if ((++frameCounter % 60) == 0)
         {
@@ -180,21 +159,20 @@ namespace VCK::JobGraphExample {
         }
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        context.Initialize(glfwGetWin32Window(window), title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/JobGraphExample.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/JobGraphExample.frag.spv");
@@ -234,17 +212,16 @@ namespace VCK::JobGraphExample {
         framebuffers.Shutdown();
         sync.Shutdown(); command.Shutdown(); pipeline.Shutdown();
         swapchain.Shutdown(); device.Shutdown(); context.Shutdown();
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

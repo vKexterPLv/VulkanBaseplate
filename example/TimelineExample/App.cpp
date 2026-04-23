@@ -20,13 +20,9 @@
 namespace VCK::TimelineExample {
 
     std::string title         = "TimelineExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     struct Vertex { float position[3]; float color[4]; };
 
     VulkanContext        context;
@@ -58,22 +54,6 @@ namespace VCK::TimelineExample {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline);
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width = w; window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // Host-only timeline round-trip: bump the counter, observe it through
     // DependencyToken::WaitHost.  In a real pipeline the signal side would
     // come from vkQueueSubmit's VkTimelineSemaphoreSubmitInfo.
@@ -98,18 +78,19 @@ namespace VCK::TimelineExample {
 
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
-        if (g_Resized) { g_Resized = false; HandleResize(); if (window_width == 0) return; }
+        if (window.IsMinimized()) return;
 
+        // Live resize: swapchain + framebuffers auto-rebuild when the OS
+        // fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         Frame& f = scheduler.BeginFrame();
 
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                              UINT64_MAX, f.ImageAvailable(),
                                              VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR) g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         VkClearValue clear{};
         clear.color = { {0.10f, 0.06f, 0.12f, 1.0f} };
         VkRenderPassBeginInfo rp{};
@@ -150,27 +131,24 @@ namespace VCK::TimelineExample {
         pi.pSwapchains        = &swap;
         pi.pImageIndices      = &imageIndex;
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &pi);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         if ((++frameCounter % 60) == 0) RunTimelineProbe();
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        context.Initialize(glfwGetWin32Window(window), title);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
         device.Initialize(context);
-        swapchain.Initialize(device, context, window_width, window_height);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/TimelineExample.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/TimelineExample.frag.spv");
@@ -221,17 +199,16 @@ namespace VCK::TimelineExample {
         framebuffers.Shutdown();
         sync.Shutdown(); command.Shutdown(); pipeline.Shutdown();
         swapchain.Shutdown(); device.Shutdown(); context.Shutdown();
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();

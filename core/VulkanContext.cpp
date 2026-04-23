@@ -21,19 +21,64 @@ namespace VCK {
     //  Public - Lifecycle
     // ===========================================================================
 
+    // ---------------------------------------------------------------------
+    //  Cross-platform path (VCK::Window)
+    // ---------------------------------------------------------------------
+    bool VulkanContext::Initialize(const Window& window, const std::string& appName) {
+        Config cfg;
+        cfg.context.appName = appName;
+        return Initialize(window, cfg);
+    }
+
+    bool VulkanContext::Initialize(const Window& window, const Config& cfg) {
+        LogVk("[VulkanContext] Initialize begin (" VCK_PLATFORM_NAME ")");
+
+        m_CfgContext = cfg.context;
+
+        // Surface extensions are platform-specific; ask the window backend
+        // (VK_KHR_surface + VK_KHR_win32/xcb/xlib/wayland/metal).
+        const auto surfaceExts = Window::RequiredInstanceExtensions();
+
+        if (!CreateInstance(cfg.context.appName, surfaceExts)) {
+            LogVk("[VulkanContext] FAILED: CreateInstance");
+            return false;
+        }
+
+        if (ValidationEnabled) {
+            if (!CreateDebugMessenger())
+                LogVk("[VulkanContext] WARNING: debug messenger unavailable - continuing");
+        }
+
+        if (!CreateSurface(window)) {
+            LogVk("[VulkanContext] FAILED: CreateSurface");
+            return false;
+        }
+
+        LogVk("[VulkanContext] Initialize OK");
+        return true;
+    }
+
+#if VCK_PLATFORM_WINDOWS
+    // ---------------------------------------------------------------------
+    //  Windows legacy path (HWND)
+    // ---------------------------------------------------------------------
     bool VulkanContext::Initialize(HWND windowHandle, const std::string& appName) {
-        // Zero-config path: inflate appName into a Config and delegate.
         Config cfg;
         cfg.context.appName = appName;
         return Initialize(windowHandle, cfg);
     }
 
     bool VulkanContext::Initialize(HWND windowHandle, const Config& cfg) {
-        LogVk("[VulkanContext] Initialize begin");
+        LogVk("[VulkanContext] Initialize begin (HWND legacy)");
 
         m_CfgContext = cfg.context;
 
-        if (!CreateInstance(cfg.context.appName)) {
+        const std::vector<const char*> surfaceExts = {
+            VK_KHR_SURFACE_EXTENSION_NAME,
+            VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+        };
+
+        if (!CreateInstance(cfg.context.appName, surfaceExts)) {
             LogVk("[VulkanContext] FAILED: CreateInstance");
             return false;
         }
@@ -51,6 +96,7 @@ namespace VCK {
         LogVk("[VulkanContext] Initialize OK");
         return true;
     }
+#endif
 
     void VulkanContext::Shutdown() {
         LogVk("[VulkanContext] Shutdown");
@@ -79,7 +125,8 @@ namespace VCK {
     //  Private - Instance
     // ===========================================================================
 
-    bool VulkanContext::CreateInstance(const std::string& appName) {
+    bool VulkanContext::CreateInstance(const std::string& appName,
+                                       const std::vector<const char*>& surfaceExtensions) {
         // --- Validation layers ---------------------------------------------------
         // Validation is compiled-in when VULKAN_VALIDATION is defined AND the
         // user has not disabled it via cfg.context.enableValidation.
@@ -90,7 +137,13 @@ namespace VCK {
             LogVk("[VulkanContext] WARNING: Validation requested but VK_LAYER_KHRONOS_validation not found");
 
         // --- Extensions ----------------------------------------------------------
-        EnabledExtensions = BuildRequiredExtensions();
+        // Platform-specific surface extensions are supplied by the caller (either
+        // VCK::Window::RequiredInstanceExtensions() on the cross-platform path,
+        // or a hand-rolled Win32 list on the HWND legacy path).  Debug utils is
+        // added when validation is enabled.
+        EnabledExtensions = surfaceExtensions;
+        if (ValidationEnabled)
+            EnabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         for (const char* extra : m_CfgContext.extraInstanceExtensions)
             EnabledExtensions.push_back(extra);
 
@@ -188,9 +241,22 @@ namespace VCK {
     }
 
     // ===========================================================================
-    //  Private - Win32 Surface
+    //  Private - Surface creation
+    //    Cross-platform path goes through VCK::Window.  The Win32 legacy path
+    //    calls vkCreateWin32SurfaceKHR directly for backward compatibility.
     // ===========================================================================
 
+    bool VulkanContext::CreateSurface(const Window& window) {
+        VkResult result = window.CreateSurface(Instance, &Surface);
+        if (result != VK_SUCCESS) {
+            LogVk("[VulkanContext] VCK::Window::CreateSurface failed: " + std::to_string(result));
+            return false;
+        }
+        LogVk(std::string("[VulkanContext] Surface created (") + VCK_PLATFORM_NAME + ")");
+        return true;
+    }
+
+#if VCK_PLATFORM_WINDOWS
     bool VulkanContext::CreateSurface(HWND windowHandle) {
         VkWin32SurfaceCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -206,6 +272,7 @@ namespace VCK {
         LogVk("[VulkanContext] Win32 surface created");
         return true;
     }
+#endif
 
     // ===========================================================================
     //  Private - Helpers
