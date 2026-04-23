@@ -10,28 +10,105 @@ Rules · status · honest caveats · roadmap
 
 ## Rules (strict)
 
+## Rules (strict)
+
 1. **Explicit > magic.** No hidden allocations, no singletons, no implicit
    lifetimes. Every `Initialize` has a matching `Shutdown` in a documented
    order.
+
 2. **No ownership in the expansion / execution layer.** Every class borrows
    core objects by reference or raw pointer; never creates or destroys them.
+
 3. **Strict lifecycle.**
-   ```
-   Init:     Context → Device → Swapchain → Pipeline → Command → Sync → (Scheduler / VMM)
-   Shutdown: (Scheduler / VMM) → Sync → Command → Pipeline → Swapchain → Device → Context
-   ```
-   Expansion objects and VMM resources must be shut down **before** the core
-   objects they reference.
+
+```
+Init: Context → Device → Swapchain → Pipeline → Command → Sync → (Scheduler / VMM)
+Shutdown: (Scheduler / VMM) → Sync → Command → Pipeline → Swapchain → Device → Context
+
+Expansion objects and VMM resources must be shut down **before** the core
+objects they reference.
+```
+
 4. **No hidden synchronisation.** The only places the kit blocks the CPU on
-   the GPU are:
-   - `VulkanOneTimeCommand::End` and `VulkanMemoryManager::SubmitStagingCmd`
-     — `vkQueueWaitIdle`, setup paths only.
-   - `FrameScheduler::BeginFrame` / `EndFrame` when policy dictates (per
-     slot fence wait).
-   - `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
-   - Anything you do manually.
+the GPU are:
+- `VulkanOneTimeCommand::End` and `VulkanMemoryManager::SubmitStagingCmd`
+  — `vkQueueWaitIdle`, setup paths only.
+- `FrameScheduler::BeginFrame` / `EndFrame` when policy dictates (per
+  slot fence wait).
+- `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
+- Anything you do manually.
+
 5. **Frame-scoped or persistent, nothing else.** Every GPU resource has a
-   clear lifetime tag (VMM) or is owned by a class that does.
+clear lifetime tag (VMM) or is owned by a class that does.
+
+6. **NO HIDDEN BEHAVIOR**
+- Nothing happens “automatically” without being explicitly traceable.
+- Resize, recreation, batching, sync must be visible in logs/timeline.
+
+7. **USER OWNS THE FRAME (UNLESS OPT-IN SCHEDULER)**
+- Core mode: user controls frame loop.
+- Scheduler mode: explicit opt-in only.
+- Never silently take control of execution.
+
+8. **EXPLICIT SYNCHRONIZATION MODEL**
+- Only fences / semaphores / timeline tokens define ordering.
+- No implicit ordering between commands, queues, or systems.
+
+9. **ESCAPE HATCH ALWAYS EXISTS**
+- Any abstraction must allow bypass:
+- raw command buffer submission
+- raw queue submit
+- manual synchronization
+- Nothing is “forced architecture”.
+
+10. **ZERO HIDDEN STATE**
+- No global GPU state tracking.
+- No singleton device/context managers.
+- All state is passed explicitly or owned by user-visible objects.
+
+11. **DETERMINISTIC FRAME BEHAVIOR**
+- Same inputs → same submission order and execution graph.
+- Any nondeterminism must be explicitly opt-in (Async policies only).
+
+12. **EXPLICIT RECREATION EVENTS**
+- Swapchain/device/resource recreation must:
+- be triggered
+- be logged
+- be observable in DebugTimeline
+- never happen silently
+
+13. **DEBUGGABILITY IS CORE FEATURE**
+- Every abstraction must be inspectable:
+- LogVk output
+- DebugTimeline spans
+- explicit dumps of state (queues, frames, resources)
+
+14. **FAIL FAST, FAIL LOUD**
+- No silent fallback behavior.
+- Errors must:
+- return explicit result
+- log cause
+- propagate upward
+
+15. **MINIMAL CORE SURFACE**
+- Core stays small and stable.
+- Complexity belongs in:
+Expansion / Execution / VMM / Tools layers.
+- Core must never grow into engine logic.
+
+16. **NO ENGINE ASSUMPTIONS**
+- VCK does not assume:
+- scene graph
+- asset pipeline
+- ECS
+- renderer architecture
+- It only provides execution + GPU control primitives.
+
+17. **FRAME IS THE UNIT OF TRUTH**
+- All GPU work is bound to:
+- frame slot
+- or explicit timeline value
+- Nothing exists “outside frame context” unless explicitly persistent.
 
 ## Status and caveats
 
