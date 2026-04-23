@@ -8,8 +8,12 @@ macOS, plus a frame-level execution orchestration layer on top.
 <sub>**not** an engine · no scene graph · no material system · you own the frame</sub>
 
 [![Windows build](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml/badge.svg?branch=VCK)](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](docs/Build.md)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](CONTRIBUTING.md)
+[![Vulkan](https://img.shields.io/badge/Vulkan-1.3-red)](https://www.vulkan.org/)
 [![Docs](https://img.shields.io/badge/docs-wiki-blue)](https://github.com/vKexterPLv/VCK/wiki)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-keep%20a%20changelog-orange)](CHANGELOG.md)
 
 </div>
 
@@ -236,6 +240,20 @@ maintainer can push them to the `*.wiki.git` repo at any time.
 | [`docs/Build.md`](docs/Build.md)                   | Windows / Linux / macOS: Vulkan SDK + GLFW + `build.bat` / `build.sh` |
 | [`docs/Design.md`](docs/Design.md)                 | design rules, status, caveats, roadmap |
 
+## Contributing
+
+PRs welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the 17-rule
+architectural contract, commit style, and branching workflow. Small,
+focused diffs preferred; new public API goes in [`VCK.h`](VCK.h) (the
+single source of truth).
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the per-version list of added,
+changed, and removed items. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
+
 ## License
 
-See the repository for license information.
+[MIT](LICENSE) — vendored third-party sources in `vendor/` keep their own
+licenses (Apache 2.0 for Vulkan-Headers, MIT for VMA, zlib/libpng for
+GLFW). See the [`LICENSE`](LICENSE) file for the full list.
