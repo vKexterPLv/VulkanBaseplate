@@ -2,13 +2,13 @@
 
 # Examples &nbsp;·&nbsp; `example/build.bat`
 
-Nine runnable examples. Pick from the menu, build runs in seconds.
+Eleven runnable examples. Pick from the menu, build runs in seconds.
 
 </div>
 
 ---
 
-Nine runnable examples in `example/`, each built from the menu in
+Eleven runnable examples in `example/`, each built from the menu in
 `example/build.bat`.
 
 ---
@@ -49,6 +49,16 @@ each one emphasises a different piece of the execution layer.
 | 7 | `SubmissionBatchingExample` | two independent cmd buffers per frame queued through `GpuSubmissionBatcher` → **one** `vkQueueSubmit` |
 | 8 | `TimelineExample`           | `TimelineSemaphore::Initialize` probe + host `Signal` / `DependencyToken::WaitHost` round-trip (logs fallback when the device feature is off) |
 | 9 | `DebugTimelineExample`      | `cfg.enableTimeline = true`, user `BeginCpuSpan` / `EndCpuSpan` / `NoteStall`, `scheduler.Timeline().Dump()` every 120 frames |
+
+## Showcase (guided tours of new v0.2 APIs)
+
+No new concepts here — these just exercise the v0.2 debug and AA surfaces
+end-to-end so you can see everything live without writing your own scaffolding.
+
+| #  | Example                 | Demonstrates |
+|----|-------------------------|--------------|
+| 10 | `DebugShowcaseExample`  | every `VCKLog` level, `cfg.debug` gating, dedup, `VK_CHECK` fail-loud path (rule 14), GPU / driver / memory / surface dump — no draw loop, pure tour |
+| 11 | `AAShowcaseExample`     | `DetectRecommendedAA` decision matrix printed across `forward`×`motionVectors` combinations, live swapchain auto-pick reported via `GetAATechnique()` + `GetMSAASamples()`, RGB triangle drawn with the picked AA so sample-based edges are visible |
 
 ## Building
 

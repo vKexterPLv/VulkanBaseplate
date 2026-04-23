@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: build.bat [A]  (all 9 examples)
+    name: build.bat [A]  (all 11 examples)
     runs-on: windows-latest
 
     defaults:
