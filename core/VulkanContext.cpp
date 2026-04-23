@@ -292,18 +292,6 @@ namespace VCK {
         return false;
     }
 
-    std::vector<const char*> VulkanContext::BuildRequiredExtensions() {
-        std::vector<const char*> extensions;
-
-        extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);        // "VK_KHR_surface"
-        extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);  // "VK_KHR_win32_surface"
-
-        if (k_WantValidation)
-            extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME); // "VK_EXT_debug_utils"
-
-        return extensions;
-    }
-
     // ===========================================================================
     //  Static - Debug Callback
     // ===========================================================================
