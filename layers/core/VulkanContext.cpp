@@ -318,4 +318,4 @@ namespace VCK {
         return VK_FALSE;
     }
 
-} // namespace VCK
+} // namespace VCK

@@ -426,4 +426,4 @@ namespace VCK {
         return out;
     }
 
-} // namespace VCK
+} // namespace VCK

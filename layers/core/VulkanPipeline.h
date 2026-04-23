@@ -171,4 +171,4 @@ namespace VCK {
         Config m_PipelineCfg;
     };
 
-} // namespace VCK
+} // namespace VCK

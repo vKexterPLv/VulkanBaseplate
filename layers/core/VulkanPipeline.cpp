@@ -333,4 +333,4 @@ namespace VCK {
         return success;
     }
 
-} // namespace VCK
+} // namespace VCK

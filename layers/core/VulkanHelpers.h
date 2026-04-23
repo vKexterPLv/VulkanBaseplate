@@ -86,23 +86,55 @@ inline const char* LevelColour(Level level) {
     }
 }
 
+// Returns true once the current stdout can render ANSI colour escapes.
+// On Windows 10+ Virtual Terminal Processing is supported but OFF by default;
+// without enabling it programs print literal "[96m" / "[0m" junk instead of
+// rendering the escapes as colour.  We enable it once per process via a
+// function-local static initialiser (thread-safe in C++11+) and cache the
+// result.  On non-Windows platforms this is a no-op - POSIX terminals handle
+// ANSI escapes natively.  Returns false if we are not attached to a console
+// (e.g. output redirected to a file), in which case we strip colour to keep
+// captured logs clean.
+inline bool ConsoleSupportsAnsi()
+{
+#if VCK_PLATFORM_WINDOWS
+    static const bool enabled = []() -> bool {
+        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (h == nullptr || h == INVALID_HANDLE_VALUE) return false;
+        DWORD mode = 0;
+        if (!GetConsoleMode(h, &mode)) return false;                // not a console
+        constexpr DWORD kVT = 0x0004;                                // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        if (mode & kVT) return true;
+        return SetConsoleMode(h, mode | kVT) != 0;
+    }();
+    return enabled;
+#else
+    return true;
+#endif
+}
+
 // Writes one formatted line to stdout + (on Windows) the debugger pane.
 inline void WriteLine(Level level, const char* tag, const std::string& msg)
 {
-    const char* lvlColour = LevelColour(level);
+    const bool  colour    = ConsoleSupportsAnsi();
+    const char* lvlColour = colour ? LevelColour(level) : kReset;
 
-    std::string coloured;
-    coloured.reserve(16 + msg.size());
-    coloured += kCyan; coloured += "[VCK]"; coloured += kReset;
-    coloured += ' ';
-    coloured += kBold; coloured += kWhite; coloured += '['; coloured += tag; coloured += ']'; coloured += kReset;
-    coloured += ' ';
-    if (lvlColour != kReset) coloured += lvlColour;
-    coloured += msg;
-    if (lvlColour != kReset) coloured += kReset;
-    coloured += '\n';
+    std::string line;
+    line.reserve(16 + msg.size());
+    if (colour) line += kCyan;
+    line += "[VCK]";
+    if (colour) line += kReset;
+    line += ' ';
+    if (colour) { line += kBold; line += kWhite; }
+    line += '['; line += tag; line += ']';
+    if (colour) line += kReset;
+    line += ' ';
+    if (colour && lvlColour != kReset) line += lvlColour;
+    line += msg;
+    if (colour && lvlColour != kReset) line += kReset;
+    line += '\n';
 
-    std::fputs(coloured.c_str(), stdout);
+    std::fputs(line.c_str(), stdout);
     std::fflush(stdout);
 
 #if VCK_PLATFORM_WINDOWS
