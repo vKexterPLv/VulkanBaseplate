@@ -24,10 +24,10 @@ Rules · status · honest caveats · roadmap
 ```
 Init: Context → Device → Swapchain → Pipeline → Command → Sync → (Scheduler / VMM)
 Shutdown: (Scheduler / VMM) → Sync → Command → Pipeline → Swapchain → Device → Context
+```
 
 Expansion objects and VMM resources must be shut down **before** the core
 objects they reference.
-```
 
 4. **No hidden synchronisation.** The only places the kit blocks the CPU on
 the GPU are:
