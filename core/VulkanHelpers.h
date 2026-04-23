@@ -167,20 +167,6 @@ inline void Notice(const char* tag, const std::string& msg) { Emit(Level::Notice
 inline void Warn  (const char* tag, const std::string& msg) { Emit(Level::Warn,   tag, msg); }
 inline void Error (const char* tag, const std::string& msg) { Emit(Level::Error,  tag, msg); }
 
-}} // namespace VCK::Log
-
-// Short alias matching the public API in docs / wiki.
-namespace VCKLog = VCK::Log;
-
-// Backwards-compatible one-arg form.  Parses a leading '[Tag] body' so legacy
-// call sites like LogVk("[Swapchain] Initializing...") render cleanly as
-// '[VCK] [Swapchain] Initializing...' without having to touch every line.
-//
-// Level routing: error-like tags (FAILED / ERROR / ERR) escalate to Error,
-// warning-like tags (WARN / WARNING) escalate to Warn - both always visible
-// regardless of cfg.debug (rule 14 - fail loud).  Everything else stays at
-// Info (debug-gated) - migrate high-signal user-facing lines to
-// VCKLog::Notice(tag, body) explicitly.
 inline Level ClassifyLegacyTag(const char* tag) {
     auto iequals = [](const char* a, const char* b) {
         while (*a && *b) {
@@ -199,6 +185,20 @@ inline Level ClassifyLegacyTag(const char* tag) {
     return Level::Info;
 }
 
+}} // namespace VCK::Log
+
+// Short alias matching the public API in docs / wiki.
+namespace VCKLog = VCK::Log;
+
+// Backwards-compatible one-arg form.  Parses a leading '[Tag] body' so legacy
+// call sites like LogVk("[Swapchain] Initializing...") render cleanly as
+// '[VCK] [Swapchain] Initializing...' without having to touch every line.
+//
+// Level routing: error-like tags (FAILED / ERROR / ERR) escalate to Error,
+// warning-like tags (WARN / WARNING) escalate to Warn - both always visible
+// regardless of cfg.debug (rule 14 - fail loud).  Everything else stays at
+// Info (debug-gated) - migrate high-signal user-facing lines to
+// VCKLog::Notice(tag, body) explicitly.
 inline void LogVk(const std::string& message) {
     if (!message.empty() && message.front() == '[') {
         const std::size_t end = message.find(']');
@@ -210,7 +210,7 @@ inline void LogVk(const std::string& message) {
             // through the single synchronous Emit call.
             static thread_local std::string tagBuf;
             tagBuf.assign(message, 1, end - 1);
-            VCK::Log::Emit(ClassifyLegacyTag(tagBuf.c_str()),
+            VCK::Log::Emit(VCK::Log::ClassifyLegacyTag(tagBuf.c_str()),
                            tagBuf.c_str(),
                            message.substr(end + 2));
             return;
@@ -220,7 +220,7 @@ inline void LogVk(const std::string& message) {
 }
 
 inline void LogVk(const char* tag, const std::string& message) {
-    VCK::Log::Emit(ClassifyLegacyTag(tag), tag, message);
+    VCK::Log::Emit(VCK::Log::ClassifyLegacyTag(tag), tag, message);
 }
 
 // -----------------------------------------------------------------------------
