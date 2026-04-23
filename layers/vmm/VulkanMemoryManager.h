@@ -4,7 +4,7 @@
 // VulkanDevice, VulkanCommand, VulkanSync, MAX_FRAMES_IN_FLIGHT, LogVk, VK_CHECK, etc.
 // Including individual sub-headers instead would cause redefinition errors when
 // App.cpp (or any TU that already includes VCK.h) also includes this file.
-#include "../VCK.h"
+#include "../../VCK.h"
 
 // =============================================================================
 //  VulkanMemoryManager.h  (VMM)

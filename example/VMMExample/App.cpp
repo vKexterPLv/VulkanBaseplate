@@ -1,6 +1,6 @@
 #include "App.h"
 #include "VCK.h"
-#include "VMM/VulkanMemoryManager.h"
+#include "VulkanMemoryManager.h"
 #include <string>
 #include <vector>
 #include <array>

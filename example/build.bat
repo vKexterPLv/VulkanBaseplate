@@ -83,7 +83,7 @@ if not exist "deps\libglfw3.a" (
 :: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
 :: user code includes <GLFW/glfw3.h> before "VCK.h" / "VCKCrossplatform.h".
 set DEFINES=-DGLFW_INCLUDE_VULKAN
-set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
+set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\layers\vmm -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
 set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp
 

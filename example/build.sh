@@ -97,7 +97,7 @@ DEFINES="-DGLFW_INCLUDE_VULKAN $VCK_MACRO"
 
 # macOS: Cocoa/IOKit/QuartzCore are required by GLFW; MoltenVK ships as dylib
 # so we just rely on pkg-config's -lvulkan.
-INCLUDES="-I../vendor/vma -I../vendor/glfw/include -Ideps -I.. -I../layers/core -I../layers/expansion -I../layers/execution -I../vendor/vulkan_headers $PKG_CFLAGS $DEFINES"
+INCLUDES="-I../vendor/vma -I../vendor/glfw/include -Ideps -I.. -I../layers/core -I../layers/expansion -I../layers/execution -I../layers/vmm -I../vendor/vulkan_headers $PKG_CFLAGS $DEFINES"
 LIBS="$PKG_LIBS -lpthread -ldl"
 
 if [ "$VCK_OS" = "macos" ]; then
