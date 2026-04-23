@@ -37,6 +37,7 @@ batcher.
 - **Anti-aliasing framework**: `cfg.aa.technique = AATechnique::Auto` runs a 5-step decision tree (VRAM tier → forward path → motion vectors → pick) once at `Swapchain::Initialize`. Sample-based (MSAA / A2C / SampleRate) is implemented; post-process names (FXAA / SMAA / TAA / TAAU) are returned to the renderer.
 - **Structured logging**: `VCK::VCKLog` with `Info` / `Notice` / `Warn` / `Error` levels, console-spam dedup, `cfg.debug` opt-in. `VK_CHECK` routes failures to `Error` directly — fail loud by default.
 - **22 design rules** enforced: explicit over magic, no hidden state, frame is the unit of truth, external synchronisation, zero cost for unused features, every public API has an example, `VCK.h` is the API surface. See [`docs/Design.md`](docs/Design.md).
+- **[Cookbook](docs/Cookbook.md)** — copy-paste recipes for things the kit doesn't ship (image / OBJ loading, cube / line / SDF / text rendering, FXAA / SMAA / TAA, ImGui, offscreen PNG readback).
 
 ## Layers
 
