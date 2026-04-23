@@ -2,8 +2,8 @@
 
 # V C K
 
-**Vulkan Core Kit** — a small, no-magic Vulkan kit for Windows, plus a
-frame-level execution orchestration layer on top.
+**Vulkan Core Kit** — a small, no-magic Vulkan kit for Windows, Linux, and
+macOS, plus a frame-level execution orchestration layer on top.
 
 <sub>**not** an engine · no scene graph · no material system · you own the frame</sub>
 
@@ -63,17 +63,16 @@ swapchain to a colour every frame through `FrameScheduler`. The full
 three-file version lives in [`example/HelloExample/`](example/HelloExample/).
 
 ```cpp
-#include "VCK.h"
-#include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
+#include "VCK.h"      // pulls in VCK::Window, the core, expansion, everything
 
 int main()
 {
-    // window
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* win = glfwCreateWindow(800, 600, "Hello VCK", nullptr, nullptr);
+    // window (cross-platform facade - no raw GLFW/HWND in user code)
+    VCK::Window            win;
+    VCK::WindowCreateInfo  wci;
+    wci.width = 800; wci.height = 600; wci.title = "Hello VCK";
+    wci.resizable = true;
+    win.Create(wci);
 
     // core
     VCK::VulkanContext   ctx;
@@ -82,9 +81,9 @@ int main()
     VCK::VulkanCommand   cmd;
     VCK::VulkanSync      sync;
 
-    ctx.Initialize (glfwGetWin32Window(win), "hello");
+    ctx.Initialize (win, "hello");
     dev.Initialize (ctx);
-    sc .Initialize (dev, ctx, 800, 600);
+    sc .Initialize (dev, ctx, win.GetWidth(), win.GetHeight());
     cmd.Initialize (dev);
     sync.Initialize(dev);
 
@@ -94,9 +93,9 @@ int main()
     cfg.policy = VCK::FramePolicy::Pipelined;
     sched.Initialize(dev, cmd, sync, cfg);
 
-    while (!glfwWindowShouldClose(win))
+    while (!win.ShouldClose())
     {
-        glfwPollEvents();
+        win.PollEvents();
         VCK::Frame& f = sched.BeginFrame();
 
         uint32_t imageIndex = 0;
@@ -125,6 +124,7 @@ int main()
 
     sched.Shutdown();
     sync.Shutdown(); cmd.Shutdown(); sc.Shutdown(); dev.Shutdown(); ctx.Shutdown();
+    win.Destroy();
 }
 ```
 
@@ -145,9 +145,9 @@ cfg.swapchain.imageCount   = 3;                                  // 0 = minImage
 // cfg.swapchain.msaaSamples = VK_SAMPLE_COUNT_4_BIT;            // reserved — see Roadmap, clamps to 1x today
 cfg.sync.framesInFlight    = 3;                                  // clamped to MAX_FRAMES_IN_FLIGHT
 
-ctx.Initialize (hwnd, cfg);
-dev.Initialize (ctx,  cfg);
-sc .Initialize (dev, ctx, w, h, cfg);
+ctx.Initialize (window, cfg);
+dev.Initialize (ctx,    cfg);
+sc .Initialize (dev, ctx, window.GetWidth(), window.GetHeight(), cfg);
 sync.Initialize(dev,  cfg);
 cmd.Initialize (dev,  cfg);
 pipe.Initialize(dev, sc, shaders, vi);    // pulls msaaSamples from the swapchain
@@ -161,8 +161,12 @@ Mailbox requests fall back to FIFO if the driver doesn't expose it, and
 ## Examples
 
 Nine runnable examples in `example/`. All follow a 3-file + `assets/` layout
-(`main.cpp` + `App.h` + `App.cpp` + `assets/`). Build with the menu in
-`example/build.bat`.
+(`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the cross-platform
+`VCK::Window` facade and `VCK::HandleLiveResize` (so resizing from 720p to 4K
+is handled in-library). Build with:
+
+- Windows: `example/build.bat` (MinGW g++)
+- Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
 
 | # | Example                     | Demonstrates |
 |---|-----------------------------|--------------|
@@ -180,15 +184,23 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
 ## Build
 
+Windows (MinGW-w64 + Vulkan SDK + GLFW in `example/deps/`):
+
 ```
 cd example
 build.bat
 ```
 
-Requires the Vulkan SDK, `glslangValidator`, `g++` (MinGW-w64), and a
-GLFW Windows pre-compiled drop in `example/deps/`. Full step-by-step:
-[`docs/Build.md`](docs/Build.md). `build.bat` prints a diagnostic if
-anything is missing.
+Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
+
+```
+cd example
+./build.sh
+```
+
+Both scripts share the same `[1]-[9] / [A] / [0]` menu and print a
+diagnostic if tools or dependencies are missing. Full step-by-step:
+[`docs/Build.md`](docs/Build.md).
 
 ## Documentation
 
