@@ -105,9 +105,9 @@ if [ "$VCK_OS" = "macos" ]; then
 fi
 
 VKB="../core/VmaImpl.cpp ../core/VulkanBuffer.cpp ../core/VulkanCommand.cpp \
-../core/VulkanContext.cpp ../core/VulkanDevice.cpp ../core/VulkanHelpers.cpp \
-../core/VulkanImage.cpp ../core/VulkanPipeline.cpp ../core/VulkanSwapchain.cpp \
-../core/VulkanSync.cpp ../VCKExpansion.cpp ../VCKCrossplatform.cpp"
+../core/VulkanContext.cpp ../core/VulkanDevice.cpp ../core/VulkanImage.cpp \
+../core/VulkanPipeline.cpp ../core/VulkanSwapchain.cpp ../core/VulkanSync.cpp \
+../VCKExpansion.cpp ../VCKCrossplatform.cpp"
 
 # ── Build primitives ---------------------------------------------------------
 compile_shaders() {

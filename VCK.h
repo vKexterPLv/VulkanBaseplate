@@ -16,8 +16,8 @@
 //          ↓
 //      Your renderer / game / tool
 //
-//  SOURCE FILES ASSEMBLED (core)
-//  ─────────────────────────────
+//  SOURCE FILES ASSEMBLED (core/)
+//  ──────────────────────────────
 //  Headers   (.h)  : VulkanHelpers   VulkanContext   VulkanDevice
 //                    VulkanSwapchain  VulkanBuffer   VulkanImage
 //                    VulkanPipeline   VulkanCommand  VulkanSync
@@ -26,7 +26,10 @@
 //                    VmaImpl         VulkanContext   VulkanDevice
 //                    VulkanSwapchain VulkanBuffer    VulkanImage
 //                    VulkanPipeline  VulkanCommand   VulkanSync
-//                    VulkanHelpers
+//
+//  Cross-platform surface (repo root, auto-included):
+//                    VCKCrossplatform.{h,cpp}  - VCK::Window facade
+//                                                (Windows/Linux/macOS)
 //
 //  INIT / SHUTDOWN ORDER
 //  ─────────────────────
@@ -38,21 +41,28 @@
 //
 //  ONE-HOUR QUICK START
 //  ────────────────────
-//    1.  Create a window (GLFW / Win32) and grab its HWND.
+//    1.  Create a window via the cross-platform facade:
+//            VCK::Window window;
+//            VCK::WindowCreateInfo wci;
+//            wci.width = 1280; wci.height = 720; wci.title = "Demo";
+//            wci.resizable = true;
+//            window.Create(wci);
 //    2.  Build a VCK::Config if you want non-default knobs (optional):
 //            VCK::Config cfg;
 //            cfg.swapchain.presentMode = VCK::PresentMode::Mailbox;
 //            cfg.sync.framesInFlight   = 3;
 //    3.  Run the init chain with either zero-arg or Config overloads:
-//            ctx .Initialize(hwnd, cfg);
-//            dev .Initialize(ctx,  cfg);
-//            sc  .Initialize(dev, ctx, w, h, cfg);
-//            pipe.Initialize(dev, sc,  shaders, vertexInput);
-//            cmd .Initialize(dev,  cfg);
-//            sync.Initialize(dev,  cfg);
+//            ctx .Initialize(window, cfg);
+//            dev .Initialize(ctx,    cfg);
+//            sc  .Initialize(dev, ctx, window.GetWidth(), window.GetHeight(), cfg);
+//            pipe.Initialize(dev, sc, shaders, vertexInput);
+//            cmd .Initialize(dev, cfg);
+//            sync.Initialize(dev, cfg);
 //    4.  Drive the frame loop yourself (see RGBTriangle) OR hand off to
-//        VCK::FrameScheduler (see HelloExample).
-//    5.  Shut down in reverse order.
+//        VCK::FrameScheduler (see HelloExample).  Call
+//        VCK::HandleLiveResize(window, dev, sc, fb, pipe) once per frame
+//        to pick up OS resize events automatically.
+//    5.  Shut down in reverse order; finish with window.Destroy().
 //
 //  Every Initialize(...) has a zero-arg form - if you pass no Config you get
 //  exactly the same behaviour as before Config existed.  The library never
@@ -655,20 +665,16 @@
 ────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────
- VulkanHelpers.cpp
-   (currently empty - LogVk and VK_CHECK are header-inline)
-────────────────────────────────────────────────────────────────────────────────
-
-────────────────────────────────────────────────────────────────────────────────
  VulkanContext.cpp
 ────────────────────────────────────────────────────────────────────────────────
- bool        VulkanContext::Initialize(HWND windowHandle, const std::string& appName)
+ bool        VulkanContext::Initialize(const Window&, const std::string& appName, const Config& = {})
+ bool        VulkanContext::Initialize(HWND windowHandle, const std::string& appName)   // Windows-only legacy overload
  void        VulkanContext::Shutdown()
- bool        VulkanContext::CreateInstance(const std::string& appName)
+ bool        VulkanContext::CreateInstance(const std::string& appName, const std::vector<const char*>& surfaceExtensions)
  bool        VulkanContext::CreateDebugMessenger()
- bool        VulkanContext::CreateSurface(HWND windowHandle)
+ bool        VulkanContext::CreateSurface(const Window&)
+ bool        VulkanContext::CreateSurface(HWND windowHandle)                             // Windows-only legacy overload
  bool        VulkanContext::CheckValidationLayerSupport()
- vector<const char*> VulkanContext::BuildRequiredExtensions()
  VkBool32    VulkanContext::DebugCallback(severity, type, pCallbackData, pUserData)
 
 ────────────────────────────────────────────────────────────────────────────────
