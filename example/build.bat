@@ -103,6 +103,10 @@ echo    %C_YEL%[7]%C_RESET%  %C_WHT%SubmissionBatchingExample%C_RESET%   2 cmd b
 echo    %C_YEL%[8]%C_RESET%  %C_WHT%TimelineExample%C_RESET%             TimelineSemaphore + DependencyToken
 echo    %C_YEL%[9]%C_RESET%  %C_WHT%DebugTimelineExample%C_RESET%        span recorder + Dump every 120 frames
 echo.
+echo  %C_BOLD%%C_WHT%Showcase%C_RESET%                 %C_DIM%(guided tours of new v0.2 APIs)%C_RESET%
+echo   %C_YEL%[10]%C_RESET% %C_WHT%DebugShowcaseExample%C_RESET%        VCKLog levels / dedup / VK_CHECK / debug toggle
+echo   %C_YEL%[11]%C_RESET% %C_WHT%AAShowcaseExample%C_RESET%           AATechnique decision matrix + auto-pick + triangle
+echo.
 echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
 echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
 echo.
@@ -118,6 +122,8 @@ if "%CHOICE%"=="6" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicy
 if "%CHOICE%"=="7" ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
 if "%CHOICE%"=="8" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
 if "%CHOICE%"=="9" ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
+if "%CHOICE%"=="10" ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
+if "%CHOICE%"=="11" ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
 if "%CHOICE%"=="0" exit /b 0
 call :ERR "unknown selection '%CHOICE%'"
 exit /b 1
@@ -160,68 +166,85 @@ call :COMPILE_CPP     || exit /b 1
 call :OK_RUN
 goto END
 
+:BUILD_ONE_NO_SHADERS
+:: DebugShowcaseExample has no shader assets - skip shader compile.
+for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
+call :COMPILE_CPP     || exit /b 1
+call :OK_RUN
+goto END
+
 
 :: =============================================================================
 ::  Build-all  (inlined to preserve on-screen colour output)
 :: =============================================================================
 
 :BUILD_ALL
-call :STEP "[1/9] RGBTriangle"
+call :STEP "[1/11] RGBTriangle"
 set EX=RGBTriangle
 set STEM=triangle
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[2/9] MipmapExample"
+call :STEP "[2/11] MipmapExample"
 set EX=MipmapExample
 set STEM=mip
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[3/9] VMMExample"
+call :STEP "[3/11] VMMExample"
 set EX=VMMExample
 set STEM=vmm
 call :COMPILE_SHADERS          || exit /b 1
 call :COMPILE_CPP_WITH_VMM     || exit /b 1
 
-call :STEP "[4/9] HelloExample"
+call :STEP "[4/11] HelloExample"
 set EX=HelloExample
 set STEM=hello
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[5/9] JobGraphExample"
+call :STEP "[5/11] JobGraphExample"
 set EX=JobGraphExample
 set STEM=JobGraphExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[6/9] SchedulerPolicyExample"
+call :STEP "[6/11] SchedulerPolicyExample"
 set EX=SchedulerPolicyExample
 set STEM=SchedulerPolicyExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[7/9] SubmissionBatchingExample"
+call :STEP "[7/11] SubmissionBatchingExample"
 set EX=SubmissionBatchingExample
 set STEM=SubmissionBatchingExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[8/9] TimelineExample"
+call :STEP "[8/11] TimelineExample"
 set EX=TimelineExample
 set STEM=TimelineExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[9/9] DebugTimelineExample"
+call :STEP "[9/11] DebugTimelineExample"
 set EX=DebugTimelineExample
 set STEM=DebugTimelineExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
+call :STEP "[10/11] DebugShowcaseExample"
+set EX=DebugShowcaseExample
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[11/11] AAShowcaseExample"
+set EX=AAShowcaseExample
+set STEM=aa
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
 echo.
-echo %C_GRN%  all 9 examples built.%C_RESET%
+echo %C_GRN%  all 11 examples built.%C_RESET%
 echo.
 goto END
 

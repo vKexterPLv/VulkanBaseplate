@@ -156,10 +156,14 @@ build_one() {
         7) ex=SubmissionBatchingExample  stem=SubmissionBatchingExample;;
         8) ex=TimelineExample            stem=TimelineExample          ;;
         9) ex=DebugTimelineExample       stem=DebugTimelineExample     ;;
+        10) ex=DebugShowcaseExample      stem=                         ;;
+        11) ex=AAShowcaseExample         stem=aa                       ;;
         *) err "unknown example id '$id'"; return 1 ;;
     esac
 
-    compile_shaders "$ex" "$stem" || return 1
+    if [ -n "$stem" ]; then
+        compile_shaders "$ex" "$stem" || return 1
+    fi
     compile_cpp     "$ex" "$extra" || return 1
 }
 
@@ -168,13 +172,14 @@ build_all() {
         "RGBTriangle" "MipmapExample" "VMMExample" "HelloExample"
         "JobGraphExample" "SchedulerPolicyExample" "SubmissionBatchingExample"
         "TimelineExample" "DebugTimelineExample"
+        "DebugShowcaseExample" "AAShowcaseExample"
     )
-    for i in 1 2 3 4 5 6 7 8 9; do
-        step "[${i}/9] ${names[$((i-1))]}"
+    for i in 1 2 3 4 5 6 7 8 9 10 11; do
+        step "[${i}/11] ${names[$((i-1))]}"
         build_one "$i" || return 1
     done
     echo
-    echo "${C_GRN}  all 9 examples built.${C_RESET}"
+    echo "${C_GRN}  all 11 examples built.${C_RESET}"
     echo
 }
 
@@ -193,6 +198,10 @@ echo "   ${C_YEL}[7]${C_RESET}  ${C_WHT}SubmissionBatchingExample${C_RESET}   2 
 echo "   ${C_YEL}[8]${C_RESET}  ${C_WHT}TimelineExample${C_RESET}             TimelineSemaphore + DependencyToken"
 echo "   ${C_YEL}[9]${C_RESET}  ${C_WHT}DebugTimelineExample${C_RESET}        span recorder + Dump every 120 frames"
 echo
+echo " ${C_BOLD}${C_WHT}Showcase${C_RESET}                 ${C_DIM}(guided tours of new v0.2 APIs)${C_RESET}"
+echo "   ${C_YEL}[10]${C_RESET} ${C_WHT}DebugShowcaseExample${C_RESET}        VCKLog levels / dedup / VK_CHECK / debug toggle"
+echo "   ${C_YEL}[11]${C_RESET} ${C_WHT}AAShowcaseExample${C_RESET}           AATechnique decision matrix + auto-pick + triangle"
+echo
 echo "   ${C_CYN}[A]${C_RESET}  ${C_WHT}Build all${C_RESET}                   in order, stops on first failure"
 echo "   ${C_CYN}[0]${C_RESET}  ${C_WHT}Exit${C_RESET}"
 echo
@@ -206,19 +215,21 @@ fi
 case "$(echo "$CHOICE" | tr '[:upper:]' '[:lower:]')" in
     0)  exit 0 ;;
     a)  build_all || exit 1; exit 0 ;;
-    1|2|3|4|5|6|7|8|9)
+    1|2|3|4|5|6|7|8|9|10|11)
         build_one "$CHOICE" || exit 1
         # name lookup again for the run hint
         case "$CHOICE" in
-            1) ok_run RGBTriangle                ;;
-            2) ok_run MipmapExample              ;;
-            3) ok_run VMMExample                 ;;
-            4) ok_run HelloExample               ;;
-            5) ok_run JobGraphExample            ;;
-            6) ok_run SchedulerPolicyExample     ;;
-            7) ok_run SubmissionBatchingExample  ;;
-            8) ok_run TimelineExample            ;;
-            9) ok_run DebugTimelineExample       ;;
+            1)  ok_run RGBTriangle                ;;
+            2)  ok_run MipmapExample              ;;
+            3)  ok_run VMMExample                 ;;
+            4)  ok_run HelloExample               ;;
+            5)  ok_run JobGraphExample            ;;
+            6)  ok_run SchedulerPolicyExample     ;;
+            7)  ok_run SubmissionBatchingExample  ;;
+            8)  ok_run TimelineExample            ;;
+            9)  ok_run DebugTimelineExample       ;;
+            10) ok_run DebugShowcaseExample       ;;
+            11) ok_run AAShowcaseExample          ;;
         esac
         ;;
     *)  err "unknown selection '$CHOICE'"; exit 1 ;;
