@@ -34,12 +34,14 @@
 //                                      HandleLiveResize overloads.
 //      vmm/                      - memory manager (optional).
 //          VulkanMemoryManager.{h,cpp}
-//  vendor/
+//  vendor/                       - source-only third-party deps (in repo).
 //      vulkan_headers/vulkan/    - Vulkan SDK headers, vendored.
+//      glfw/include/GLFW/        - GLFW C API headers (used by VCKCrossplatform).
+//      vma/vk_mem_alloc.h        - AMD VMA allocator (used by VmaImpl.cpp).
 //  example/
-//      deps/                     - glfw sources + vk_mem_alloc.h for the
-//                                  examples build only.  Do not pull these
-//                                  into layers/ - the examples own them.
+//      deps/                     - binary-only Windows build assets.
+//          libglfw3.a            - GLFW pre-compiled MinGW lib (download,
+//                                  not source - Linux/macOS use pkg-config).
 //      build.bat / build.sh      - Windows / Linux+macOS build scripts.
 //      <9 example dirs>          - see example/README.md or docs/Examples.md.
 //  docs/                         - design, build, examples, API reference.

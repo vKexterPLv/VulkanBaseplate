@@ -2,7 +2,7 @@
 
 # VCK &nbsp;·&nbsp; Vulkan Core Kit
 
-**Tiny, honest, zero-magic Vulkan layer for Windows / MinGW.**
+**Tiny, honest, zero-magic Vulkan layer for Windows / Linux / macOS.**
 A layer you *opt into*, never one that takes over.
 
 [![Windows build](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml/badge.svg?branch=VCK)](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml)
@@ -18,21 +18,24 @@ A layer you *opt into*, never one that takes over.
 ## At a glance
 
 ```cpp
-#include "VCK.h"                                    // the whole core API in one line
+#include "VCK.h"                                    // the whole kit in one line
 
-VCK::Window   win;
-VCK::Config   cfg;                                  // master config - zero-init = sensible defaults
+VCK::Window          win;
+VCK::Config          cfg;                           // zero-init = sensible defaults
 VCK::VulkanContext   ctx;
 VCK::VulkanDevice    dev;
 VCK::VulkanSwapchain sc;
 
-win.Create({ 1280, 720, "Hello, VCK" });
-ctx.Initialize(win.NativeHandle(),  GetModuleHandle(nullptr), cfg);
-dev.Initialize(ctx,                                          cfg);
-sc .Initialize(dev, ctx, 1280, 720,                          cfg);
+VCK::WindowCreateInfo wci;
+wci.width = 1280; wci.height = 720; wci.title = "Hello, VCK"; wci.resizable = true;
+win.Create(wci);
+
+ctx.Initialize(win,                                       cfg);
+dev.Initialize(ctx,                                       cfg);
+sc .Initialize(dev, ctx, win.GetWidth(), win.GetHeight(), cfg);
 ```
 
-Three lines of setup, one include, every raw-handle form still available for when you want full control.
+Three lines of setup, one include, every raw-handle form still available for when you want full control. The single source of truth for the API surface is the header doc block at the top of [`VCK.h`](https://github.com/vKexterPLv/VCK/blob/VCK/VCK.h).
 
 ---
 
@@ -51,11 +54,12 @@ If you want to be productive in ~60 minutes, follow this order:
 
 | # | Step | Time | Link |
 |---|------|------|------|
-| 1 | Install SDK / MinGW / GLFW drop, run `example/build.bat` | 5 min | [Build](Build) |
-| 2 | Skim `RGBTriangle/main.cpp` + `App.{h,cpp}` | 10 min | [Examples](Examples) |
-| 3 | Read the `VCK::Config` section; the rest is per-class reference | 15 min | [Core API](Core-API) |
-| 4 | Read `HelloExample` — `FrameScheduler` takes over the per-frame dance | 15 min | [Execution Layer](Execution-Layer) |
+| 1 | Install SDK / g++ / GLFW drop, run `example/build.bat` (Win) or `./build.sh` (Linux/macOS) | 5 min | [Build](Build) |
+| 2 | Follow the per-line walkthrough of `HelloExample` | 15 min | [Hello VCK](Hello-VCK) |
+| 3 | Skim `VCK.h` header block — single source of truth for the API surface | 10 min | [Core API](Core-API) |
+| 4 | Read `FrameScheduler`: takes over the per-frame dance + handles live resize | 15 min | [Execution Layer](Execution-Layer) |
 | 5 | Only when you need persistent / transient / frame-buffered GPU memory | 10 min | [VMM](VMM) |
+| 6 | `VCK::Config` deep dive: AA framework, logging, present modes | 5 min | [Core API](Core-API) |
 
 That's the whole library. The rest of this wiki is deep-dive reference.
 
@@ -70,8 +74,9 @@ That's the whole library. The rest of this wiki is deep-dive reference.
 | [Execution Layer](Execution-Layer)   | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `DependencyToken`, `QueueSet`, `DebugTimeline` |
 | [VMM](VMM)                           | `VulkanMemoryManager` — persistent / transient / frame-buffered lifetimes, staging ring |
 | [Examples](Examples)                 | Walk-through of the 9 runnable examples in `example/` |
-| [Build](Build)                       | Windows + MinGW + Vulkan SDK + GLFW setup, `build.bat` menu |
-| [Design](Design)                     | Design rules, status, caveats, roadmap |
+| [Hello VCK](Hello-VCK)               | Build your first app: per-line walkthrough of `HelloExample` with a "why you might need this" note on every call |
+| [Build](Build)                       | Windows (`build.bat`) + Linux/macOS (`build.sh`): Vulkan SDK + GLFW setup |
+| [Design](Design)                     | 17 design rules, status, caveats, architecture |
 
 ---
 
@@ -94,6 +99,7 @@ That's the whole library. The rest of this wiki is deep-dive reference.
  ├─────────────────────────────────────────────────────────────┤
  │  Core           Context · Device · Swapchain · Pipeline     │
  │                 Command · Sync · Buffer · Image · Window    │
+ │                 VCKLog · VK_CHECK · AATechnique auto-detect│
  ├─────────────────────────────────────────────────────────────┤
  │  Vulkan 1.3                                                 │
  └─────────────────────────────────────────────────────────────┘

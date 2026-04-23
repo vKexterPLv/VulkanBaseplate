@@ -19,21 +19,28 @@ Five-minute setup. One build script per platform. Nine examples ready to run.
 
 ### Dependency layout (first time)
 
+Source-only third-party deps are committed to `vendor/` at the repo root
+and are not downloads. You only need to fetch the **Windows pre-compiled
+GLFW library** and drop it in `example/deps/`:
+
 ```
-example/
+vendor/                          (in repo - you don't add anything)
+  vma/vk_mem_alloc.h                     AMD VMA allocator
+  glfw/include/GLFW/glfw3.h              GLFW C API headers
+  glfw/include/GLFW/glfw3native.h
+  vulkan_headers/vulkan/*.h              Vulkan SDK headers mirror
+
+example/                         (you add one file here)
   build.bat
   deps/
-    vk_mem_alloc.h                 (from the VMA repo)
-    libglfw3.a                     (from GLFW lib-mingw-w64/)
-    glfw/
-      include/
-        GLFW/
-          glfw3.h
-          glfw3native.h
+    libglfw3.a                           Windows pre-compiled MinGW lib
 ```
 
-`build.bat` will refuse to run and print a diagnostic if any of these is
-missing.
+Download GLFW's "Windows pre-compiled binaries" from <https://www.glfw.org>
+and copy `lib-mingw-w64/libglfw3.a` to `example/deps/libglfw3.a`.
+
+`build.bat` will refuse to run and print a diagnostic if `libglfw3.a` or
+any `vendor/` header is missing.
 
 ### Build + run
 
@@ -91,16 +98,36 @@ Windows script.
 
 ## Logging
 
-`LogVk(msg)` writes every line to **two** sinks:
-1. `OutputDebugStringA` — Visual Studio / WinDbg Output pane.
+`VCK::VCKLog` is the structured logger; every line goes to **two** sinks:
+
+1. `OutputDebugStringA` on Windows (VS / WinDbg Output pane), `stderr` on Linux/macOS.
 2. `stdout` + `fflush` — the console that launched the exe.
 
-`VK_CHECK(expr)` wraps any `VkResult`-returning call and logs the failing
-expression on non-success. Use it everywhere:
+Levels:
+
+| Level  | When visible | Use for |
+|--------|--------------|---------|
+| `Info`   | only if `cfg.debug = true` | init chatter, verbose diagnostics |
+| `Notice` | always | one-time user-relevant pick (AA auto, MSAA clamp, present-mode fallback) |
+| `Warn`   | always | recoverable surprise |
+| `Error`  | always | user-facing failure |
+
+`VCKLog` also de-duplicates identical consecutive lines — if you spam the same
+`(tag, body)` every frame you'll see `(repeated N more times)` exactly once
+when the next different line arrives, keeping the console readable without
+losing information.
+
+`VK_CHECK(expr)` wraps any `VkResult`-returning call and routes failures
+directly to `VCKLog::Error("VK_CHECK", …)` — so Vulkan errors are always
+loud, regardless of `cfg.debug`:
 
 ```cpp
 VK_CHECK(vkQueueSubmit(queue, 1, &submit, fence));
 ```
 
-No `AllocConsole` dance: `build.bat` produces a console-subsystem exe, so
-`stdout` is already wired to the launching terminal.
+Legacy `LogVk("[Tag] body")` call sites still work — the shim parses the
+leading `[Tag]` and classifies `ERROR` / `ERR` / `FAILED` as `Error`,
+`WARN` / `WARNING` as `Warn`, everything else as `Info`.
+
+No `AllocConsole` dance: both build scripts produce a console-subsystem exe,
+so `stdout` is already wired to the launching terminal.

@@ -18,7 +18,7 @@ macOS, plus a frame-level execution orchestration layer on top.
 Drop one header:
 
 ```cpp
-#include "VCK.h"   // auto-includes VCKExpansion.h
+#include "VCK.h"   // auto-includes the expansion + execution layers
 ```
 
 …and you get the full kit: core Vulkan objects, higher-level building blocks
@@ -26,22 +26,35 @@ Drop one header:
 and an optional frame scheduler with a CPU job graph + GPU submission
 batcher.
 
+**What's in the box (v0.2):**
+
+- **Cross-platform**: Windows / Linux / macOS via `VCK::Window` + `VCK_PLATFORM_*` macros — no raw GLFW or Win32 in user code.
+- **Live resize as a first-class feature**: `VCK::HandleLiveResize(window, dev, sc, fb, pipe)` handles any resize including 720p → 4K. One call per frame.
+- **Anti-aliasing framework**: `cfg.aa.technique = AATechnique::Auto` runs a 5-step decision tree (VRAM tier → forward path → motion vectors → pick) once at `Swapchain::Initialize`. Sample-based (MSAA / A2C / SampleRate) is implemented; post-process names (FXAA / SMAA / TAA / TAAU) are returned to the renderer.
+- **Structured logging**: `VCK::VCKLog` with `Info` / `Notice` / `Warn` / `Error` levels, console-spam dedup, `cfg.debug` opt-in. `VK_CHECK` routes failures to `Error` directly — fail loud by default.
+- **17 design rules** enforced: explicit over magic, no hidden state, frame is the unit of truth. See [`docs/Design.md`](docs/Design.md).
+
 ## Layers
 
 ```
- VCK core                VCK.h + Vulkan*.cpp
-    ↓                    instance, device, swapchain, pipeline, command, sync
- VCK expansion           VCKExpansion.h / .cpp
+ layers/core/            VCKCrossplatform + Vulkan*.{h,cpp}
+    ↓                    window, instance, device, swapchain, pipeline, command, sync
+ layers/expansion/       VCKExpansion.{h,cpp}
     ↓                    textures, meshes, samplers, descriptors, mipmaps
- VCK execution           FrameScheduler, JobGraph, TimelineSemaphore, ...
-    ↓                    (same VCKExpansion TU — opt in)
- VCK memory (VMM)        VMM/VulkanMemoryManager.{h,cpp}  (optional)
+                         + HandleLiveResize (base + depth)
+ layers/execution/       VCKExecution.{h,cpp}
+    ↓                    FrameScheduler, JobGraph, TimelineSemaphore,
+                         DebugTimeline, QueueSet, GpuSubmissionBatcher,
+                         + timeline-aware HandleLiveResize
+ layers/vmm/             VulkanMemoryManager.{h,cpp}  (optional)
     ↓                    staging ring, transient pool, persistent registry
  Your renderer
 ```
 
 Everything lives in `namespace VCK`. `LogVk` and `VK_CHECK` are at global
-scope so any TU can use them without a `using` declaration.
+scope so any TU can use them without a `using` declaration. The **single
+source of truth** for the API surface is the doc block at the top of
+[`VCK.h`](VCK.h) — layer files carry only a one-line "what am I" comment.
 
 ## One-hour tour
 
@@ -142,7 +155,11 @@ cfg.context.enableValidation = true;                             // debug only
 cfg.device.preferDiscreteGpu = true;
 cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;          // Auto | Fifo | Mailbox | Immediate
 cfg.swapchain.imageCount   = 3;                                  // 0 = minImageCount + 1
-// cfg.swapchain.msaaSamples = VK_SAMPLE_COUNT_4_BIT;            // reserved — see Roadmap, clamps to 1x today
+cfg.swapchain.msaaSamples  = VCK::MSAA_AUTO;                     // 0 = pick from device; or VK_SAMPLE_COUNT_{1,2,4,8}_BIT
+cfg.aa.technique           = VCK::AATechnique::Auto;             // Auto | Off | MSAA | MSAA_A2C | SampleRate | FXAA | ...
+cfg.aa.forwardRenderer     = true;                               // detector input
+cfg.aa.supportsMotionVectors = false;                            // detector input
+cfg.debug                  = false;                              // true = VCKLog Info lines visible
 cfg.sync.framesInFlight    = 3;                                  // clamped to MAX_FRAMES_IN_FLIGHT
 
 ctx.Initialize (window, cfg);
@@ -184,7 +201,7 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
 ## Build
 
-Windows (MinGW-w64 + Vulkan SDK + GLFW in `example/deps/`):
+Windows (MinGW-w64 + Vulkan SDK + `example/deps/libglfw3.a`):
 
 ```
 cd example
@@ -216,7 +233,7 @@ maintainer can push them to the `*.wiki.git` repo at any time.
 | [`docs/Execution-Layer.md`](docs/Execution-Layer.md) | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `QueueSet`, `DebugTimeline` |
 | [`docs/VMM.md`](docs/VMM.md)                       | `VulkanMemoryManager` — lifetimes, strategies, staging |
 | [`docs/Examples.md`](docs/Examples.md)             | per-example walkthrough |
-| [`docs/Build.md`](docs/Build.md)                   | Windows + MinGW + Vulkan SDK + GLFW setup |
+| [`docs/Build.md`](docs/Build.md)                   | Windows / Linux / macOS: Vulkan SDK + GLFW + `build.bat` / `build.sh` |
 | [`docs/Design.md`](docs/Design.md)                 | design rules, status, caveats, roadmap |
 
 ## License

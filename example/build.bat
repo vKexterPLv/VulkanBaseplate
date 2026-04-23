@@ -13,19 +13,25 @@ chcp 65001 >nul 2>&1
 ::    - VULKAN_SDK env var pointing at your Vulkan SDK root
 ::    - glslangValidator on PATH  (ships with the SDK)
 ::    - g++ on PATH               (MinGW-w64)
-::    - example\deps\ populated   (see deps layout below)
+::    - vendor\glfw, vendor\vma populated (source headers, commit in repo)
+::    - example\deps\libglfw3.a   (Windows pre-compiled, download only)
 ::
 ::  Dependency layout:
+::    vendor\                         (VCK's own source deps - in repo)
+::      vma\vk_mem_alloc.h                      (AMD VMA allocator header)
+::      glfw\include\GLFW\glfw3.h               (GLFW C API)
+::      glfw\include\GLFW\glfw3native.h
+::      vulkan_headers\vulkan\*.h               (Vulkan SDK headers mirror)
 ::    example\
 ::      deps\
-::        vk_mem_alloc.h
-::        libglfw3.a
-::        glfw\include\GLFW\glfw3.h
-::        glfw\include\GLFW\glfw3native.h
+::        libglfw3.a                            (Windows pre-compiled lib)
 ::
-::  GLFW: download the "Windows pre-compiled binaries" from https://www.glfw.org
-::        - copy include\GLFW\           → deps\glfw\include\GLFW\
-::        - copy lib-mingw-w64\libglfw3.a → deps\libglfw3.a
+::  GLFW lib: download the "Windows pre-compiled binaries" from
+::        https://www.glfw.org and copy
+::        lib-mingw-w64\libglfw3.a → example\deps\libglfw3.a
+::
+::  Linux / macOS: use example\build.sh instead - it pulls GLFW/Vulkan
+::        via pkg-config, no vendor\glfw or example\deps needed.
 :: =============================================================================
 
 :: ── ANSI colour setup --------------------------------------------------------
@@ -54,21 +60,21 @@ where glslangValidator >nul 2>&1
 if errorlevel 1 ( call :BANNER & call :ERR "glslangValidator not on PATH." & exit /b 1 )
 where g++ >nul 2>&1
 if errorlevel 1 ( call :BANNER & call :ERR "g++ not on PATH  (install MinGW-w64)." & exit /b 1 )
-if not exist "deps\vk_mem_alloc.h" (
+if not exist "..\vendor\vma\vk_mem_alloc.h" (
     call :BANNER
-    call :ERR "deps\vk_mem_alloc.h is missing."
+    call :ERR "vendor\vma\vk_mem_alloc.h is missing (should be in repo)."
+    exit /b 1
+)
+if not exist "..\vendor\glfw\include\GLFW\glfw3.h" (
+    call :BANNER
+    call :ERR "vendor\glfw\include\GLFW\glfw3.h is missing (should be in repo)."
     exit /b 1
 )
 if not exist "deps\libglfw3.a" (
     call :BANNER
-    call :ERR "deps\libglfw3.a is missing."
-    exit /b 1
-)
-if not exist "deps\glfw\include\GLFW\glfw3.h" (
-    call :BANNER
-    call :ERR "deps\glfw\include\GLFW\glfw3.h is missing."
+    call :ERR "example\deps\libglfw3.a is missing."
     echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
-    echo        and copy include\GLFW\ into deps\glfw\include\GLFW\.
+    echo        and copy lib-mingw-w64\libglfw3.a into example\deps\libglfw3.a
     exit /b 1
 )
 
@@ -77,7 +83,7 @@ if not exist "deps\glfw\include\GLFW\glfw3.h" (
 :: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
 :: user code includes <GLFW/glfw3.h> before "VCK.h" / "VCKCrossplatform.h".
 set DEFINES=-DGLFW_INCLUDE_VULKAN
-set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
+set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
 set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp
 
