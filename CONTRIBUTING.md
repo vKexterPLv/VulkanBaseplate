@@ -13,7 +13,7 @@ ECS, no material system — so most contributions fall into one of:
 
 ## Before you open a PR
 
-- Read [`docs/Design.md`](docs/Design.md) — the 17 design rules are the
+- Read [`docs/Design.md`](docs/Design.md) — the 22 design rules are the
   architectural contract. PRs that violate a rule get a rework request unless
   the rule itself is being changed in the same PR.
 - Read [`VCK.h`](VCK.h) — the header block is the single source of truth for

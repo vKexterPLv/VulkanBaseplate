@@ -4,6 +4,26 @@ All notable changes to VCK are documented here. Format: [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- **Rules 18-22** in `docs/Design.md`:
+  - **R18 External synchronisation** — codifies Vulkan's per-handle external-sync requirement; `JobGraph` is the one exception.
+  - **R19 Zero cost for unused features** — un-`Initialize`d modules allocate nothing, spawn no thread, emit no log line.
+  - **R20 Every public API has an example** — public classes in `VCK.h` must be exercised by at least one example under `example/`.
+  - **R21 `VCK.h` is the API surface** — layer headers are implementation detail; breaking changes to `VCK.h` bump the minor version until v1.0.0.
+  - **R22 VCK never owns user handles** — completes rule 9; VCK destroys only handles it created.
+- **New example [10] `DebugShowcaseExample`** — guided tour of every `VCKLog` level, `cfg.debug` gating, dedup, `VK_CHECK` fail-loud path, GPU / driver / memory / surface dump. No draw loop.
+- **New example [11] `AAShowcaseExample`** — `DetectRecommendedAA` decision matrix across `forwardRenderer` × `supportsMotionVectors`, live swapchain auto-pick echoed via `GetAATechnique()` + `GetMSAASamples()`, RGB triangle drawn with the picked AA.
+
+### Changed
+- **Rule 14 tightened** — now explicitly requires `VCKLog::Error` with a subsystem tag on every failure; a `return false` without a matching `Error` is a bug.
+- **`VulkanModelPipeline::Initialize` (4-arg overload)** emits `VCKLog::Warn` when called; the hardcoded `VK_SAMPLE_COUNT_1_BIT` is hazardous when the render pass uses MSAA. Use the 5-arg overload and pass `swapchain.GetMSAASamples()`.
+- **`build.bat` / `build.sh`** — menu now `[1]`-`[11]`, `[A]` builds all 11 examples.
+
+### Fixed
+- **Top-left quadrant rendering in `MipmapExample` + `VMMExample`** — caused by pipeline-vs-render-pass sample-count mismatch (pipeline was 1x, render pass was MSAA 4x — undefined per spec, on NVIDIA confines rasterisation to the top-left quadrant). Both examples now pass `swapchain.GetMSAASamples()` to the 5-arg `VulkanModelPipeline::Initialize`.
+- **Windows ANSI colour output** — `VCKLog::Init()` now calls `SetConsoleMode` with `ENABLE_VIRTUAL_TERMINAL_PROCESSING` once on startup so Windows CMD renders colours instead of `←[96m` literals.
+- **`build.bat` line endings** — `.gitattributes` forces CRLF on `*.bat` so Windows CMD stops fragmenting comment lines into garbage tokens.
+
 ## [0.2.0] - 2026-04-23
 
 ### Added

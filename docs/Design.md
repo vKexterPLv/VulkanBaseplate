@@ -94,11 +94,14 @@ clear lifetime tag (VMM) or is owned by a class that does.
 - explicit dumps of state (queues, frames, resources)
 
 14. **FAIL FAST, FAIL LOUD**
-- No silent fallback behavior.
-- Errors must:
-- return explicit result
-- log cause
-- propagate upward
+- No silent fallback behaviour.
+- Every failure returns an explicit `bool` / error code **and** logs
+  through `VCKLog::Error` with a tag naming the subsystem. A `return
+  false` without a matching `VCKLog::Error` is a bug.
+- `VK_CHECK` routes non-`VK_SUCCESS` results to `VCKLog::Error`
+  regardless of `cfg.debug`, so a failed Vulkan call is never silent.
+- Errors propagate upward through return values; the kit never
+  `std::terminate`s or throws across an API boundary.
 
 15. **MINIMAL CORE SURFACE**
 - Core stays small and stable.
@@ -119,6 +122,60 @@ Expansion / Execution / VMM / Tools layers.
 - frame slot
 - or explicit timeline value
 - Nothing exists “outside frame context” unless explicitly persistent.
+
+18. **EXTERNAL SYNCHRONISATION**
+- Every VCK instance is externally synchronised, matching the Vulkan
+  spec's thread-safety rules.
+- Concurrent access to the same `VulkanDevice`, `VulkanSwapchain`,
+  `VulkanQueue`, `VulkanCommand`, `VulkanSync`, `FrameScheduler`, or
+  `VulkanMemoryManager` from multiple threads is undefined behaviour
+  unless the caller provides the lock.
+- VCK never holds an internal mutex across a user-visible call. Queue
+  submission is the caller's serialisation point.
+- `JobGraph` is the one exception: its worker pool is internal and
+  owns its own synchronisation; jobs queued via `AddJob` are scheduled
+  across VCK-owned threads.
+
+19. **ZERO COST FOR UNUSED FEATURES**
+- A module that has not been `Initialize`d must allocate nothing,
+  spawn no thread, emit no log line, and hold no OS handle.
+- Paying for a feature requires opting in to it by name
+  (`FrameScheduler`, `VulkanMemoryManager`, `TimelineSemaphore`,
+  `DebugTimeline`, `cfg.enableTimeline`, …).
+- `VulkanContext` + `VulkanDevice` + `VulkanSwapchain` + `VulkanSync`
+  + `VulkanCommand` is the minimum viable frame loop. Anything the
+  user does not touch stays inert.
+
+20. **EVERY PUBLIC API HAS AN EXAMPLE**
+- Every public class in `VCK.h` is exercised by at least one example
+  under `example/`.
+- New public classes (or new semantically-meaningful overloads) land
+  in the same PR as an example that uses them.
+- Examples double as executable documentation: `example/<Name>/App.cpp`
+  header block states *what is demonstrated*, *why you'd use it*, and
+  *what to look for in the console*.
+
+21. **`VCK.h` IS THE API SURFACE**
+- `VCK.h` at the repo root is the only stable include path and the
+  only place documentation lives for the public surface.
+- Layer headers under `layers/{core,expansion,execution,vmm}/` are
+  implementation detail. Their paths and contents may change in any
+  release; user code must not include them directly.
+- Breaking changes to `VCK.h` bump the minor version (0.x) until
+  v1.0.0. Additive changes (new class, new enum value, new overload)
+  are patch or minor at the maintainer's discretion.
+
+22. **VCK NEVER OWNS USER HANDLES**
+- Rule 9 guarantees a raw escape hatch. This rule completes it:
+  VCK destroys only the Vulkan handles it created.
+- Any `VkBuffer`, `VkImage`, `VkCommandBuffer`, `VkSemaphore`,
+  `VkFence`, `VkPipeline`, or other handle passed **in** to a VCK
+  function is caller-owned. Passing it confers *use* for the duration
+  of the call, never *ownership* or a destroy obligation.
+- Symmetrically, handles returned by VCK getters
+  (`GetSwapchain()`, `GetRenderPass()`, `GetCommandBuffer(i)`, …) are
+  borrows: the user must not destroy them; they die with their VCK
+  owner during the shutdown chain (rule 3).
 
 ## Status and caveats
 

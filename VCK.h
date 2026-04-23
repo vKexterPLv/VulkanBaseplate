@@ -211,10 +211,24 @@
 //  11 Deterministic frame behaviour (Pipelined/Lockstep).
 //  12 Explicit recreation events - logged + timeline span.
 //  13 Debuggability is a core feature (VCKLog + DebugTimeline).
-//  14 Fail fast, fail loud.  VK_CHECK routes to VCKLog::Error directly.
+//  14 Fail fast, fail loud.  Every failure returns an explicit bool AND
+//     logs via VCKLog::Error("<subsystem>", ...).  VK_CHECK routes non-
+//     VK_SUCCESS to VCKLog::Error regardless of cfg.debug.
 //  15 Minimal core surface - VCK stops at the pipeline.
 //  16 No engine assumptions - no scene graph, no material system.
 //  17 Frame is the unit of truth.
+//  18 External synchronisation.  VCK instances are externally synced
+//     (Vulkan spec); concurrent access from multiple threads is UB
+//     unless the caller locks.  JobGraph is the sole exception.
+//  19 Zero cost for unused features.  Un-Initialize'd modules allocate
+//     nothing, spawn no thread, emit no log line.
+//  20 Every public class in VCK.h is exercised by at least one example
+//     under example/.
+//  21 VCK.h is the API surface.  Layer headers under layers/* are
+//     implementation detail and may move.  Breaking changes to VCK.h
+//     bump the minor version (0.x) until v1.0.0.
+//  22 VCK never owns user handles.  Raw Vk* passed in is caller-owned;
+//     handles VCK returns via getters are borrows, do not destroy them.
 // =============================================================================
 
 

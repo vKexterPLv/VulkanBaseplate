@@ -76,7 +76,7 @@ That's the whole library. The rest of this wiki is deep-dive reference.
 | [Examples](Examples)                 | Walk-through of the 9 runnable examples in `example/` |
 | [Hello VCK](Hello-VCK)               | Build your first app: per-line walkthrough of `HelloExample` with a "why you might need this" note on every call |
 | [Build](Build)                       | Windows (`build.bat`) + Linux/macOS (`build.sh`): Vulkan SDK + GLFW setup |
-| [Design](Design)                     | 17 design rules, status, caveats, architecture |
+| [Design](Design)                     | 22 design rules, status, caveats, architecture |
 
 ---
 
