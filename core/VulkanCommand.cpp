@@ -15,11 +15,16 @@ namespace VCK {
     {
         m_Device = &device;
 
-        // Clamp requested count into [1, MAX_FRAMES_IN_FLIGHT].
+        // Clamp requested count into [1, MAX_FRAMES_IN_FLIGHT].  Loud so
+        // it matches VulkanSync's clamp log - rule 14 (fail fast, fail loud).
         uint32_t requested = cfg.sync.framesInFlight;
         if (requested == 0) requested = 1;
-        if (requested > MAX_FRAMES_IN_FLIGHT)
+        if (requested > MAX_FRAMES_IN_FLIGHT) {
+            LogVk("[Command] framesInFlight=" + std::to_string(requested) +
+                  " exceeds MAX_FRAMES_IN_FLIGHT=" + std::to_string(MAX_FRAMES_IN_FLIGHT) +
+                  ", clamping");
             requested = MAX_FRAMES_IN_FLIGHT;
+        }
         m_FramesInFlight = requested;
 
         // ── Command pool ──────────────────────────────────────────────────────────

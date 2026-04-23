@@ -206,10 +206,12 @@ bool HandleLiveResize(Window&               window,
     const uint32_t w = static_cast<uint32_t>(window.GetWidth());
     const uint32_t h = static_cast<uint32_t>(window.GetHeight());
 
+    LogVk("[LiveResize] triggered - " + std::to_string(w) + "x" + std::to_string(h));
     vkDeviceWaitIdle(device.GetDevice());
     if (!swapchain.Recreate(w, h))          { window.ClearResized(); return false; }
     if (!framebuffers.Recreate(pipeline))   { window.ClearResized(); return false; }
     window.ClearResized();
+    LogVk("[LiveResize] done");
     return true;
 }
 
@@ -226,11 +228,13 @@ bool HandleLiveResize(Window&               window,
     const uint32_t w = static_cast<uint32_t>(window.GetWidth());
     const uint32_t h = static_cast<uint32_t>(window.GetHeight());
 
+    LogVk("[LiveResize] triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (with depth)");
     vkDeviceWaitIdle(device.GetDevice());
     if (!swapchain.Recreate(w, h))                 { window.ClearResized(); return false; }
     if (!depth.Recreate(w, h))                     { window.ClearResized(); return false; }
     if (!framebuffers.Recreate(pipeline, depth))   { window.ClearResized(); return false; }
     window.ClearResized();
+    LogVk("[LiveResize] done (with depth)");
     return true;
 }
 

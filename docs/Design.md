@@ -34,6 +34,9 @@ the GPU are:
 - `FrameScheduler::BeginFrame` / `EndFrame` when policy dictates (per
   slot fence wait).
 - `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
+- `VulkanSwapchain::Recreate` and `VCK::HandleLiveResize`
+  — `vkDeviceWaitIdle` around swapchain/framebuffer rebuild, always
+  logged (`[LiveResize]` / `[Swapchain] Recreating`).
 - Anything you do manually.
 
 5. **Frame-scoped or persistent, nothing else.** Every GPU resource has a
@@ -125,30 +128,34 @@ Expansion / Execution / VMM / Tools layers.
   workload demands it.
 - `DebugTimeline` dumps as plain text to `LogVk`. No graphical viewer. A
   chrome://tracing exporter is easy to add later.
-- Everything targets **Windows + GLFW + MinGW-w64 g++**. Porting to Linux
-  or MSVC is a mechanical exercise.
+- Supported platforms: **Windows** (MinGW-w64 g++), **Linux**, **macOS**
+  (latter two via `VCK::Window` + `example/build.sh`, pkg-config
+  `vulkan`/`glfw3`). MSVC/cl is not wired today — mechanical port.
+
+## Done (previously on the roadmap)
+
+- **MSAA end-to-end.** `cfg.swapchain.msaaSamples > 1` now works end-to-end:
+  `VulkanSwapchain` owns the per-image multisampled `VkImage`+view,
+  `VulkanPipeline` configures the render pass with a resolve attachment,
+  `VulkanFramebufferSet` binds `[msaaView, swapchainView]`, and the
+  recreate path on resize rebuilds both. Zero-config unchanged (defaults
+  to 1x).
+- **Cross-platform facade.** `VCK::Window` + `VCKCrossplatform.{h,cpp}`
+  cover Windows/Linux/macOS; all 9 examples use it, no raw GLFW/HWND in
+  user code. `example/build.sh` mirrors `build.bat` on Linux/macOS.
+- **Live resize as a first-class feature.** `VCK::HandleLiveResize()`
+  one-call-per-frame, auto-tracks size, logs `[LiveResize]` spans.
 
 ## Roadmap
 
 Deferred features, in rough priority order:
 
-1. **MSAA end-to-end.** `cfg.swapchain.msaaSamples` is a reserved field
-   today — `VulkanPipeline` clamps `samples` to `VK_SAMPLE_COUNT_1_BIT`
-   with a `LogVk` warning. Full support needs:
-   - Render pass with a multisampled colour attachment + a single-sample
-     resolve attachment; `subpass.pResolveAttachments` pointed at it.
-   - A per-swapchain-image multisampled `VkImage` + view owned by
-     `VulkanSwapchain` (or a new helper).
-   - Framebuffers bind `[msaaView, swapchainView]` instead of
-     `[swapchainView]` alone.
-   - Recreate path on `WM_SIZE`.
-   The `Config` surface is already stable; when this lands, call sites
-   that already set `msaaSamples` will just start working.
-2. Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
+1. Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
    to use timeline primitives throughout.
-3. Real dedicated transfer / compute queues in `VulkanDevice` and
+2. Real dedicated transfer / compute queues in `VulkanDevice` and
    `QueueSet`.
-4. Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
-5. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
+3. Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
+4. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
    commands).
-6. Graphical profiler — chrome://tracing export, then a bundled viewer.
+5. Graphical profiler — chrome://tracing export, then a bundled viewer.
+6. MSVC/cl toolchain support (currently MinGW-w64 g++ only on Windows).
