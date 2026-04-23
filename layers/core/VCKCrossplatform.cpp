@@ -23,7 +23,7 @@
 
 #include "VCKCrossplatform.h"
 
-#include "core/VulkanHelpers.h"   // VCKLog
+#include "VulkanHelpers.h"   // VCKLog
 
 // GLFW_INCLUDE_VULKAN is also injected as a -D flag in build.bat so every TU
 // that eventually pulls glfw3.h (directly or transitively) sees

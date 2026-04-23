@@ -2,7 +2,7 @@
 
 // Pull in VCK_PLATFORM_* macros first so platform-guarded includes work even
 // if this file is included before VCK.h (the amalgam) has done so itself.
-#include "../VCKCrossplatform.h"
+#include "VCKCrossplatform.h"
 
 #if VCK_PLATFORM_WINDOWS
     // WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake / build.bat -

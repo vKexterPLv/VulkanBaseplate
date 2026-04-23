@@ -1,89 +1,227 @@
 // =============================================================================
 //  VCK.h  -  Vulkan Core Kit
 //
-//  Single-header amalgam of the VCK core Vulkan layer.  Include this file
-//  and you get every core class, struct, macro, and constant in one shot.
-//  VCKExpansion.h is auto-included at the bottom, so this one header is
-//  enough to use the entire kit.
+//  This header is the SINGLE SOURCE OF TRUTH for the VCK public API.
+//  Every class, free function, config knob, enum, macro and design rule
+//  that the user is expected to know about is documented here.  The .h
+//  / .cpp files under layers/ carry only a one-line "what am I" comment
+//  and link back to this file.  Long-form guides live in docs/ and the
+//  GitHub wiki; this file is deliberately the only place that tries to
+//  document the surface in depth.
+//
+//  REPOSITORY LAYOUT
+//  ─────────────────
+//  VCK.h                         (this file, main include)
+//  layers/
+//      core/                     - primitive Vulkan wrappers +
+//                                  VCK::Window cross-platform facade.
+//          VCKCrossplatform.{h,cpp}   VCK::Window, WindowCreateInfo,
+//                                      VCK_PLATFORM_* detection macros.
+//          VulkanHelpers.h            VCKLog, VK_CHECK, Config, enums.
+//          VulkanContext.{h,cpp}      VkInstance + surface (+ debug).
+//          VulkanDevice.{h,cpp}       VkDevice + queues + features.
+//          VulkanSwapchain.{h,cpp}    VkSwapchain + MSAA + AA detect.
+//          VulkanBuffer.{h,cpp}       Buffers, vertex/index/uniform.
+//          VulkanImage.{h,cpp}        2D/MSAA images + attachments.
+//          VulkanPipeline.{h,cpp}     Graphics pipeline + A2C + SRS.
+//          VulkanCommand.{h,cpp}      Command pool + primaries.
+//          VulkanSync.{h,cpp}         Per-frame semaphores + fences.
+//          VmaImpl.cpp                VMA single TU (VMA_IMPLEMENTATION).
+//      expansion/                - reusable rendering building blocks.
+//          VCKExpansion.{h,cpp}       Classes [1]-[12] + HandleLiveResize.
+//      execution/                - frame scheduling & observability.
+//          VCKExecution.{h,cpp}       Classes [13]-[22] + timeline-aware
+//                                      HandleLiveResize overloads.
+//      vmm/                      - memory manager (optional).
+//          VulkanMemoryManager.{h,cpp}
+//  vendor/
+//      vulkan_headers/vulkan/    - Vulkan SDK headers, vendored.
+//  example/
+//      deps/                     - glfw sources + vk_mem_alloc.h for the
+//                                  examples build only.  Do not pull these
+//                                  into layers/ - the examples own them.
+//      build.bat / build.sh      - Windows / Linux+macOS build scripts.
+//      <9 example dirs>          - see example/README.md or docs/Examples.md.
+//  docs/                         - design, build, examples, API reference.
+//  .github/workflows/build.yml   - CI (Windows runner, build.bat [A]).
 //
 //  LAYERING
 //  ────────
-//      VCK core      (this file)           - instance, device, swapchain, ...
+//      layers/core/       instance, device, swapchain, pipeline, sync.
 //          ↓
-//      VCK expansion (VCKExpansion.h)      - textures, meshes, descriptors, ...
+//      layers/expansion/  textures, meshes, descriptors, framebuffers,
+//                         HandleLiveResize (base + depth).
 //          ↓
-//      VCK memory    (VMM/VulkanMemoryManager.h, optional)
+//      layers/execution/  FrameScheduler, JobGraph, DebugTimeline,
+//                         timeline-aware HandleLiveResize.
 //          ↓
-//      Your renderer / game / tool
+//      layers/vmm/        (optional) allocator policies + lifetime tags.
+//          ↓
+//      your renderer / game / tool
 //
-//  SOURCE FILES ASSEMBLED (core/)
-//  ──────────────────────────────
-//  Headers   (.h)  : VulkanHelpers   VulkanContext   VulkanDevice
-//                    VulkanSwapchain  VulkanBuffer   VulkanImage
-//                    VulkanPipeline   VulkanCommand  VulkanSync
-//
-//  Implementations (.cpp) - function index at the bottom of this file:
-//                    VmaImpl         VulkanContext   VulkanDevice
-//                    VulkanSwapchain VulkanBuffer    VulkanImage
-//                    VulkanPipeline  VulkanCommand   VulkanSync
-//
-//  Cross-platform surface (repo root, auto-included):
-//                    VCKCrossplatform.{h,cpp}  - VCK::Window facade
-//                                                (Windows/Linux/macOS)
+//  Each layer only depends on the layers above it.  Expansion never
+//  references execution.  Core never references expansion.
 //
 //  INIT / SHUTDOWN ORDER
 //  ─────────────────────
-//  Init:      Context → Device → Swapchain → Pipeline → Command → Sync
+//  Init:      Window → Context → Device → Swapchain → Pipeline
+//             → Command → Sync → (expansion resources) → (frame loop)
 //  Shutdown:  Sync → Command → Pipeline → Swapchain → Device → Context
-//
-//  Expansion objects (VCKExpansion.h) and VMM resources must be shut down
-//  BEFORE the core objects they reference.
-//
-//  ONE-HOUR QUICK START
-//  ────────────────────
-//    1.  Create a window via the cross-platform facade:
-//            VCK::Window window;
-//            VCK::WindowCreateInfo wci;
-//            wci.width = 1280; wci.height = 720; wci.title = "Demo";
-//            wci.resizable = true;
-//            window.Create(wci);
-//    2.  Build a VCK::Config if you want non-default knobs (optional):
-//            VCK::Config cfg;
-//            cfg.swapchain.presentMode = VCK::PresentMode::Mailbox;
-//            cfg.sync.framesInFlight   = 3;
-//    3.  Run the init chain with either zero-arg or Config overloads:
-//            ctx .Initialize(window, cfg);
-//            dev .Initialize(ctx,    cfg);
-//            sc  .Initialize(dev, ctx, window.GetWidth(), window.GetHeight(), cfg);
-//            pipe.Initialize(dev, sc, shaders, vertexInput);
-//            cmd .Initialize(dev, cfg);
-//            sync.Initialize(dev, cfg);
-//    4.  Drive the frame loop yourself (see RGBTriangle) OR hand off to
-//        VCK::FrameScheduler (see HelloExample).  Call
-//        VCK::HandleLiveResize(window, dev, sc, fb, pipe) once per frame
-//        to pick up OS resize events automatically.
-//    5.  Shut down in reverse order; finish with window.Destroy().
-//
-//  Every Initialize(...) has a zero-arg form - if you pass no Config you get
-//  exactly the same behaviour as before Config existed.  The library never
-//  owns things it did not construct, never hides Vk handles, and every
-//  "preferred" overload is implemented as a one-line forward to the raw-handle
-//  form - so you can always drop down to manual Vulkan for anything VCK is
-//  not doing for you.
+//             (expansion resources and VMM allocations must be destroyed
+//             BEFORE the core object they reference)
 //
 //  NAMESPACE
 //  ─────────
-//  Everything (core + expansion) lives in:  namespace VCK { ... }
-//  LogVk / VK_CHECK are deliberately at global scope so every TU can use
-//  them without a `using` declaration.
+//  Everything VCK exposes lives in:  namespace VCK { ... }
+//  LogVk and VK_CHECK are deliberately at global scope so every TU can
+//  use them without a `using` declaration.
+//
+//  ONE-HOUR QUICK START (HELLO VCK)
+//  ────────────────────────────────
+//    #include "VCK.h"
+//
+//    int main() {
+//      // 1. Window (GLFW under the hood; one-shot platform init inside).
+//      VCK::Window window;
+//      VCK::WindowCreateInfo wci;
+//      wci.width = 1280; wci.height = 720; wci.title = "Hello VCK";
+//      wci.resizable = true;
+//      window.Create(wci);
+//
+//      // 2. Optional non-default knobs.  Leave for defaults to get:
+//      //    AATechnique::Auto (first-run 5-step detect),
+//      //    Mailbox→FIFO present, framesInFlight=2, debug=false.
+//      VCK::Config cfg;
+//      cfg.swapchain.presentMode = VCK::PresentMode::Mailbox;
+//      cfg.sync.framesInFlight   = 3;
+//      // cfg.debug = true;   // VCKLog Info lines only surface when true.
+//
+//      // 3. Init chain in order.  Every step has a zero-Config overload.
+//      VCK::VulkanContext   ctx;  ctx .Initialize(window, cfg);
+//      VCK::VulkanDevice    dev;  dev .Initialize(ctx,    cfg);
+//      VCK::VulkanSwapchain sc;   sc  .Initialize(dev, ctx,
+//                                              window.GetWidth(),
+//                                              window.GetHeight(), cfg);
+//      VCK::VulkanPipeline  pipe; pipe.Initialize(dev, sc, shaders, vi);
+//      VCK::VulkanCommand   cmd;  cmd .Initialize(dev, cfg);
+//      VCK::VulkanSync      sync; sync.Initialize(dev, cfg);
+//      VCK::VulkanFramebufferSet fb; fb.Initialize(dev, sc, pipe);
+//
+//      // 4. Per-frame loop.  Drive it yourself, or hand off to
+//      //    VCK::FrameScheduler for automatic pipelining.
+//      while (!window.ShouldClose()) {
+//        window.PollEvents();
+//        if (window.IsMinimized()) { window.WaitEvents(); continue; }
+//        VCK::HandleLiveResize(window, dev, sc, fb, pipe);
+//        // ... record commands + submit + present ...
+//      }
+//
+//      // 5. Reverse teardown.  Expansion/VMM first, then core, then window.
+//      fb.Shutdown(); sync.Shutdown(); cmd.Shutdown();
+//      pipe.Shutdown(); sc.Shutdown(); dev.Shutdown(); ctx.Shutdown();
+//      window.Destroy();
+//    }
+//
+//  See example/HelloExample for the full compilable version, and the
+//  wiki page "Build your first app" for a per-line walkthrough of why
+//  each call exists.
+//
+//  CLASS / FREE-FUNCTION INDEX
+//  ───────────────────────────
+//  layers/core/
+//    VCK::Window                    cross-platform window + input.
+//    VCK::VulkanContext             VkInstance + debug + surface.
+//    VCK::VulkanDevice              VkPhysicalDevice + VkDevice.
+//    VCK::VulkanSwapchain           VkSwapchainKHR + MSAA resolve +
+//                                    GetAATechnique() / GetAACfg().
+//    VCK::VulkanBuffer              generic VkBuffer wrapper.
+//    VCK::VulkanImage               2D / MSAA image + view.
+//    VCK::VulkanPipeline            VkPipeline + A2C + SampleRateShading.
+//    VCK::VulkanCommand             command pool + frame primaries.
+//    VCK::VulkanSync                image-available / render-finished /
+//                                    in-flight fences, per frame.
+//    VCK::VCKLog                    Info / Notice / Warn / Error with
+//                                    dedup + SetDebug(bool).
+//    VCK::DetectRecommendedAA(...)  5-step AA decision tree (tier →
+//                                    forward → motion vectors → pick).
+//    VCK::AATechnique { Auto, Off, MSAA, MSAA_A2C, SampleRate,
+//                       FXAA, SMAA_1x, SMAA_T2x, TAA, TAAU };
+//  layers/expansion/
+//    [1]  VulkanOneTimeCommand       scoped single-submit command buffer.
+//    [2]  VulkanFramebufferSet       one framebuffer per swapchain image.
+//    [3]  VulkanDepthBuffer          depth attachment + format pick.
+//    [4]  VulkanSampler              VkSampler wrapper + defaults.
+//    [5]  VulkanTexture              sampled 2D image + staging upload.
+//    [6]  VulkanMesh                 vertex + index buffer bundle.
+//    [7]  VulkanDescriptorLayoutBuilder
+//    [8]  VulkanDescriptorPool
+//    [9]  VulkanUniformSet<T>        per-frame uniform buffer slots.
+//    [10] VulkanDescriptorAllocator  allocator around 7/8/9.
+//    [11] VulkanModelPipeline        pipeline preset for textured model.
+//    [12] VulkanMipmapGenerator      runtime mipmap blit utility.
+//    HandleLiveResize(window, dev, sc, fb, pipe)           base overload.
+//    HandleLiveResize(window, dev, sc, fb, pipe, depth)    + depth buffer.
+//  layers/execution/
+//    [13] FramePolicy / FrameConfig  Pipelined | Lockstep | AsyncMax.
+//    [14] TimelineSemaphore          VK_KHR_timeline_semaphore wrapper.
+//    [15] DependencyToken            cross-frame GPU dependency.
+//    [16] QueueSet                   graphics + async compute + transfer.
+//    [17] GpuSubmissionBatcher       coalesce vkQueueSubmit calls.
+//    [18] BackpressureGovernor       cap frames-in-flight under stress.
+//    [19] JobGraph                   DAG scheduler for frame sub-tasks.
+//    [20] DebugTimeline              observable span log with Dump().
+//    [21] Frame                      per-frame handle: cmd + semaphores.
+//    [22] FrameScheduler             the whole loop as one object.
+//    HandleLiveResize(window, dev, sc, fb, pipe, timeline)
+//    HandleLiveResize(window, dev, sc, fb, pipe, depth, timeline)
+//  layers/vmm/ (optional)
+//    VmmRawAlloc / VmmRegistry / VulkanMemoryManager - see its header.
+//
+//  CONFIG KNOBS (VCK::Config)
+//  ──────────────────────────
+//  debug                           surfaces VCKLog Info lines when true.
+//  context.{appName, validation}   instance-layer config.
+//  swapchain.{presentMode,         mailbox/fifo/immediate, 1/2/4/8 or
+//             msaaSamples,         MSAA_AUTO sentinel (pick from device).
+//             preferredSurfaceFmt}
+//  sync.{framesInFlight}           clamped to [1, MAX_FRAMES_IN_FLIGHT].
+//  aa.{technique, alphaToCoverage, technique=Auto runs detector once;
+//      sampleRateShading,          user inputs forwardRenderer + motion
+//      minSampleShading,           vectors so VCK can pick an AA name.
+//      forwardRenderer,
+//      supportsMotionVectors}
+//  pipeline.{alphaToCoverage,      both fed by aa.* if Auto picks MSAA.
+//            sampleRateShading}
+//
+//  DESIGN RULES (SHORT FORM, see docs/Design.md for full text)
+//  ───────────────────────────────────────────────────────────
+//   1 Explicit > magic.     Init/Shutdown pairs, no singletons.
+//   2 No ownership leaks.   Expansion/execution borrow core by pointer.
+//   3 Strict lifecycle order (see INIT / SHUTDOWN ORDER above).
+//   4 No hidden sync - except vkDeviceWaitIdle in Swapchain::Recreate
+//     and HandleLiveResize (both user-triggered, both logged).
+//   5 Frame-scoped or persistent; no orphan allocations.
+//   6 No hidden behaviour.  Every non-trivial decision is logged.
+//   7 User owns the frame, opt in to FrameScheduler.
+//   8 Explicit synchronisation model.
+//   9 Escape hatch: every class exposes its raw Vk* handle.
+//  10 Zero hidden GPU state.  VCKLog dedup is a logger convention.
+//  11 Deterministic frame behaviour (Pipelined/Lockstep).
+//  12 Explicit recreation events - logged + timeline span.
+//  13 Debuggability is a core feature (VCKLog + DebugTimeline).
+//  14 Fail fast, fail loud.  VK_CHECK routes to VCKLog::Error directly.
+//  15 Minimal core surface - VCK stops at the pipeline.
+//  16 No engine assumptions - no scene graph, no material system.
+//  17 Frame is the unit of truth.
 // =============================================================================
+
 
 #pragma once
 
 // ─── System / Vulkan prerequisites ───────────────────────────────────────────
 // Platform detection lives in VCKCrossplatform.h - include it first so
 // the VCK_PLATFORM_* macros are defined before we use them below.
-#include "VCKCrossplatform.h"
+#include "layers/core/VCKCrossplatform.h"
 
 #if VCK_PLATFORM_WINDOWS
     // WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake / build.bat -
@@ -98,7 +236,7 @@
 #endif
 
 #include "vk_mem_alloc.h"
-#include "core/VulkanHelpers.h"   // LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
+#include "layers/core/VulkanHelpers.h"   // VCKLog/LogVk, VK_CHECK, VCK::Config, PresentMode, QueuePreference, MAX_FRAMES_IN_FLIGHT
 
 #include <cstdio>
 #include <string>
@@ -141,15 +279,16 @@
 // still include only "VCK.h" (or "VCKExpansion.h") - the amalgam pulls in the
 // whole core API.  Internal .cpp files can keep including individual headers.
 
-#include "core/VulkanContext.h"
-#include "core/VulkanDevice.h"
-#include "core/VulkanSwapchain.h"
-#include "core/VulkanBuffer.h"
-#include "core/VulkanImage.h"
-#include "core/VulkanPipeline.h"
-#include "core/VulkanSync.h"
-#include "core/VulkanCommand.h"
-#include "VCKCrossplatform.h"   // VCK::Window + platform detection (Windows / Linux / macOS)
+#include "layers/core/VulkanContext.h"
+#include "layers/core/VulkanDevice.h"
+#include "layers/core/VulkanSwapchain.h"
+#include "layers/core/VulkanBuffer.h"
+#include "layers/core/VulkanImage.h"
+#include "layers/core/VulkanPipeline.h"
+#include "layers/core/VulkanSync.h"
+#include "layers/core/VulkanCommand.h"
+// VCKCrossplatform.h (VCK::Window + VCK_PLATFORM_*) is included at the top of
+// this file before any platform conditionals - see line ~90.
 
 
 
@@ -849,7 +988,8 @@
 */
 
 
-#include "VCKExpansion.h"
+#include "layers/expansion/VCKExpansion.h"
+#include "layers/execution/VCKExecution.h"
 
 // =============================================================================
 //  END OF VCK.h

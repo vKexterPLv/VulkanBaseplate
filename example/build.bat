@@ -77,9 +77,9 @@ if not exist "deps\glfw\include\GLFW\glfw3.h" (
 :: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
 :: user code includes <GLFW/glfw3.h> before "VCK.h" / "VCKCrossplatform.h".
 set DEFINES=-DGLFW_INCLUDE_VULKAN
-set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\core -I"%VULKAN_SDK%\Include" %DEFINES%
+set INCLUDES=-Ideps -Ideps\glfw\include -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
-set VKB=..\core\VmaImpl.cpp ..\core\VulkanBuffer.cpp ..\core\VulkanCommand.cpp ..\core\VulkanContext.cpp ..\core\VulkanDevice.cpp ..\core\VulkanImage.cpp ..\core\VulkanPipeline.cpp ..\core\VulkanSwapchain.cpp ..\core\VulkanSync.cpp ..\VCKExpansion.cpp ..\VCKCrossplatform.cpp
+set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp
 
 :: ── Banner + menu ------------------------------------------------------------
 call :BANNER
@@ -268,7 +268,7 @@ exit /b 0
 
 :COMPILE_CPP_WITH_VMM
 echo   %C_DIM%g++      %EX%.exe  (+VMM)%C_RESET%
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\VMM\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
+g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\layers\vmm\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
 if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
 echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
 exit /b 0

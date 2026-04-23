@@ -97,17 +97,17 @@ DEFINES="-DGLFW_INCLUDE_VULKAN $VCK_MACRO"
 
 # macOS: Cocoa/IOKit/QuartzCore are required by GLFW; MoltenVK ships as dylib
 # so we just rely on pkg-config's -lvulkan.
-INCLUDES="-Ideps -I.. -I../core $PKG_CFLAGS $DEFINES"
+INCLUDES="-Ideps -I.. -I../layers/core -I../layers/expansion -I../layers/execution -I../vendor/vulkan_headers $PKG_CFLAGS $DEFINES"
 LIBS="$PKG_LIBS -lpthread -ldl"
 
 if [ "$VCK_OS" = "macos" ]; then
     LIBS="$PKG_LIBS -framework Cocoa -framework IOKit -framework QuartzCore"
 fi
 
-VKB="../core/VmaImpl.cpp ../core/VulkanBuffer.cpp ../core/VulkanCommand.cpp \
-../core/VulkanContext.cpp ../core/VulkanDevice.cpp ../core/VulkanImage.cpp \
-../core/VulkanPipeline.cpp ../core/VulkanSwapchain.cpp ../core/VulkanSync.cpp \
-../VCKExpansion.cpp ../VCKCrossplatform.cpp"
+VKB="../layers/core/VmaImpl.cpp ../layers/core/VulkanBuffer.cpp ../layers/core/VulkanCommand.cpp \
+../layers/core/VulkanContext.cpp ../layers/core/VulkanDevice.cpp ../layers/core/VulkanImage.cpp \
+../layers/core/VulkanPipeline.cpp ../layers/core/VulkanSwapchain.cpp ../layers/core/VulkanSync.cpp \
+../layers/core/VCKCrossplatform.cpp ../layers/expansion/VCKExpansion.cpp ../layers/execution/VCKExecution.cpp"
 
 # ── Build primitives ---------------------------------------------------------
 compile_shaders() {
@@ -149,7 +149,7 @@ build_one() {
         1) ex=RGBTriangle                stem=triangle                 ;;
         2) ex=MipmapExample              stem=mip                      ;;
         3) ex=VMMExample                 stem=vmm
-           extra="../VMM/VulkanMemoryManager.cpp"                       ;;
+           extra="../layers/vmm/VulkanMemoryManager.cpp"                 ;;
         4) ex=HelloExample               stem=hello                    ;;
         5) ex=JobGraphExample            stem=JobGraphExample          ;;
         6) ex=SchedulerPolicyExample     stem=SchedulerPolicyExample   ;;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../VCKCrossplatform.h"   // VCK_PLATFORM_* + VCK::Window
+#include "VCKCrossplatform.h"   // VCK_PLATFORM_* + VCK::Window
 
 #if VCK_PLATFORM_WINDOWS
     // WIN32_LEAN_AND_MEAN and NOMINMAX are defined by premake - do NOT redefine here.
