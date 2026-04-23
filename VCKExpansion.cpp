@@ -193,6 +193,11 @@ void VulkanFramebufferSet::DestroyAll()
 // =============================================================================
 //  HandleLiveResize  -  free function; lives here so the swapchain /
 //  framebuffer / pipeline / (optional) depth references are all in scope.
+//
+//  Uses VCKLog::Notice so the resize trigger / completion lines always show
+//  up (rule 6 + 12 - explicit, observable recreation events) without
+//  requiring cfg.debug.  The DebugTimeline overloads additionally emit a
+//  "HandleLiveResize" CPU span so a recorded timeline attributes the pause.
 // =============================================================================
 bool HandleLiveResize(Window&               window,
                       VulkanDevice&         device,
@@ -206,12 +211,13 @@ bool HandleLiveResize(Window&               window,
     const uint32_t w = static_cast<uint32_t>(window.GetWidth());
     const uint32_t h = static_cast<uint32_t>(window.GetHeight());
 
-    LogVk("[LiveResize] triggered - " + std::to_string(w) + "x" + std::to_string(h));
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h));
     vkDeviceWaitIdle(device.GetDevice());
     if (!swapchain.Recreate(w, h))          { window.ClearResized(); return false; }
     if (!framebuffers.Recreate(pipeline))   { window.ClearResized(); return false; }
     window.ClearResized();
-    LogVk("[LiveResize] done");
+    VCKLog::Notice("LiveResize", "done");
     return true;
 }
 
@@ -228,14 +234,48 @@ bool HandleLiveResize(Window&               window,
     const uint32_t w = static_cast<uint32_t>(window.GetWidth());
     const uint32_t h = static_cast<uint32_t>(window.GetHeight());
 
-    LogVk("[LiveResize] triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (with depth)");
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (with depth)");
     vkDeviceWaitIdle(device.GetDevice());
     if (!swapchain.Recreate(w, h))                 { window.ClearResized(); return false; }
     if (!depth.Recreate(w, h))                     { window.ClearResized(); return false; }
     if (!framebuffers.Recreate(pipeline, depth))   { window.ClearResized(); return false; }
     window.ClearResized();
-    LogVk("[LiveResize] done (with depth)");
+    VCKLog::Notice("LiveResize", "done (with depth)");
     return true;
+}
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      DebugTimeline&        timeline,
+                      uint64_t              frame)
+{
+    if (!window.WasResized() || window.IsMinimized()) return false;
+
+    if (timeline.Enabled()) timeline.BeginCpuSpan("HandleLiveResize", frame);
+    const bool ok = HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
+    if (timeline.Enabled()) timeline.EndCpuSpan("HandleLiveResize", frame);
+    return ok;
+}
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      DebugTimeline&        timeline,
+                      uint64_t              frame)
+{
+    if (!window.WasResized() || window.IsMinimized()) return false;
+
+    if (timeline.Enabled()) timeline.BeginCpuSpan("HandleLiveResize", frame);
+    const bool ok = HandleLiveResize(window, device, swapchain, framebuffers, pipeline, depth);
+    if (timeline.Enabled()) timeline.EndCpuSpan("HandleLiveResize", frame);
+    return ok;
 }
 
 

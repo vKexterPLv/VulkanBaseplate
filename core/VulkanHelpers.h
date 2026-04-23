@@ -175,8 +175,30 @@ namespace VCKLog = VCK::Log;
 // Backwards-compatible one-arg form.  Parses a leading '[Tag] body' so legacy
 // call sites like LogVk("[Swapchain] Initializing...") render cleanly as
 // '[VCK] [Swapchain] Initializing...' without having to touch every line.
-// Level = Info (debug-gated); migrate high-signal user-facing lines to
+//
+// Level routing: error-like tags (FAILED / ERROR / ERR) escalate to Error,
+// warning-like tags (WARN / WARNING) escalate to Warn - both always visible
+// regardless of cfg.debug (rule 14 - fail loud).  Everything else stays at
+// Info (debug-gated) - migrate high-signal user-facing lines to
 // VCKLog::Notice(tag, body) explicitly.
+inline Level ClassifyLegacyTag(const char* tag) {
+    auto iequals = [](const char* a, const char* b) {
+        while (*a && *b) {
+            char ca = *a, cb = *b;
+            if (ca >= 'a' && ca <= 'z') ca = char(ca - 'a' + 'A');
+            if (cb >= 'a' && cb <= 'z') cb = char(cb - 'a' + 'A');
+            if (ca != cb) return false;
+            ++a; ++b;
+        }
+        return *a == 0 && *b == 0;
+    };
+    if (iequals(tag, "FAILED") || iequals(tag, "ERROR") || iequals(tag, "ERR"))
+        return Level::Error;
+    if (iequals(tag, "WARN") || iequals(tag, "WARNING"))
+        return Level::Warn;
+    return Level::Info;
+}
+
 inline void LogVk(const std::string& message) {
     if (!message.empty() && message.front() == '[') {
         const std::size_t end = message.find(']');
@@ -188,7 +210,9 @@ inline void LogVk(const std::string& message) {
             // through the single synchronous Emit call.
             static thread_local std::string tagBuf;
             tagBuf.assign(message, 1, end - 1);
-            VCK::Log::Info(tagBuf.c_str(), message.substr(end + 2));
+            VCK::Log::Emit(ClassifyLegacyTag(tagBuf.c_str()),
+                           tagBuf.c_str(),
+                           message.substr(end + 2));
             return;
         }
     }
@@ -196,7 +220,7 @@ inline void LogVk(const std::string& message) {
 }
 
 inline void LogVk(const char* tag, const std::string& message) {
-    VCK::Log::Info(tag, message);
+    VCK::Log::Emit(ClassifyLegacyTag(tag), tag, message);
 }
 
 // -----------------------------------------------------------------------------
@@ -204,6 +228,9 @@ inline void LogVk(const char* tag, const std::string& message) {
 //
 //  Pass a single VkResult expression.  Stringifies the call for the error log.
 //  Returns bool - true on VK_SUCCESS, false otherwise.
+//
+//  Failures route through VCKLog::Error directly (rule 14 - fail loud) so
+//  they are always visible regardless of cfg.debug.
 //
 //  Usage:
 //    if (!VK_CHECK(vkCreateFoo(...))) return false;
@@ -213,7 +240,8 @@ inline void LogVk(const char* tag, const std::string& message) {
       ([&]() -> bool {                                                            \
           VkResult _vk_r = (expr);                                                \
           if (_vk_r != VK_SUCCESS) {                                              \
-              LogVk(std::string("[FAILED] " #expr " -> ")                         \
+              VCK::Log::Error("VK_CHECK",                                         \
+                  std::string(#expr " -> ")                                       \
                     + std::to_string(static_cast<int>(_vk_r)));                   \
               return false;                                                       \
           }                                                                       \

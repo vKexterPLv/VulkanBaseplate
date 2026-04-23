@@ -36,7 +36,9 @@ the GPU are:
 - `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
 - `VulkanSwapchain::Recreate` and `VCK::HandleLiveResize`
   — `vkDeviceWaitIdle` around swapchain/framebuffer rebuild, always
-  logged (`[LiveResize]` / `[Swapchain] Recreating`).
+  logged via `VCKLog::Notice("LiveResize", ...)` and
+  `VCKLog::Notice("Swapchain", "Recreating ...")`; the `DebugTimeline`
+  overload of `HandleLiveResize` also emits a CPU span.
 - Anything you do manually.
 
 5. **Frame-scoped or persistent, nothing else.** Every GPU resource has a
@@ -66,6 +68,13 @@ clear lifetime tag (VMM) or is owned by a class that does.
 - No global GPU state tracking.
 - No singleton device/context managers.
 - All state is passed explicitly or owned by user-visible objects.
+- **Caveat:** `VCKLog` intentionally keeps a small amount of
+  process-global state for debug gating (`SetDebug` / `IsDebug`) and
+  consecutive-line dedup (last key + repeat count). This is logger
+  convention, not GPU state — it does not track resources, device
+  handles, or anything that would violate the spirit of the rule. It
+  is not thread-safe in the racy-reads sense (last-writer-wins on the
+  dedup counter); log output is advisory, not a source of truth.
 
 11. **DETERMINISTIC FRAME BEHAVIOR**
 - Same inputs → same submission order and execution graph.

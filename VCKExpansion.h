@@ -188,6 +188,7 @@ private:
 //  The overload taking a VulkanDepthBuffer also rebuilds the depth image.
 // =============================================================================
 class Window;                         // forward decl (defined in VCKCrossplatform.h)
+class DebugTimeline;                  // forward decl (defined later in this header)
 
 bool HandleLiveResize(Window&               window,
                       VulkanDevice&         device,
@@ -201,6 +202,27 @@ bool HandleLiveResize(Window&               window,
                       VulkanFramebufferSet& framebuffers,
                       VulkanPipeline&       pipeline,
                       VulkanDepthBuffer&    depth);
+
+// DebugTimeline-observable variants (rule 12 - explicit recreation events).
+// Pass the scheduler's Timeline() so the resize shows up as a CPU span in
+// DebugTimeline::Dump().  `frame` is typically scheduler.AbsoluteFrame() at
+// the call site.  When timeline.Enabled() == false all span calls are no-ops.
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      DebugTimeline&        timeline,
+                      uint64_t              frame);
+
+bool HandleLiveResize(Window&               window,
+                      VulkanDevice&         device,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      DebugTimeline&        timeline,
+                      uint64_t              frame);
 
 
 // =============================================================================
