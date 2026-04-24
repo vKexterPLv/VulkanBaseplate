@@ -578,6 +578,18 @@ public:
     void   DispatchJobs();
     void   EndFrame();
 
+    // v0.3: wait for every slot's most-recent submit to retire without
+    // touching the graphics queue globally.  Replaces vkDeviceWaitIdle on
+    // the swapchain-recreate / resize path: only the scheduler's own
+    // in-flight work is waited on, so concurrent work on dedicated
+    // compute / transfer queues keeps making progress.  Uses the timeline
+    // semaphore when active, the per-slot binary fences otherwise.  No-op
+    // outside of a frame range (i.e., before the first EndFrame).
+    //
+    // Safe to call between frames (not while InFrame()==true).  Does not
+    // advance m_Absolute or CurrentSlot().
+    void   DrainInFlight();
+
     // Accessors.
     uint64_t              AbsoluteFrame()      const { return m_Absolute; }
     uint32_t              CurrentSlot()        const;
@@ -672,5 +684,27 @@ bool HandleLiveResize(Window&               window,
                       VulkanDepthBuffer&    depth,
                       DebugTimeline&        timeline,
                       uint64_t              frame);
+
+// v0.3: scheduler-aware live-resize.  Instead of vkDeviceWaitIdle, waits
+// only on the scheduler's per-slot in-flight work (timeline or fence),
+// leaving independent compute / transfer work on dedicated queues alone.
+// Uses scheduler.Timeline() for the DebugTimeline span and reads the
+// frame counter from scheduler.AbsoluteFrame().
+//
+// Drop-in replacement for the legacy vkDeviceWaitIdle-based overloads
+// when a FrameScheduler drives the frame loop (which is the recommended
+// v0.3 path - direct VulkanSync users can stay on the legacy overloads).
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      FrameScheduler&       scheduler);
+
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      FrameScheduler&       scheduler);
 
 } // namespace VCK

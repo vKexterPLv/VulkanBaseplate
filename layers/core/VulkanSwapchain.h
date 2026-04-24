@@ -46,8 +46,14 @@ namespace VCK {
 
         void Shutdown();
 
-        // Call from WM_SIZE handler (after vkDeviceWaitIdle)
-        bool Recreate(uint32_t width, uint32_t height);
+        // Call from WM_SIZE handler.  By default the swapchain internally
+        // issues vkDeviceWaitIdle before touching its resources; pass
+        // drainedExternally=true when the caller already waited for all
+        // in-flight work to retire (e.g. via FrameScheduler::DrainInFlight)
+        // so the redundant device-wide wait is skipped.  Rule 4: runtime
+        // vkDeviceWaitIdle is only permitted via this internal fallback;
+        // the scheduler-aware HandleLiveResize path sets the flag.
+        bool Recreate(uint32_t width, uint32_t height, bool drainedExternally = false);
 
         // ── Accessors ────────────────────────────────────────────────────────────
         VkSwapchainKHR                    GetSwapchain()    const { return m_Swapchain; }

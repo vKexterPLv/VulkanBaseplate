@@ -269,6 +269,78 @@ bool HandleLiveResize(Window&               window,
     return true;
 }
 
+// ---- v0.3: scheduler-aware overloads ---------------------------------------
+//
+// When a FrameScheduler owns the frame loop, use its DrainInFlight() to
+// wait only on the scheduler's submitted work instead of vkDeviceWaitIdle.
+// Independent work on dedicated compute / transfer queues (VMM uploads,
+// AsyncComputeExample dispatches) keeps progressing during the resize.
+// Rule 4: this replaces the last runtime vkDeviceWaitIdle on the hot path
+// - Shutdown still uses it (allow-list entry).
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      FrameScheduler&       scheduler)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (scheduler drain)");
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().BeginCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    scheduler.DrainInFlight();
+    const bool ok_sc  = swapchain.Recreate(w, h, /*drainedExternally=*/true);
+    const bool ok_fb  = ok_sc && framebuffers.Recreate(pipeline);
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().EndCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    window.ClearResized();
+    if (!ok_sc || !ok_fb) return false;
+    VCKLog::Notice("LiveResize", "done (scheduler drain)");
+    return true;
+}
+
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      FrameScheduler&       scheduler)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (scheduler drain, with depth)");
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().BeginCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    scheduler.DrainInFlight();
+    const bool ok_sc  = swapchain.Recreate(w, h, /*drainedExternally=*/true);
+    const bool ok_dp  = ok_sc && depth.Recreate(w, h);
+    const bool ok_fb  = ok_dp && framebuffers.Recreate(pipeline, depth);
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().EndCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    window.ClearResized();
+    if (!ok_sc || !ok_dp || !ok_fb) return false;
+    VCKLog::Notice("LiveResize", "done (scheduler drain, with depth)");
+    return true;
+}
+
 
 // =============================================================================
 //  [3] VulkanDepthBuffer

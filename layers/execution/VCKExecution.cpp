@@ -881,6 +881,43 @@ DependencyToken FrameScheduler::SlotToken(uint32_t slot)
     return t;
 }
 
+void FrameScheduler::DrainInFlight()
+{
+    if (m_Device == nullptr) return;
+
+    // Timeline path: wait on the largest value we've ever scheduled.
+    // Covers every slot in one call (timeline values are monotonic and
+    // EndFrame assigns them in submission order, so waiting on the max
+    // implies waiting on all slots' most recent submits).
+    if (TimelineActive())
+    {
+        uint64_t maxVal = 0;
+        for (uint32_t i = 0; i < m_FramesInFlight; ++i)
+        {
+            if (m_SlotTimelineValue[i] > maxVal) maxVal = m_SlotTimelineValue[i];
+        }
+        if (maxVal != 0)
+        {
+            m_FrameTimeline.Wait(maxVal);
+            m_Governor.NoteGpuFrameRetired(m_Absolute);
+        }
+        return;
+    }
+
+    // Fence path: wait on every slot that has actually submitted work.
+    // Resetting afterwards is NOT required - BeginFrame's
+    // WaitInFlightFence will reset the slot's fence on its next pass.
+    if (m_Sync == nullptr) return;
+    for (uint32_t i = 0; i < m_FramesInFlight; ++i)
+    {
+        if (m_SlotAbsolute[i] == 0) continue;
+        VkFence f = m_Sync->GetInFlightFence(i);
+        if (f == VK_NULL_HANDLE) continue;
+        VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &f, VK_TRUE, UINT64_MAX));
+        m_Governor.NoteGpuFrameRetired(m_SlotAbsolute[i]);
+    }
+}
+
 uint32_t FrameScheduler::CurrentSlot() const
 {
     return m_Sync != nullptr ? m_Sync->GetCurrentFrameIndex() : 0u;

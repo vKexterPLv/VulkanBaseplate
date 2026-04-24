@@ -120,7 +120,7 @@ namespace VCK {
         m_Surface = VK_NULL_HANDLE;
     }
 
-    bool VulkanSwapchain::Recreate(uint32_t width, uint32_t height)
+    bool VulkanSwapchain::Recreate(uint32_t width, uint32_t height, bool drainedExternally)
     {
         // Ignore degenerate sizes (minimized window)
         if (width == 0 || height == 0)
@@ -130,7 +130,9 @@ namespace VCK {
             std::to_string(width) + "x" + std::to_string(height) + ")");
 
         // Wait for all in-flight work to complete before touching the swapchain
-        vkDeviceWaitIdle(m_Device->GetDevice());
+        // unless the caller has already drained (scheduler-aware path).
+        if (!drainedExternally)
+            vkDeviceWaitIdle(m_Device->GetDevice());
 
         DestroySwapchainResources();
 
