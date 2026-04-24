@@ -71,7 +71,9 @@ namespace VCK {
             vkDestroyDevice(m_LogicalDevice, nullptr);
             m_LogicalDevice = VK_NULL_HANDLE;
             m_GraphicsQueue = VK_NULL_HANDLE;
-            m_PresentQueue = VK_NULL_HANDLE;
+            m_PresentQueue  = VK_NULL_HANDLE;
+            m_ComputeQueue  = VK_NULL_HANDLE;
+            m_TransferQueue = VK_NULL_HANDLE;
             VCKLog::Info("Device", "Logical device destroyed");
         }
 
