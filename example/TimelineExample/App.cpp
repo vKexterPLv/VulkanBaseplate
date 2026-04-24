@@ -185,7 +185,7 @@ namespace VCK::TimelineExample {
         }
         else
         {
-            VCKLog::Notice("TimelineExample", std::string("TimelineSemaphore unavailable - ")
+            VCKLog::Notice("TimelineExample", "TimelineSemaphore unavailable - "
                   "enable the timelineSemaphore device feature to exercise this path.");
         }
     }
