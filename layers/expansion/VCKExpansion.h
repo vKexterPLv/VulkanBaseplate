@@ -694,5 +694,139 @@ public:
 
 
 // =============================================================================
+// [23] VertexLayout
+//
+//  Named vertex-input builder.  Turns a sequence of Add("name", type) calls
+//  into the two VkVertex* structs `VulkanModelPipeline::Initialize` expects.
+//  Location indices are assigned in insertion order starting from 0.  See
+//  VCK.h for the canonical docs.
+// =============================================================================
+enum class VertexAttrType : uint8_t
+{
+    Float,
+    Vec2,
+    Vec3,
+    Vec4,
+    Int,
+    UInt,
+};
+
+class VertexLayout
+{
+public:
+    VertexLayout& Add(const char* name, VertexAttrType t);
+
+    uint32_t                                       Stride()     const { return m_Stride; }
+    VkVertexInputBindingDescription                Binding(uint32_t binding = 0) const;
+    std::vector<VkVertexInputAttributeDescription> Attributes(uint32_t binding = 0) const;
+
+    std::size_t Count() const { return m_Attrs.size(); }
+
+private:
+    struct Entry
+    {
+        const char*    name;    // caller-owned literal
+        VertexAttrType type;
+        uint32_t       offset;
+        uint32_t       size;
+        VkFormat       format;
+    };
+
+    std::vector<Entry> m_Attrs;
+    uint32_t           m_Stride = 0;
+};
+
+
+// =============================================================================
+// [24] PushConstants
+//
+//  Named push-constant block.  `Declare(name, type)` reserves the slot and
+//  records its byte offset.  `Set(name, value)` does a direct memcpy into
+//  the backing buffer - no hashing on the hot path, no std::any, no
+//  reflection.  `Apply(cb, layout, stages)` forwards one vkCmdPushConstants
+//  call covering the whole block.  See VCK.h for the full API.
+// =============================================================================
+enum class PushConstType : uint8_t
+{
+    Float,
+    Vec2,
+    Vec3,
+    Vec4,
+    Mat4,
+    Int,
+    UInt,
+};
+
+class PushConstants
+{
+public:
+    PushConstants& Declare(const char* name, PushConstType t);
+
+    PushConstants& Set(const char* name, float v);
+    PushConstants& Set(const char* name, const Vec2& v);
+    PushConstants& Set(const char* name, const Vec3& v);
+    PushConstants& Set(const char* name, const Vec4& v);
+    PushConstants& Set(const char* name, const Mat4& v);
+    PushConstants& Set(const char* name, int32_t v);
+    PushConstants& Set(const char* name, uint32_t v);
+
+    // Total size of the declared block, in bytes.
+    uint32_t Size() const { return static_cast<uint32_t>(m_Buffer.size()); }
+
+    // Build the VkPushConstantRange for a pipeline layout.  `stages` is
+    // typically VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_ALL_GRAPHICS.
+    VkPushConstantRange Range(VkShaderStageFlags stages) const;
+
+    // Upload the whole block to the command buffer.  Caller must have
+    // recorded a BindPipeline that uses `layout`.
+    void Apply(VkCommandBuffer cb,
+               VkPipelineLayout layout,
+               VkShaderStageFlags stages) const;
+
+private:
+    struct Slot
+    {
+        const char*   name;     // caller-owned literal
+        PushConstType type;
+        uint32_t      offset;
+        uint32_t      size;
+    };
+
+    // Returns pointer into m_Buffer at the slot's offset, or nullptr on
+    // type mismatch / unknown name.  Logs via VCKLog::Error on failure
+    // (rule 14).  `expected` is the type the caller is Set()ing with.
+    uint8_t* SlotWrite(const char* name, PushConstType expected, uint32_t expectedSize);
+
+    std::vector<Slot>   m_Slots;
+    std::vector<uint8_t> m_Buffer;   // packed raw bytes
+};
+
+
+// =============================================================================
+// [25] Primitives
+//
+//  Tiny library of mesh builders that fill a CPU-side Mesh struct.  Pair
+//  with VulkanMesh to upload.  VCK never owns the returned Mesh (rule 22).
+//  See VCK.h for what each builder produces.
+// =============================================================================
+namespace Primitives
+{
+    struct Mesh
+    {
+        std::vector<Vec3>     positions;
+        std::vector<Vec3>     normals;
+        std::vector<Vec2>     uvs;
+        std::vector<uint16_t> indices;
+    };
+
+    Mesh Cube  (float size = 1.0f);
+    Mesh Plane (float width = 1.0f, float height = 1.0f);
+    Mesh Sphere(float radius = 0.5f, int rings = 16, int sectors = 32);
+    Mesh Quad  ();
+    Mesh Line  (const Vec3& a, const Vec3& b);
+} // namespace Primitives
+
+
+// =============================================================================
 
 } // namespace VCK

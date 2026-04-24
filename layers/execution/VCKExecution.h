@@ -394,6 +394,14 @@ public:
     // Keep buffer, drop spans (call between frames to avoid unbounded growth).
     void ResetBuffer();
 
+    // Write accumulated spans to a JSON file in Chrome Trace Event format.
+    // Load the file in chrome://tracing or https://ui.perfetto.dev for a
+    // flame-graph / timeline viewer.  Returns false and logs via
+    // VCKLog::Error (rule 14) if the file cannot be opened.  Does NOT
+    // clear the buffer (call ResetBuffer() yourself if you want to wipe).
+    // When Enabled() is false, returns true without writing anything.
+    bool DumpChromeTracing(const char* path);
+
 private:
     uint64_t NowUs() const;
 

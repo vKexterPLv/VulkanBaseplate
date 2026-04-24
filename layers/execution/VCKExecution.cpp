@@ -2,6 +2,7 @@
 // VCKExecution.h is pulled in by VCK.h via the aggregate includes.
 
 #include <algorithm>
+#include <fstream>
 #include <iterator>
 
 namespace VCK {
@@ -568,6 +569,77 @@ void DebugTimeline::ResetBuffer()
     std::lock_guard<std::mutex> lk(m_Mu);
     m_Spans.clear();
     m_OpenCpu.clear();
+}
+
+bool DebugTimeline::DumpChromeTracing(const char* path)
+{
+    if (!m_Enabled) return true;   // R19: nothing to dump when disabled.
+    if (path == nullptr || *path == '\0')
+    {
+        VCKLog::Error("DebugTimeline", "DumpChromeTracing called with empty path");
+        return false;
+    }
+
+    std::vector<Span> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(m_Mu);
+        snapshot = m_Spans;
+    }
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+        VCKLog::Error("DebugTimeline",
+            std::string("DumpChromeTracing: cannot open '") + path + "'");
+        return false;
+    }
+
+    // Chrome Trace Event format (array form).  Each span is one "X"
+    // (complete) event with ts+dur in microseconds.  STALL spans with
+    // endUs==0 are emitted as instant "i" events.  pid=1 is arbitrary;
+    // tid is mapped from track name so CPU / GPU / STALL get separate rows.
+    auto tidForTrack = [](const char* track) -> int
+    {
+        if (!track) return 0;
+        // Trivial stable mapping.
+        if (track[0] == 'C') return 1;   // CPU
+        if (track[0] == 'G') return 2;   // GPU
+        if (track[0] == 'S') return 3;   // STALL
+        return 0;
+    };
+
+    out << "[\n";
+    for (std::size_t i = 0; i < snapshot.size(); ++i)
+    {
+        const Span& s = snapshot[i];
+        const int   tid = tidForTrack(s.track);
+        const bool  isStall = (s.endUs == 0);
+        const uint64_t dur = isStall ? 0 : (s.endUs - s.startUs);
+
+        if (i != 0) out << ",\n";
+        out << "  {"
+            << "\"name\":\"";
+        // Escape double-quote and backslash in span name; everything else
+        // is passed through.  Span names are author-controlled so this is
+        // sufficient for the trace viewer to parse.
+        for (char c : s.name)
+        {
+            if      (c == '"')  out << "\\\"";
+            else if (c == '\\') out << "\\\\";
+            else if (c == '\n') out << "\\n";
+            else                out << c;
+        }
+        out << "\",\"cat\":\"" << (s.track ? s.track : "?")
+            << "\",\"ph\":\"" << (isStall ? "i" : "X") << "\""
+            << ",\"ts\":"   << s.startUs
+            << ",\"dur\":"  << dur
+            << ",\"pid\":1"
+            << ",\"tid\":"  << tid
+            << ",\"args\":{\"frame\":" << s.frame << "}"
+            << "}";
+    }
+    out << "\n]\n";
+    return true;
 }
 
 

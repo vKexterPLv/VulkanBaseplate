@@ -161,6 +161,9 @@
 //    [10] VulkanDescriptorAllocator  allocator around 7/8/9.
 //    [11] VulkanModelPipeline        pipeline preset for textured model.
 //    [12] VulkanMipmapGenerator      runtime mipmap blit utility.
+//    [23] VertexLayout               named vertex-input builder.
+//    [24] PushConstants              named push-constant block.
+//    [25] Primitives                 Cube/Plane/Sphere/Quad/Line mesh builders.
 //    HandleLiveResize(window, dev, sc, fb, pipe)           base overload.
 //    HandleLiveResize(window, dev, sc, fb, pipe, depth)    + depth buffer.
 //  layers/execution/
@@ -171,7 +174,8 @@
 //    [17] GpuSubmissionBatcher       coalesce vkQueueSubmit calls.
 //    [18] BackpressureGovernor       cap frames-in-flight under stress.
 //    [19] JobGraph                   DAG scheduler for frame sub-tasks.
-//    [20] DebugTimeline              observable span log with Dump().
+//    [20] DebugTimeline              observable span log + Dump() +
+//                                     DumpChromeTracing("trace.json").
 //    [21] Frame                      per-frame handle: cmd + semaphores.
 //    [22] FrameScheduler             the whole loop as one object.
 //    HandleLiveResize(window, dev, sc, fb, pipe, timeline)
@@ -295,6 +299,7 @@
 // still include only "VCK.h" (or "VCKExpansion.h") - the amalgam pulls in the
 // whole core API.  Internal .cpp files can keep including individual headers.
 
+#include "layers/core/VCKMath.h"         // Vec2/3/4, Mat4, free functions (no Vulkan deps)
 #include "layers/core/VulkanContext.h"
 #include "layers/core/VulkanDevice.h"
 #include "layers/core/VulkanSwapchain.h"
@@ -340,7 +345,7 @@
 //  Header         : VCKExpansion.h
 //  Implementation : VCKExpansion.cpp
 //
-//  CLASSES  (12)
+//  CLASSES  (15)
 //  ─────────────
 //  [1]  VulkanOneTimeCommand          - one-shot GPU command using the existing pool
 //  [2]  VulkanFramebufferSet          - per-swapchain-image VkFramebuffers
@@ -354,6 +359,19 @@
 //  [10] VulkanDescriptorAllocator     - general-purpose pool supporting multiple descriptor types
 //  [11] VulkanModelPipeline           - full model pipeline with UBO layouts + push constants
 //  [12] VulkanMipmapGenerator         - blit-based mip chain generation for any VkImage
+//  [23] VertexLayout                  - named vertex-input builder (VkVertex* structs)
+//  [24] PushConstants                 - named push-constant block (Declare / Set / Apply)
+//  [25] Primitives                    - Cube / Plane / Sphere / Quad / Line mesh builders
+//
+//  (Numbers [13]-[22] are used by the execution layer - see below.)
+//
+//  CORE MATHS (header-only, no Vulkan deps)
+//  ────────────────────────────────────────
+//  Vec2  / Vec3  / Vec4                plain POD, tightly packed (memcpy-safe).
+//  Mat4                                column-major, 16 floats, identity default.
+//  Translate / Rotate / Scale          affine builders.
+//  Perspective / LookAt                Vulkan-ready (Y-flipped, depth [0,1]).
+//  operator+ / - / * / Dot / Cross / Normalize / Length / Transpose / Radians / Degrees
 //
 //  HELPER FUNCTION (file-static, internal)
 //  ───────────────────────────────────────
@@ -1000,6 +1018,78 @@
    bool            VulkanMipmapGenerator::Generate(VulkanDevice&, VulkanCommand&,
                                                     VkImage, uint32_t w, uint32_t h,
                                                     uint32_t mipLevels)
+
+ VertexLayout  [23]  - named vertex-input builder.
+   Call Add(name, VertexAttrType::...) once per attribute in declaration
+   order.  Location indices start at 0 and increment; byte offsets pack
+   tight; Stride() returns the running total.  Binding() builds one
+   VkVertexInputBindingDescription, Attributes() builds the parallel
+   vector of VkVertexInputAttributeDescription that VulkanModelPipeline's
+   VertexInputInfo expects.  The two structs are plain-Vulkan values -
+   VCK doesn't cache, doesn't store, doesn't own (rule 22).  Names are
+   stored as raw pointers; pass string literals or values that outlive
+   the layout.
+     enum class VertexAttrType { Float, Vec2, Vec3, Vec4, Int, UInt };
+     VertexLayout&                                  Add(const char* name, VertexAttrType t)
+     uint32_t                                       Stride() const
+     VkVertexInputBindingDescription                Binding(uint32_t binding = 0) const
+     std::vector<VkVertexInputAttributeDescription> Attributes(uint32_t binding = 0) const
+     std::size_t                                    Count() const
+   Example:
+     VCK::VertexLayout vl;
+     vl.Add("position", VCK::VertexAttrType::Vec3)
+       .Add("normal",   VCK::VertexAttrType::Vec3)
+       .Add("uv",       VCK::VertexAttrType::Vec2);
+     // Pass vl.Binding(0) + vl.Attributes(0) into VulkanModelPipeline.
+
+ PushConstants  [24]  - named push-constant block.
+   Declare(name, type) reserves a slot; Set(name, value) writes into the
+   backing buffer with no hashing on the hot path (names are compared
+   linearly - blocks are small).  Apply() emits one vkCmdPushConstants
+   call covering the whole block.  Mismatched types or unknown names
+   log through VCKLog::Error (rule 14) and leave the buffer unchanged.
+     enum class PushConstType { Float, Vec2, Vec3, Vec4, Mat4, Int, UInt };
+     PushConstants& Declare(const char* name, PushConstType t)
+     PushConstants& Set(const char* name, float v)
+     PushConstants& Set(const char* name, const Vec2&)
+     PushConstants& Set(const char* name, const Vec3&)
+     PushConstants& Set(const char* name, const Vec4&)
+     PushConstants& Set(const char* name, const Mat4&)
+     PushConstants& Set(const char* name, int32_t v)
+     PushConstants& Set(const char* name, uint32_t v)
+     uint32_t              Size() const
+     VkPushConstantRange   Range(VkShaderStageFlags stages) const
+     void                  Apply(VkCommandBuffer cb,
+                                 VkPipelineLayout layout,
+                                 VkShaderStageFlags stages) const
+   Example:
+     VCK::PushConstants pc;
+     pc.Declare("mvp",   VCK::PushConstType::Mat4)
+       .Declare("model", VCK::PushConstType::Mat4);
+     pc.Set("mvp", proj * view * model).Set("model", model);
+     pc.Apply(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT);
+
+ Primitives  [25]  - namespace of CPU-side mesh builders.
+   Each builder returns a Primitives::Mesh by value.  Caller owns the
+   buffers (rule 22) and can upload via VulkanMesh.  Vertex layout is
+   always position (Vec3) + normal (Vec3) + uv (Vec2), 16-bit indices.
+   Line() uses line topology; the caller is responsible for setting
+   VK_PRIMITIVE_TOPOLOGY_LINE_LIST on the pipeline (rule 16).
+     struct Primitives::Mesh {
+         std::vector<Vec3>     positions;
+         std::vector<Vec3>     normals;
+         std::vector<Vec2>     uvs;
+         std::vector<uint16_t> indices;
+     };
+     Mesh Primitives::Cube  (float size = 1.0f)
+     Mesh Primitives::Plane (float width = 1.0f, float height = 1.0f)
+     Mesh Primitives::Sphere(float radius = 0.5f, int rings = 16, int sectors = 32)
+     Mesh Primitives::Quad  ()
+     Mesh Primitives::Line  (const Vec3& a, const Vec3& b)
+   Example:
+     auto cube = VCK::Primitives::Cube(1.0f);
+     mesh.UploadVertices(cube.positions.data(), cube.positions.size() * sizeof(VCK::Vec3));
+     mesh.UploadIndices (cube.indices.data(),   cube.indices.size()   * sizeof(uint16_t));
 
 */
 

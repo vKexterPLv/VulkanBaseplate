@@ -2,6 +2,7 @@
 // VCKExpansion.h is pulled in by VCK.h via the aggregate includes.
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 
 namespace VCK {
@@ -957,6 +958,405 @@ bool VulkanMipmapGenerator::Generate(VulkanDevice&  device,
     otc.End();
     return true;
 }
+
+
+// =============================================================================
+// [23] VertexLayout
+// =============================================================================
+namespace
+{
+    struct VertexAttrInfo
+    {
+        uint32_t size;
+        VkFormat format;
+    };
+
+    VertexAttrInfo VertexAttrMeta(VertexAttrType t)
+    {
+        switch (t)
+        {
+            case VertexAttrType::Float: return { 4,  VK_FORMAT_R32_SFLOAT };
+            case VertexAttrType::Vec2:  return { 8,  VK_FORMAT_R32G32_SFLOAT };
+            case VertexAttrType::Vec3:  return { 12, VK_FORMAT_R32G32B32_SFLOAT };
+            case VertexAttrType::Vec4:  return { 16, VK_FORMAT_R32G32B32A32_SFLOAT };
+            case VertexAttrType::Int:   return { 4,  VK_FORMAT_R32_SINT };
+            case VertexAttrType::UInt:  return { 4,  VK_FORMAT_R32_UINT };
+        }
+        return { 0, VK_FORMAT_UNDEFINED };
+    }
+}
+
+VertexLayout& VertexLayout::Add(const char* name, VertexAttrType t)
+{
+    const VertexAttrInfo info = VertexAttrMeta(t);
+    if (info.size == 0)
+    {
+        VCKLog::Error("VertexLayout",
+            std::string("unknown attribute type passed to Add(\"") +
+            (name ? name : "?") + "\")");
+        return *this;
+    }
+
+    Entry e{};
+    e.name   = name;
+    e.type   = t;
+    e.offset = m_Stride;
+    e.size   = info.size;
+    e.format = info.format;
+    m_Attrs.push_back(e);
+    m_Stride += info.size;
+    return *this;
+}
+
+VkVertexInputBindingDescription VertexLayout::Binding(uint32_t binding) const
+{
+    VkVertexInputBindingDescription b{};
+    b.binding   = binding;
+    b.stride    = m_Stride;
+    b.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    return b;
+}
+
+std::vector<VkVertexInputAttributeDescription> VertexLayout::Attributes(uint32_t binding) const
+{
+    std::vector<VkVertexInputAttributeDescription> out;
+    out.reserve(m_Attrs.size());
+    for (std::size_t i = 0; i < m_Attrs.size(); ++i)
+    {
+        VkVertexInputAttributeDescription a{};
+        a.binding  = binding;
+        a.location = static_cast<uint32_t>(i);
+        a.format   = m_Attrs[i].format;
+        a.offset   = m_Attrs[i].offset;
+        out.push_back(a);
+    }
+    return out;
+}
+
+
+// =============================================================================
+// [24] PushConstants
+// =============================================================================
+namespace
+{
+    uint32_t PushConstTypeSize(PushConstType t)
+    {
+        switch (t)
+        {
+            case PushConstType::Float: return 4;
+            case PushConstType::Vec2:  return 8;
+            case PushConstType::Vec3:  return 12;
+            case PushConstType::Vec4:  return 16;
+            case PushConstType::Mat4:  return 64;
+            case PushConstType::Int:   return 4;
+            case PushConstType::UInt:  return 4;
+        }
+        return 0;
+    }
+
+    const char* PushConstTypeName(PushConstType t)
+    {
+        switch (t)
+        {
+            case PushConstType::Float: return "Float";
+            case PushConstType::Vec2:  return "Vec2";
+            case PushConstType::Vec3:  return "Vec3";
+            case PushConstType::Vec4:  return "Vec4";
+            case PushConstType::Mat4:  return "Mat4";
+            case PushConstType::Int:   return "Int";
+            case PushConstType::UInt:  return "UInt";
+        }
+        return "?";
+    }
+
+    bool SameCStr(const char* a, const char* b)
+    {
+        if (a == b) return true;
+        if (a == nullptr || b == nullptr) return false;
+        while (*a && *a == *b) { ++a; ++b; }
+        return *a == *b;
+    }
+}
+
+PushConstants& PushConstants::Declare(const char* name, PushConstType t)
+{
+    const uint32_t size = PushConstTypeSize(t);
+    if (size == 0 || name == nullptr)
+    {
+        VCKLog::Error("PushConstants",
+            std::string("Declare got unknown type or null name"));
+        return *this;
+    }
+
+    // Duplicate name guard.
+    for (const Slot& s : m_Slots)
+    {
+        if (SameCStr(s.name, name))
+        {
+            VCKLog::Error("PushConstants",
+                std::string("Declare(\"") + name + "\") - name already declared");
+            return *this;
+        }
+    }
+
+    Slot s{};
+    s.name   = name;
+    s.type   = t;
+    s.offset = static_cast<uint32_t>(m_Buffer.size());
+    s.size   = size;
+    m_Slots.push_back(s);
+    m_Buffer.resize(m_Buffer.size() + size, 0);
+    return *this;
+}
+
+uint8_t* PushConstants::SlotWrite(const char* name, PushConstType expected, uint32_t expectedSize)
+{
+    for (const Slot& s : m_Slots)
+    {
+        if (!SameCStr(s.name, name)) continue;
+        if (s.type != expected)
+        {
+            VCKLog::Error("PushConstants",
+                std::string("Set(\"") + name + "\") type mismatch: slot is " +
+                PushConstTypeName(s.type) + ", caller passed " +
+                PushConstTypeName(expected));
+            return nullptr;
+        }
+        if (s.size != expectedSize)
+        {
+            VCKLog::Error("PushConstants",
+                std::string("Set(\"") + name + "\") size mismatch");
+            return nullptr;
+        }
+        return m_Buffer.data() + s.offset;
+    }
+    VCKLog::Error("PushConstants",
+        std::string("Set(\"") + (name ? name : "?") + "\") - name not declared");
+    return nullptr;
+}
+
+PushConstants& PushConstants::Set(const char* name, float v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Float, 4))
+        std::memcpy(p, &v, 4);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, const Vec2& v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Vec2, 8))
+        std::memcpy(p, &v, 8);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, const Vec3& v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Vec3, 12))
+        std::memcpy(p, &v, 12);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, const Vec4& v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Vec4, 16))
+        std::memcpy(p, &v, 16);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, const Mat4& v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Mat4, 64))
+        std::memcpy(p, &v, 64);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, int32_t v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::Int, 4))
+        std::memcpy(p, &v, 4);
+    return *this;
+}
+PushConstants& PushConstants::Set(const char* name, uint32_t v)
+{
+    if (uint8_t* p = SlotWrite(name, PushConstType::UInt, 4))
+        std::memcpy(p, &v, 4);
+    return *this;
+}
+
+VkPushConstantRange PushConstants::Range(VkShaderStageFlags stages) const
+{
+    VkPushConstantRange r{};
+    r.stageFlags = stages;
+    r.offset     = 0;
+    r.size       = static_cast<uint32_t>(m_Buffer.size());
+    return r;
+}
+
+void PushConstants::Apply(VkCommandBuffer cb,
+                          VkPipelineLayout layout,
+                          VkShaderStageFlags stages) const
+{
+    if (m_Buffer.empty()) return;
+    vkCmdPushConstants(cb, layout, stages, 0,
+                       static_cast<uint32_t>(m_Buffer.size()),
+                       m_Buffer.data());
+}
+
+
+// =============================================================================
+// [25] Primitives
+// =============================================================================
+namespace Primitives {
+
+// Unit cube centred at origin, six faces with per-face normals & UVs.
+// 24 vertices (no shared edges so normals stay flat-shaded), 36 indices.
+Mesh Cube(float size)
+{
+    const float h = size * 0.5f;
+    Mesh m;
+    m.positions = {
+        // +X
+        { h, -h, -h}, { h,  h, -h}, { h,  h,  h}, { h, -h,  h},
+        // -X
+        {-h, -h,  h}, {-h,  h,  h}, {-h,  h, -h}, {-h, -h, -h},
+        // +Y
+        {-h,  h, -h}, {-h,  h,  h}, { h,  h,  h}, { h,  h, -h},
+        // -Y
+        {-h, -h,  h}, {-h, -h, -h}, { h, -h, -h}, { h, -h,  h},
+        // +Z
+        {-h, -h,  h}, { h, -h,  h}, { h,  h,  h}, {-h,  h,  h},
+        // -Z
+        { h, -h, -h}, {-h, -h, -h}, {-h,  h, -h}, { h,  h, -h},
+    };
+    m.normals.reserve(24);
+    for (int i = 0; i < 4; ++i) m.normals.push_back({ 1,  0,  0});
+    for (int i = 0; i < 4; ++i) m.normals.push_back({-1,  0,  0});
+    for (int i = 0; i < 4; ++i) m.normals.push_back({ 0,  1,  0});
+    for (int i = 0; i < 4; ++i) m.normals.push_back({ 0, -1,  0});
+    for (int i = 0; i < 4; ++i) m.normals.push_back({ 0,  0,  1});
+    for (int i = 0; i < 4; ++i) m.normals.push_back({ 0,  0, -1});
+
+    m.uvs.reserve(24);
+    for (int face = 0; face < 6; ++face)
+    {
+        m.uvs.push_back({0.0f, 1.0f});
+        m.uvs.push_back({0.0f, 0.0f});
+        m.uvs.push_back({1.0f, 0.0f});
+        m.uvs.push_back({1.0f, 1.0f});
+    }
+
+    m.indices.reserve(36);
+    for (uint16_t face = 0; face < 6; ++face)
+    {
+        const uint16_t base = static_cast<uint16_t>(face * 4);
+        m.indices.push_back(base + 0);
+        m.indices.push_back(base + 1);
+        m.indices.push_back(base + 2);
+        m.indices.push_back(base + 0);
+        m.indices.push_back(base + 2);
+        m.indices.push_back(base + 3);
+    }
+    return m;
+}
+
+Mesh Plane(float width, float height)
+{
+    const float hw = width  * 0.5f;
+    const float hh = height * 0.5f;
+    Mesh m;
+    m.positions = {
+        {-hw, 0, -hh}, { hw, 0, -hh}, { hw, 0,  hh}, {-hw, 0,  hh},
+    };
+    m.normals = {
+        {0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
+    };
+    m.uvs = {
+        {0, 0}, {1, 0}, {1, 1}, {0, 1},
+    };
+    m.indices = { 0, 1, 2, 0, 2, 3 };
+    return m;
+}
+
+// UV sphere with `rings` latitude bands and `sectors` longitude bands.
+// Counts: (rings+1)*(sectors+1) vertices, rings*sectors*6 indices.
+Mesh Sphere(float radius, int rings, int sectors)
+{
+    if (rings   < 2) rings   = 2;
+    if (sectors < 3) sectors = 3;
+
+    Mesh m;
+    const int vertCount = (rings + 1) * (sectors + 1);
+    m.positions.reserve(vertCount);
+    m.normals.reserve(vertCount);
+    m.uvs.reserve(vertCount);
+
+    for (int r = 0; r <= rings; ++r)
+    {
+        const float v     = static_cast<float>(r) / static_cast<float>(rings);
+        const float phi   = v * 3.14159265358979323846f;                // 0..pi
+        const float sinP  = std::sin(phi);
+        const float cosP  = std::cos(phi);
+        for (int s = 0; s <= sectors; ++s)
+        {
+            const float u    = static_cast<float>(s) / static_cast<float>(sectors);
+            const float thet = u * 6.28318530717958647692f;             // 0..2pi
+            const float sinT = std::sin(thet);
+            const float cosT = std::cos(thet);
+
+            const Vec3 n { sinP * cosT, cosP, sinP * sinT };
+            m.positions.push_back({ radius * n.x, radius * n.y, radius * n.z });
+            m.normals.push_back(n);
+            m.uvs.push_back({ u, 1.0f - v });
+        }
+    }
+
+    m.indices.reserve(static_cast<std::size_t>(rings) * sectors * 6);
+    for (int r = 0; r < rings; ++r)
+    {
+        for (int s = 0; s < sectors; ++s)
+        {
+            const uint16_t a = static_cast<uint16_t>( r      * (sectors + 1) + s    );
+            const uint16_t b = static_cast<uint16_t>((r + 1) * (sectors + 1) + s    );
+            const uint16_t c = static_cast<uint16_t>((r + 1) * (sectors + 1) + s + 1);
+            const uint16_t d = static_cast<uint16_t>( r      * (sectors + 1) + s + 1);
+            m.indices.push_back(a);
+            m.indices.push_back(b);
+            m.indices.push_back(c);
+            m.indices.push_back(a);
+            m.indices.push_back(c);
+            m.indices.push_back(d);
+        }
+    }
+    return m;
+}
+
+Mesh Quad()
+{
+    // Fullscreen-friendly XY quad, z=0, Y-up.  Drop the projection if you
+    // want strict clip-space coordinates; the caller's shader decides.
+    Mesh m;
+    m.positions = {
+        {-1, -1, 0}, { 1, -1, 0}, { 1,  1, 0}, {-1,  1, 0},
+    };
+    m.normals = {
+        {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
+    };
+    m.uvs = {
+        {0, 1}, {1, 1}, {1, 0}, {0, 0},
+    };
+    m.indices = { 0, 1, 2, 0, 2, 3 };
+    return m;
+}
+
+Mesh Line(const Vec3& a, const Vec3& b)
+{
+    // Two-vertex mesh.  Caller is responsible for picking
+    // VK_PRIMITIVE_TOPOLOGY_LINE_LIST on the pipeline; VCK stays out of
+    // pipeline state choices (rule 16).
+    Mesh m;
+    m.positions = { a, b };
+    m.normals   = { {0, 1, 0}, {0, 1, 0} };
+    m.uvs       = { {0, 0}, {1, 0} };
+    m.indices   = { 0, 1 };
+    return m;
+}
+
+} // namespace Primitives
 
 
 // =============================================================================
