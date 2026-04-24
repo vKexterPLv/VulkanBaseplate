@@ -816,7 +816,7 @@ namespace Primitives
         std::vector<Vec3>     positions;
         std::vector<Vec3>     normals;
         std::vector<Vec2>     uvs;
-        std::vector<uint16_t> indices;
+        std::vector<uint32_t> indices;     // uint32_t to pair with VulkanMesh::Upload
     };
 
     Mesh Cube  (float size = 1.0f);

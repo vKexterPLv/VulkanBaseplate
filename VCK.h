@@ -1072,14 +1072,14 @@
  Primitives  [25]  - namespace of CPU-side mesh builders.
    Each builder returns a Primitives::Mesh by value.  Caller owns the
    buffers (rule 22) and can upload via VulkanMesh.  Vertex layout is
-   always position (Vec3) + normal (Vec3) + uv (Vec2), 16-bit indices.
+   always position (Vec3) + normal (Vec3) + uv (Vec2), 32-bit indices.
    Line() uses line topology; the caller is responsible for setting
    VK_PRIMITIVE_TOPOLOGY_LINE_LIST on the pipeline (rule 16).
      struct Primitives::Mesh {
          std::vector<Vec3>     positions;
          std::vector<Vec3>     normals;
          std::vector<Vec2>     uvs;
-         std::vector<uint16_t> indices;
+         std::vector<uint32_t> indices;   // uint32_t so you can pass straight to VulkanMesh::Upload
      };
      Mesh Primitives::Cube  (float size = 1.0f)
      Mesh Primitives::Plane (float width = 1.0f, float height = 1.0f)
@@ -1088,8 +1088,12 @@
      Mesh Primitives::Line  (const Vec3& a, const Vec3& b)
    Example:
      auto cube = VCK::Primitives::Cube(1.0f);
-     mesh.UploadVertices(cube.positions.data(), cube.positions.size() * sizeof(VCK::Vec3));
-     mesh.UploadIndices (cube.indices.data(),   cube.indices.size()   * sizeof(uint16_t));
+     mesh.Upload(device, command,
+                 cube.positions.data(),
+                 sizeof(VCK::Vec3),
+                 static_cast<uint32_t>(cube.positions.size()),
+                 cube.indices.data(),
+                 static_cast<uint32_t>(cube.indices.size()));
 
 */
 

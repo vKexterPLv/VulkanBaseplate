@@ -1241,9 +1241,9 @@ Mesh Cube(float size)
     }
 
     m.indices.reserve(36);
-    for (uint16_t face = 0; face < 6; ++face)
+    for (uint32_t face = 0; face < 6; ++face)
     {
-        const uint16_t base = static_cast<uint16_t>(face * 4);
+        const uint32_t base = face * 4;
         m.indices.push_back(base + 0);
         m.indices.push_back(base + 1);
         m.indices.push_back(base + 2);
@@ -1310,10 +1310,10 @@ Mesh Sphere(float radius, int rings, int sectors)
     {
         for (int s = 0; s < sectors; ++s)
         {
-            const uint16_t a = static_cast<uint16_t>( r      * (sectors + 1) + s    );
-            const uint16_t b = static_cast<uint16_t>((r + 1) * (sectors + 1) + s    );
-            const uint16_t c = static_cast<uint16_t>((r + 1) * (sectors + 1) + s + 1);
-            const uint16_t d = static_cast<uint16_t>( r      * (sectors + 1) + s + 1);
+            const uint32_t a = static_cast<uint32_t>( r      * (sectors + 1) + s    );
+            const uint32_t b = static_cast<uint32_t>((r + 1) * (sectors + 1) + s    );
+            const uint32_t c = static_cast<uint32_t>((r + 1) * (sectors + 1) + s + 1);
+            const uint32_t d = static_cast<uint32_t>( r      * (sectors + 1) + s + 1);
             m.indices.push_back(a);
             m.indices.push_back(b);
             m.indices.push_back(c);
