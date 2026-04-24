@@ -768,13 +768,48 @@ void VulkanMemoryManager::SubmitStagingCmd()
 
     vkEndCommandBuffer(m_StagingCmd);
 
+    // v0.3: route staging through the (possibly dedicated) transfer queue
+    // and use a per-submit VkFence instead of vkQueueWaitIdle.
+    //
+    // Why: rule 4 only permits vkQueueWaitIdle at Shutdown; using it on the
+    // graphics queue during frame work stalls the whole queue, blocking
+    // unrelated graphics submits.  A per-submit fence only synchronises
+    // this specific upload - the rest of the queue stays hot.  When the
+    // physical device exposes a dedicated transfer queue (AMD / NVIDIA
+    // usually do; Intel iGPUs often don't) we also peel staging off the
+    // graphics queue entirely - the graphics timeline progresses
+    // concurrently with the upload.
+    VkQueue stagingQueue = m_Device->GetTransferQueue();  // may alias graphics
+
     VkSubmitInfo si{};
     si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     si.commandBufferCount = 1;
     si.pCommandBuffers    = &m_StagingCmd;
 
-    vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(m_Device->GetGraphicsQueue());
+    VkFenceCreateInfo fi{};
+    fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    VkFence submitFence = VK_NULL_HANDLE;
+    if (!VK_CHECK(vkCreateFence(m_Device->GetDevice(), &fi, nullptr, &submitFence)))
+    {
+        // Fence creation is cheap and should never fail on a healthy device.
+        // Fall back to the legacy path (queue wait) rather than leaking the
+        // staging command buffer.  Rule 14: noisy, not silent.
+        VCKLog::Warn("VMM", "Staging fence creation failed; falling back to queue wait.");
+        vkQueueSubmit(stagingQueue, 1, &si, VK_NULL_HANDLE);
+        vkQueueWaitIdle(stagingQueue);
+    }
+    else
+    {
+        if (VK_CHECK(vkQueueSubmit(stagingQueue, 1, &si, submitFence)))
+        {
+            // Block until this specific upload completes - does NOT stall
+            // other work on the same queue, and leaves the graphics queue
+            // untouched entirely when a dedicated transfer queue exists.
+            vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+        }
+        vkDestroyFence(m_Device->GetDevice(), submitFence, nullptr);
+    }
 
     vkFreeCommandBuffers(m_Device->GetDevice(),
                          m_Command->GetCommandPool(), 1, &m_StagingCmd);

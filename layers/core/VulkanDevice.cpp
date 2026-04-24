@@ -235,19 +235,62 @@ namespace VCK {
         std::vector<VkQueueFamilyProperties> families(familyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, families.data());
 
+        // Pass 1: graphics + present.
         for (uint32_t i = 0; i < static_cast<uint32_t>(families.size()); ++i)
         {
-            if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            if (!indices.GraphicsFamily.has_value() &&
+                (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            {
                 indices.GraphicsFamily = i;
+            }
 
-            VkBool32 presentSupport = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-            if (presentSupport)
-                indices.PresentFamily = i;
-
-            if (indices.IsCombined())
-                break;
+            if (!indices.PresentFamily.has_value())
+            {
+                VkBool32 presentSupport = VK_FALSE;
+                vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+                if (presentSupport) indices.PresentFamily = i;
+            }
         }
+
+        // Pass 2: dedicated compute (compute-capable, graphics-less).
+        // Gated by cfg.device.enableDedicatedComputeQueue so callers can
+        // opt out and force QueueSet::Compute() to alias graphics.
+        if (m_CfgDevice.enableDedicatedComputeQueue)
+        {
+            for (uint32_t i = 0; i < static_cast<uint32_t>(families.size()); ++i)
+            {
+                const VkQueueFlags f = families[i].queueFlags;
+                const bool hasCompute  = (f & VK_QUEUE_COMPUTE_BIT)  != 0;
+                const bool hasGraphics = (f & VK_QUEUE_GRAPHICS_BIT) != 0;
+                if (hasCompute && !hasGraphics)
+                {
+                    indices.ComputeFamily = i;
+                    break;
+                }
+            }
+        }
+
+        // Pass 3: dedicated transfer (transfer-capable, graphics-less and
+        // compute-less).  Per the spec GRAPHICS/COMPUTE queues implicitly
+        // support transfer operations, so "dedicated transfer" means a
+        // family whose only exposed capability is TRANSFER (often a DMA
+        // engine).  Intel iGPUs usually don't expose one; AMD/NVIDIA do.
+        if (m_CfgDevice.enableDedicatedTransferQueue)
+        {
+            for (uint32_t i = 0; i < static_cast<uint32_t>(families.size()); ++i)
+            {
+                const VkQueueFlags f = families[i].queueFlags;
+                const bool hasTransfer = (f & VK_QUEUE_TRANSFER_BIT) != 0;
+                const bool hasGraphics = (f & VK_QUEUE_GRAPHICS_BIT) != 0;
+                const bool hasCompute  = (f & VK_QUEUE_COMPUTE_BIT)  != 0;
+                if (hasTransfer && !hasGraphics && !hasCompute)
+                {
+                    indices.TransferFamily = i;
+                    break;
+                }
+            }
+        }
+
         return indices;
     }
 
@@ -257,10 +300,17 @@ namespace VCK {
 
     bool VulkanDevice::CreateLogicalDevice()
     {
+        // Unique queue families:  graphics + present + (optional) dedicated
+        // compute + (optional) dedicated transfer.  std::set de-duplicates
+        // the common case where present aliases graphics.
         std::set<uint32_t> uniqueFamilies = {
             m_QueueFamilyIndices.GraphicsFamily.value(),
             m_QueueFamilyIndices.PresentFamily.value()
         };
+        if (m_QueueFamilyIndices.ComputeFamily.has_value())
+            uniqueFamilies.insert(m_QueueFamilyIndices.ComputeFamily.value());
+        if (m_QueueFamilyIndices.TransferFamily.has_value())
+            uniqueFamilies.insert(m_QueueFamilyIndices.TransferFamily.value());
 
         const float queuePriority = 1.0f;
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -278,6 +328,32 @@ namespace VCK {
 
         VkPhysicalDeviceFeatures deviceFeatures{};
 
+        // v0.3: timeline semaphore feature.  Queried first via
+        // vkGetPhysicalDeviceFeatures2 (core Vulkan 1.1+); if the GPU
+        // does not support it we simply skip enabling it and
+        // HasTimelineSemaphores() reports false.  The execution layer
+        // (TimelineSemaphore, FrameScheduler) gates on that flag.
+        bool timelineRequested  = m_CfgDevice.enableTimelineSemaphores;
+        bool timelineSupported  = false;
+        if (timelineRequested)
+        {
+            VkPhysicalDeviceTimelineSemaphoreFeatures probeTs{};
+            probeTs.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+
+            VkPhysicalDeviceFeatures2 probeF2{};
+            probeF2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            probeF2.pNext = &probeTs;
+
+            vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probeF2);
+            timelineSupported = probeTs.timelineSemaphore == VK_TRUE;
+
+            if (!timelineSupported)
+            {
+                VCKLog::Notice("Device",
+                    "Timeline semaphores requested but not supported - falling back to binary fences.");
+            }
+        }
+
         // Build the merged extension list: required + user-supplied extras.
         std::vector<const char*> enabledExts(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
         for (const char* extra : m_CfgDevice.extraDeviceExtensions)
@@ -289,18 +365,60 @@ namespace VCK {
         deviceInfo.pQueueCreateInfos = queueCreateInfos.data();
         deviceInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExts.size());
         deviceInfo.ppEnabledExtensionNames = enabledExts.data();
-        deviceInfo.pEnabledFeatures = &deviceFeatures;
+
+        // Timeline semaphore feature chain.  When enabled, the feature struct
+        // must live in pNext and pEnabledFeatures must be nullptr (use the
+        // VkPhysicalDeviceFeatures2 path instead).  When disabled, keep the
+        // legacy pEnabledFeatures path untouched (stable for existing setups).
+        VkPhysicalDeviceTimelineSemaphoreFeatures tsFeatures{};
+        VkPhysicalDeviceFeatures2                 features2{};
+        if (timelineRequested && timelineSupported)
+        {
+            tsFeatures.sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+            tsFeatures.timelineSemaphore = VK_TRUE;
+
+            features2.sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            features2.features = deviceFeatures;
+            features2.pNext    = &tsFeatures;
+
+            deviceInfo.pNext            = &features2;
+            deviceInfo.pEnabledFeatures = nullptr;  // must be null with features2
+        }
+        else
+        {
+            deviceInfo.pEnabledFeatures = &deviceFeatures;
+        }
 
         VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice));
 
-        vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
-        vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.PresentFamily.value(), 0, &m_PresentQueue);
+        m_TimelineSemaphoresEnabled = timelineRequested && timelineSupported;
 
-        LogVk("[Device] Queues OK - graphics: " +
-            std::to_string(m_QueueFamilyIndices.GraphicsFamily.value()) +
-            " | present: " +
-            std::to_string(m_QueueFamilyIndices.PresentFamily.value()) +
-            (m_QueueFamilyIndices.IsCombined() ? " (combined)" : " (separate)"));
+        vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
+        vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.PresentFamily.value(),  0, &m_PresentQueue);
+        if (m_QueueFamilyIndices.ComputeFamily.has_value())
+            vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.ComputeFamily.value(),  0, &m_ComputeQueue);
+        if (m_QueueFamilyIndices.TransferFamily.has_value())
+            vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.TransferFamily.value(), 0, &m_TransferQueue);
+
+        // Build a structured log line summarising what actually got picked,
+        // so the user can tell at a glance whether they got dedicated queues
+        // or not (rule 6 - no hidden behaviour).
+        std::string queueSummary =
+            "graphics: " + std::to_string(m_QueueFamilyIndices.GraphicsFamily.value()) +
+            " | present: " + std::to_string(m_QueueFamilyIndices.PresentFamily.value()) +
+            (m_QueueFamilyIndices.IsCombined() ? " (combined)" : " (separate)");
+        if (m_QueueFamilyIndices.ComputeFamily.has_value())
+            queueSummary += " | compute(dedicated): " + std::to_string(m_QueueFamilyIndices.ComputeFamily.value());
+        else
+            queueSummary += " | compute: aliased to graphics";
+        if (m_QueueFamilyIndices.TransferFamily.has_value())
+            queueSummary += " | transfer(dedicated): " + std::to_string(m_QueueFamilyIndices.TransferFamily.value());
+        else
+            queueSummary += " | transfer: aliased to graphics";
+
+        LogVk("[Device] Queues OK - " + queueSummary);
+        LogVk(std::string("[Device] Timeline semaphores: ") +
+              (m_TimelineSemaphoresEnabled ? "enabled" : "disabled"));
 
         return true;
     }

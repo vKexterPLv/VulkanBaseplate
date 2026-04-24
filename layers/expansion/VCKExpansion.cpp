@@ -64,8 +64,27 @@ void VulkanOneTimeCommand::End()
     si.commandBufferCount = 1;
     si.pCommandBuffers    = &m_Cmd;
 
-    VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE));
-    VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
+    // v0.3: per-submit fence instead of vkQueueWaitIdle.  Same reasoning
+    // as VulkanMemoryManager::SubmitStagingCmd - rule 4 shrinks, only the
+    // specific one-shot submit is waited on, the rest of the graphics
+    // queue stays hot.
+    VkFenceCreateInfo fi{};
+    fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    VkFence submitFence = VK_NULL_HANDLE;
+    if (!VK_CHECK(vkCreateFence(m_Device->GetDevice(), &fi, nullptr, &submitFence)))
+    {
+        // Rule 14: loud fallback.
+        VCKLog::Warn("OneTime", "Fence creation failed; falling back to queue wait.");
+        VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE));
+        VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
+    }
+    else
+    {
+        VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, submitFence));
+        vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(m_Device->GetDevice(), submitFence, nullptr);
+    }
 
     vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
     m_Cmd = VK_NULL_HANDLE;

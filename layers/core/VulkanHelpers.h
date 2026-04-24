@@ -554,9 +554,26 @@ struct Config
 
     struct DeviceCfg
     {
-        bool                       preferDiscreteGpu        = true;
+        bool                       preferDiscreteGpu            = true;
         std::vector<const char*>   extraDeviceExtensions;
-        QueuePreference            queuePreference          = QueuePreference::GraphicsOnly;
+        QueuePreference            queuePreference              = QueuePreference::GraphicsOnly;
+
+        // v0.3: enable Vulkan 1.2 timelineSemaphore feature in the device.
+        // The feature is queried first via vkGetPhysicalDeviceFeatures2;
+        // if the GPU reports it unavailable VCK proceeds without enabling
+        // it and VulkanDevice::HasTimelineSemaphores() returns false.
+        bool                       enableTimelineSemaphores     = true;
+
+        // v0.3: request a dedicated (graphics-less) compute queue and /
+        // or a dedicated (graphics-less, compute-less) transfer queue when
+        // the physical device exposes one.  When off - or when the vendor
+        // does not expose a dedicated family - the corresponding QueueSet
+        // slot falls back to the graphics queue (rule 9 escape hatch
+        // preserved).  Thread-safety: rule 18 - different VkQueues are
+        // different external-sync scopes; the caller is free to submit
+        // to them in parallel without locking VCK objects.
+        bool                       enableDedicatedComputeQueue  = true;
+        bool                       enableDedicatedTransferQueue = true;
     } device;
 
     struct SwapchainCfg

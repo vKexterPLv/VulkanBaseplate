@@ -86,17 +86,22 @@ bool TimelineSemaphore::Signal(uint64_t value)
 // -----------------------------------------------------------------------------
 bool QueueSet::Initialize(VulkanDevice& device)
 {
-    m_Graphics       = device.GetGraphicsQueue();
-    m_GraphicsFamily = device.GetQueueFamilyIndices().GraphicsFamily.value_or(0);
+    const QueueFamilyIndices& qfi = device.GetQueueFamilyIndices();
 
-    // VCK's current VulkanDevice only creates a graphics queue.  Until
-    // VulkanDevice grows a dedicated compute / transfer queue, both slots
-    // alias the graphics queue.  This is legal for vkQueueSubmit - it just
-    // means no real queue-level parallelism is achieved.
-    m_Compute        = m_Graphics;
-    m_ComputeFamily  = m_GraphicsFamily;
-    m_Transfer       = m_Graphics;
-    m_TransferFamily = m_GraphicsFamily;
+    m_Graphics       = device.GetGraphicsQueue();
+    m_GraphicsFamily = qfi.GraphicsFamily.value_or(0);
+
+    // v0.3: wire real dedicated queues when VulkanDevice picked them up.
+    // GetComputeQueue / GetTransferQueue fall back to the graphics queue
+    // if no dedicated family exists, so the resulting VkQueue handle is
+    // always non-null.  The Family() accessors, however, must reflect the
+    // actual family the queue belongs to - code paths that care about
+    // family indices (VK_SHARING_MODE_CONCURRENT, ownership transfers,
+    // queue-family image barriers) use them directly.
+    m_Compute        = device.GetComputeQueue();
+    m_ComputeFamily  = qfi.ComputeFamily.value_or(m_GraphicsFamily);
+    m_Transfer       = device.GetTransferQueue();
+    m_TransferFamily = qfi.TransferFamily.value_or(m_GraphicsFamily);
 
     return m_Graphics != VK_NULL_HANDLE;
 }
