@@ -379,6 +379,33 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
 
     m_Registry.Initialize(device);
 
+    // ── Staging command pool (bound to transfer family) ───────────────────────
+    // v0.3: VMM owns its own VkCommandPool tied to the transfer queue family
+    // that SubmitStagingCmd() will submit to.  Required by
+    // VUID-vkQueueSubmit-pCommandBuffers-00074 whenever the transfer family
+    // differs from the graphics family (dedicated transfer on AMD/NVIDIA).
+    // When transfer aliases graphics (Intel iGPU etc.) the pool is still
+    // correct - it's just on the same family.
+    const QueueFamilyIndices& qfi = device.GetQueueFamilyIndices();
+    m_TransferFamily = qfi.TransferFamily.value_or(qfi.GraphicsFamily.value_or(0));
+
+    VkCommandPoolCreateInfo tpci{};
+    tpci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    tpci.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+                            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    tpci.queueFamilyIndex = m_TransferFamily;
+
+    if (!VK_CHECK(vkCreateCommandPool(device.GetDevice(), &tpci, nullptr, &m_TransferPool)))
+    {
+        VCKLog::Error("VMM", "Failed to create transfer command pool (family=" +
+              std::to_string(m_TransferFamily) + ")");
+        return false;
+    }
+
+    VCKLog::Info("VMM", "Transfer command pool bound to family " +
+          std::to_string(m_TransferFamily) +
+          (qfi.HasDedicatedTransfer() ? " (dedicated)" : " (aliased to graphics)"));
+
     // ── Staging ring ──────────────────────────────────────────────────────────
     m_Ring.buffer   = VmmRawAlloc::CreateStaging(device, config.stagingRingSize);
     m_Ring.capacity = config.stagingRingSize;
@@ -445,6 +472,15 @@ void VulkanMemoryManager::Shutdown()
     // Free transient blocks
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         VmmRawAlloc::FreeBuffer(*m_Device, m_Transient[i].buffer);
+
+    // Destroy the transfer command pool (also implicitly frees any lingering
+    // command buffers allocated from it - should be none since SubmitStagingCmd
+    // always frees after submit + wait).
+    if (m_TransferPool != VK_NULL_HANDLE)
+    {
+        vkDestroyCommandPool(m_Device->GetDevice(), m_TransferPool, nullptr);
+        m_TransferPool = VK_NULL_HANDLE;
+    }
 
     m_Device  = nullptr;
     m_Command = nullptr;
@@ -736,10 +772,12 @@ bool VulkanMemoryManager::EnsureStagingCmd()
 {
     if (m_StagingOpen) return true;
 
-    // Allocate a one-shot command buffer from the existing pool
+    // Allocate a one-shot command buffer from VMM's transfer-family pool.
+    // Must match the queue family that SubmitStagingCmd will submit to
+    // (VUID-vkQueueSubmit-pCommandBuffers-00074).
     VkCommandBufferAllocateInfo ai{};
     ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.commandPool        = m_Command->GetCommandPool();
+    ai.commandPool        = m_TransferPool;
     ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
 
@@ -753,7 +791,7 @@ bool VulkanMemoryManager::EnsureStagingCmd()
     if (!VK_CHECK(vkBeginCommandBuffer(m_StagingCmd, &bi)))
     {
         vkFreeCommandBuffers(m_Device->GetDevice(),
-                             m_Command->GetCommandPool(), 1, &m_StagingCmd);
+                             m_TransferPool, 1, &m_StagingCmd);
         m_StagingCmd = VK_NULL_HANDLE;
         return false;
     }
@@ -812,7 +850,7 @@ void VulkanMemoryManager::SubmitStagingCmd()
     }
 
     vkFreeCommandBuffers(m_Device->GetDevice(),
-                         m_Command->GetCommandPool(), 1, &m_StagingCmd);
+                         m_TransferPool, 1, &m_StagingCmd);
     m_StagingCmd  = VK_NULL_HANDLE;
     m_StagingOpen = false;
 }

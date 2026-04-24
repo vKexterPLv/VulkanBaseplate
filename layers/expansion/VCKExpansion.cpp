@@ -81,8 +81,13 @@ void VulkanOneTimeCommand::End()
     }
     else
     {
-        VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, submitFence));
-        vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+        // Only wait on the fence if the submit itself succeeded - otherwise
+        // the fence is never signaled and vkWaitForFences(UINT64_MAX) would
+        // hang forever.  VK_CHECK logs the VkResult on failure (rule 14).
+        if (VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, submitFence)))
+        {
+            vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+        }
         vkDestroyFence(m_Device->GetDevice(), submitFence, nullptr);
     }
 

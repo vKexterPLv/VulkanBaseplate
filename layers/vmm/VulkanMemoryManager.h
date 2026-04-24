@@ -419,7 +419,17 @@ private:
 
     std::array<TransientBlock, MAX_FRAMES_IN_FLIGHT> m_Transient{};
 
-    // Staging uses a dedicated one-time command buffer (not the per-frame ones)
+    // Staging uses a dedicated one-time command buffer (not the per-frame ones).
+    //
+    // v0.3: VMM owns its own VkCommandPool bound to the transfer queue family
+    // (which may be dedicated or aliased to graphics).  This is required by
+    // VUID-vkQueueSubmit-pCommandBuffers-00074: the pool a command buffer was
+    // allocated from must belong to the same queue family as the queue it is
+    // submitted to.  Using VulkanCommand's graphics pool here would violate
+    // the spec on AMD/NVIDIA (dedicated transfer family) and trigger GPU
+    // hang / corruption.
+    VkCommandPool   m_TransferPool = VK_NULL_HANDLE;
+    uint32_t        m_TransferFamily = 0;
     VkCommandBuffer m_StagingCmd  = VK_NULL_HANDLE;
     bool            m_StagingOpen = false;
 
