@@ -243,6 +243,10 @@ namespace VCK::SecondaryCmdExample {
         Init();
         while (!window.ShouldClose())
         {
+            // Match the pattern every other example uses: block on events while
+            // minimized so we don't burn CPU polling + early-returning from
+            // DrawFrame when there is no surface to render into.
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
             window.PollEvents();
             DrawFrame();
         }

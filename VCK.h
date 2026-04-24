@@ -28,10 +28,13 @@
 //          VulkanSync.{h,cpp}         Per-frame semaphores + fences.
 //          VmaImpl.cpp                VMA single TU (VMA_IMPLEMENTATION).
 //      expansion/                - reusable rendering building blocks.
-//          VCKExpansion.{h,cpp}       Classes [1]-[12] + HandleLiveResize.
+//          VCKExpansion.{h,cpp}       Classes [1]-[12] + [23]-[25] +
+//                                      HandleLiveResize overloads.
+//          VCKMath.h                  Vec2/3/4, Mat4 + free helpers.
 //      execution/                - frame scheduling & observability.
 //          VCKExecution.{h,cpp}       Classes [13]-[22] + timeline-aware
-//                                      HandleLiveResize overloads.
+//                                      and scheduler-aware HandleLiveResize
+//                                      overloads.
 //      vmm/                      - memory manager (optional).
 //          VulkanMemoryManager.{h,cpp}
 //  vendor/                       - source-only third-party deps (in repo).
@@ -43,7 +46,8 @@
 //          libglfw3.a            - GLFW pre-compiled MinGW lib (download,
 //                                  not source - Linux/macOS use pkg-config).
 //      build.bat / build.sh      - Windows / Linux+macOS build scripts.
-//      <9 example dirs>          - see example/README.md or docs/Examples.md.
+//      <13 example dirs>         - see example/README.md or docs/Examples.md.
+//                                   Menu now runs [1]-[13], [A] builds all.
 //  docs/                         - design, build, examples, API reference.
 //  .github/workflows/build.yml   - CI (Windows runner, build.bat [A]).
 //
@@ -164,8 +168,31 @@
 //    [23] VertexLayout               named vertex-input builder.
 //    [24] PushConstants              named push-constant block.
 //    [25] Primitives                 Cube/Plane/Sphere/Quad/Line mesh builders.
+//    VCK::Vec2/3/4 + Mat4           POD math primitives (VCKMath.h).
 //    HandleLiveResize(window, dev, sc, fb, pipe)           base overload.
 //    HandleLiveResize(window, dev, sc, fb, pipe, depth)    + depth buffer.
+//    HandleLiveResize(window, sc, fb, pipe, scheduler)     scheduler-aware
+//                                                           (v0.3: drains the
+//                                                           scheduler's timeline
+//                                                           or fences instead
+//                                                           of vkDeviceWaitIdle).
+//    HandleLiveResize(window, sc, fb, pipe, depth, sch)    + depth buffer.
+//    VulkanCommand::AllocateSecondary / BeginSecondary / EndSecondary /
+//    FreeSecondary / ExecuteSecondaries                    secondary command
+//                                                           buffer lifecycle
+//                                                           (v0.3).
+//    VulkanDevice::HasTimelineSemaphores()                 reports whether
+//                                                           VK_KHR_timeline_semaphore
+//                                                           is enabled at
+//                                                           device-create time
+//                                                           (v0.3).
+//    VulkanDevice::GetComputeQueue / GetTransferQueue      dedicated queues,
+//                                                           fall back to
+//                                                           graphics queue +
+//                                                           VCKLog::Notice
+//                                                           when vendor does
+//                                                           not expose them
+//                                                           (v0.3).
 //  layers/execution/
 //    [13] FramePolicy / FrameConfig  Pipelined | Lockstep | AsyncMax.
 //    [14] TimelineSemaphore          VK_KHR_timeline_semaphore wrapper.
@@ -180,6 +207,19 @@
 //    [22] FrameScheduler             the whole loop as one object.
 //    HandleLiveResize(window, dev, sc, fb, pipe, timeline)
 //    HandleLiveResize(window, dev, sc, fb, pipe, depth, timeline)
+//    FrameScheduler::FrameTimeline()                       the scheduler's
+//                                                           per-scheduler
+//                                                           TimelineSemaphore
+//                                                           (v0.3).
+//    FrameScheduler::SlotToken(slot)                       DependencyToken
+//                                                           bound to the
+//                                                           slot's last signalled
+//                                                           timeline value.
+//    FrameScheduler::DrainInFlight()                       wait on every slot's
+//                                                           most recent submit
+//                                                           without touching
+//                                                           vkDeviceWaitIdle
+//                                                           (v0.3).
 //  layers/vmm/ (optional)
 //    VmmRawAlloc / VmmRegistry / VulkanMemoryManager - see its header.
 //
@@ -187,6 +227,15 @@
 //  ──────────────────────────
 //  debug                           surfaces VCKLog Info lines when true.
 //  context.{appName, validation}   instance-layer config.
+//  device.{preferDiscreteGpu,      physical-device selection + extras.
+//          extraDeviceExtensions,
+//          queuePref,
+//          enableTimelineSemaphores,  v0.3: chain VK_KHR_timeline_semaphore
+//          enableDedicatedComputeQueue,  when the device supports it; when
+//          enableDedicatedTransferQueue} off VulkanDevice::HasTimeline-
+//                                     Semaphores()/GetComputeQueue()/
+//                                     GetTransferQueue() fall back to the
+//                                     graphics queue (rule 19).
 //  swapchain.{presentMode,         mailbox/fifo/immediate, 1/2/4/8 or
 //             msaaSamples,         MSAA_AUTO sentinel (pick from device).
 //             preferredSurfaceFmt}
@@ -204,8 +253,12 @@
 //   1 Explicit > magic.     Init/Shutdown pairs, no singletons.
 //   2 No ownership leaks.   Expansion/execution borrow core by pointer.
 //   3 Strict lifecycle order (see INIT / SHUTDOWN ORDER above).
-//   4 No hidden sync - except vkDeviceWaitIdle in Swapchain::Recreate
-//     and HandleLiveResize (both user-triggered, both logged).
+//   4 No hidden sync - only Shutdown() paths may call vkDeviceWaitIdle;
+//     the runtime hot path never does (v0.3: scheduler-aware HandleLiveResize
+//     drains via FrameScheduler::DrainInFlight, and VMM staging uses a
+//     per-submit VkFence).  The legacy Swapchain::Recreate default still
+//     calls vkDeviceWaitIdle unless the caller passes drainedExternally=true
+//     (scheduler-aware path).
 //   5 Frame-scoped or persistent; no orphan allocations.
 //   6 No hidden behaviour.  Every non-trivial decision is logged.
 //   7 User owns the frame, opt in to FrameScheduler.
@@ -869,7 +922,10 @@
 ────────────────────────────────────────────────────────────────────────────────
  bool               VulkanSwapchain::Initialize(VulkanDevice&, VkSurfaceKHR, uint32_t w, uint32_t h)
  void               VulkanSwapchain::Shutdown()
- bool               VulkanSwapchain::Recreate(uint32_t width, uint32_t height)
+ bool               VulkanSwapchain::Recreate(uint32_t width, uint32_t height,
+                                               bool drainedExternally = false)
+ // v0.3: drainedExternally=true skips the internal vkDeviceWaitIdle; the
+ // scheduler-aware HandleLiveResize overload sets it after DrainInFlight().
  bool               VulkanSwapchain::CreateSwapchain(uint32_t width, uint32_t height)
  void               VulkanSwapchain::DestroySwapchainResources()
  VkSurfaceFormatKHR VulkanSwapchain::ChooseSurfaceFormat(const vector<VkSurfaceFormatKHR>&) const
@@ -915,6 +971,16 @@
  void VulkanCommand::Shutdown()
  bool VulkanCommand::BeginRecording(uint32_t frameIndex)
  bool VulkanCommand::EndRecording  (uint32_t frameIndex)
+ // v0.3 secondary command buffer API (same pool, caller-serialised):
+ VkCommandBuffer VulkanCommand::AllocateSecondary()
+ void            VulkanCommand::FreeSecondary(VkCommandBuffer)
+ bool            VulkanCommand::BeginSecondary(VkCommandBuffer,
+                                                const VkCommandBufferInheritanceInfo&,
+                                                VkCommandBufferUsageFlags extraFlags = 0)
+ bool            VulkanCommand::EndSecondary(VkCommandBuffer)
+ static void     VulkanCommand::ExecuteSecondaries(VkCommandBuffer primary,
+                                                    const VkCommandBuffer* secondaries,
+                                                    uint32_t count)
 
 ────────────────────────────────────────────────────────────────────────────────
  VulkanSync.cpp

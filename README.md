@@ -30,10 +30,14 @@ Drop one header:
 and an optional frame scheduler with a CPU job graph + GPU submission
 batcher.
 
-**What's in the box (v0.2):**
+**What's in the box (v0.3):**
 
 - **Cross-platform**: Windows / Linux / macOS via `VCK::Window` + `VCK_PLATFORM_*` macros — no raw GLFW or Win32 in user code.
-- **Live resize as a first-class feature**: `VCK::HandleLiveResize(window, dev, sc, fb, pipe)` handles any resize including 720p → 4K. One call per frame.
+- **Live resize as a first-class feature**: `VCK::HandleLiveResize(window, ...)` handles any resize including 720p → 4K. One call per frame. The scheduler-aware overload (v0.3) drains via `FrameScheduler::DrainInFlight()` instead of `vkDeviceWaitIdle`.
+- **Frame retirement in one word** (v0.3): `FrameScheduler` owns one `TimelineSemaphore`; `EndFrame` signals a monotonic per-slot value and `BeginFrame` waits on it with a single `vkWaitSemaphores`. Fence-path fallback when `VK_KHR_timeline_semaphore` isn't available.
+- **Dedicated compute / transfer queues** (v0.3): `VulkanDevice` picks compute-only + transfer-only families where the vendor exposes them; VMM staging submits to the dedicated transfer queue with release/acquire ownership barriers back to graphics.
+- **Secondary command buffers** (v0.3): `VulkanCommand::AllocateSecondary / BeginSecondary / EndSecondary / ExecuteSecondaries` for multi-threaded record-then-execute patterns.
+- **Ergonomic shader API** (v0.2.1): `VCKMath` (Vec2/3/4, Mat4, Perspective/LookAt), `VertexLayout`, `PushConstants`, `Primitives::Cube/Plane/Sphere/Quad/Line` — cube setup goes from ~40 lines of vertex tables to one call.
 - **Anti-aliasing framework**: `cfg.aa.technique = AATechnique::Auto` runs a 5-step decision tree (VRAM tier → forward path → motion vectors → pick) once at `Swapchain::Initialize`. Sample-based (MSAA / A2C / SampleRate) is implemented; post-process names (FXAA / SMAA / TAA / TAAU) are returned to the renderer.
 - **Structured logging**: `VCK::VCKLog` with `Info` / `Notice` / `Warn` / `Error` levels, console-spam dedup, `cfg.debug` opt-in. `VK_CHECK` routes failures to `Error` directly — fail loud by default.
 - **22 design rules** enforced: explicit over magic, no hidden state, frame is the unit of truth, external synchronisation, zero cost for unused features, every public API has an example, `VCK.h` is the API surface. See [`docs/Design.md`](docs/Design.md).
@@ -177,30 +181,35 @@ pipe.Initialize(dev, sc, shaders, vi);    // pulls msaaSamples from the swapchai
 
 Mailbox requests fall back to FIFO if the driver doesn't expose it, and
 `framesInFlight` is clamped to the compile-time upper bound
-`VCK::MAX_FRAMES_IN_FLIGHT` (= 3). Deeper pipelining needs
-`VK_KHR_timeline_semaphore` — a separate track.
+`VCK::MAX_FRAMES_IN_FLIGHT` (= 8). v0.3 enables `VK_KHR_timeline_semaphore`
+at device-create time when the adapter supports it (functionally every
+modern GPU); `FrameScheduler` uses it by default.
 
 ## Examples
 
-Nine runnable examples in `example/`. All follow a 3-file + `assets/` layout
-(`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the cross-platform
-`VCK::Window` facade and `VCK::HandleLiveResize` (so resizing from 720p to 4K
-is handled in-library). Build with:
+Thirteen runnable examples in `example/`. All follow a 3-file + `assets/`
+layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
+cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
+from 720p to 4K is handled in-library). Build with:
 
 - Windows: `example/build.bat` (MinGW g++)
 - Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
 
-| # | Example                     | Demonstrates |
-|---|-----------------------------|--------------|
-| 1 | `RGBTriangle`               | coloured triangle, live resize |
-| 2 | `MipmapExample`             | texture upload + mip generation + sampling |
-| 3 | `VMMExample`                | VMM persistent / transient / staging |
-| 4 | `HelloExample`              | smallest `FrameScheduler` program |
-| 5 | `JobGraphExample`           | CPU task graph with dependencies |
-| 6 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
-| 7 | `SubmissionBatchingExample` | 2 cmd buffers → 1 `vkQueueSubmit` |
-| 8 | `TimelineExample`           | `TimelineSemaphore` + `DependencyToken` |
-| 9 | `DebugTimelineExample`      | span recorder + `Dump` every 120 frames |
+| #  | Example                     | Demonstrates |
+|----|-----------------------------|--------------|
+|  1 | `RGBTriangle`               | coloured triangle, live resize |
+|  2 | `MipmapExample`             | texture upload + mip generation + sampling |
+|  3 | `VMMExample`                | VMM persistent / transient / staging |
+|  4 | `HelloExample`              | smallest `FrameScheduler` program |
+|  5 | `JobGraphExample`           | CPU task graph with dependencies |
+|  6 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
+|  7 | `SubmissionBatchingExample` | 2 cmd buffers → 1 `vkQueueSubmit` |
+|  8 | `TimelineExample`           | `TimelineSemaphore` + `DependencyToken` |
+|  9 | `DebugTimelineExample`      | span recorder + `Dump` every 120 frames |
+| 10 | `DebugShowcaseExample`      | every `VCKLog` level, dedup, `VK_CHECK` path |
+| 11 | `AAShowcaseExample`         | `DetectRecommendedAA` matrix + live auto-pick |
+| 12 | `EasyCubeExample`           | `Primitives::Cube` + `VertexLayout` + `PushConstants` + `VCKMath` |
+| 13 | `SecondaryCmdExample`       | secondary command buffers + scheduler-aware resize (v0.3) |
 
 Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
@@ -220,7 +229,7 @@ cd example
 ./build.sh
 ```
 
-Both scripts share the same `[1]-[9] / [A] / [0]` menu and print a
+Both scripts share the same `[1]-[13] / [A] / [0]` menu and print a
 diagnostic if tools or dependencies are missing. Full step-by-step:
 [`docs/Build.md`](docs/Build.md).
 

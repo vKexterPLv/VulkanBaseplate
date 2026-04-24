@@ -946,16 +946,16 @@ void FrameScheduler::WaitInFlightFence(uint32_t slot)
         VkFence fence = m_Sync->GetInFlightFence(slot);
         if (fence != VK_NULL_HANDLE)
         {
-            // vkResetFences is only legal after the fence has signalled.
-            // The corresponding vkQueueSubmit happens in EndFrame, which
-            // means on the first BeginFrame pass for this slot the fence
-            // has never been submitted - reset would fail validation.
-            // Only reset after the slot has actually run a frame.
-            if (m_SlotAbsolute[slot] != 0)
-            {
-                VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
-                VK_CHECK(vkResetFences (m_Device->GetDevice(), 1, &fence));
-            }
+            // VulkanSync creates fences with VK_FENCE_CREATE_SIGNALED_BIT, so
+            // on the first pass through a slot the fence is already signalled
+            // even though no submit has happened yet - wait returns immediately
+            // and reset transitions it to unsignalled for the upcoming EndFrame
+            // submit.  If we skip the reset here (e.g. gated on m_SlotAbsolute)
+            // EndFrame would call vkQueueSubmit with a signalled fence and hit
+            // VUID-vkQueueSubmit-fence-00064.  Subsequent passes match the
+            // non-timeline path below.
+            VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
+            VK_CHECK(vkResetFences (m_Device->GetDevice(), 1, &fence));
         }
     }
     else

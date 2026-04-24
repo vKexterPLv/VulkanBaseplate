@@ -2,13 +2,13 @@
 
 # Examples &nbsp;·&nbsp; `example/build.bat`
 
-Eleven runnable examples. Pick from the menu, build runs in seconds.
+Thirteen runnable examples. Pick from the menu, build runs in seconds.
 
 </div>
 
 ---
 
-Eleven runnable examples in `example/`, each built from the menu in
+Thirteen runnable examples in `example/`, each built from the menu in
 `example/build.bat`.
 
 ---
@@ -50,15 +50,18 @@ each one emphasises a different piece of the execution layer.
 | 8 | `TimelineExample`           | `TimelineSemaphore::Initialize` probe + host `Signal` / `DependencyToken::WaitHost` round-trip (logs fallback when the device feature is off) |
 | 9 | `DebugTimelineExample`      | `cfg.enableTimeline = true`, user `BeginCpuSpan` / `EndCpuSpan` / `NoteStall`, `scheduler.Timeline().Dump()` every 120 frames |
 
-## Showcase (guided tours of new v0.2 APIs)
+## Showcase (guided tours of v0.2 / v0.2.1 / v0.3 APIs)
 
-No new concepts here — these just exercise the v0.2 debug and AA surfaces
-end-to-end so you can see everything live without writing your own scaffolding.
+No new concepts here — these just exercise the newer debug, AA, ergonomic,
+and synchronisation surfaces end-to-end so you can see everything live
+without writing your own scaffolding.
 
 | #  | Example                 | Demonstrates |
 |----|-------------------------|--------------|
 | 10 | `DebugShowcaseExample`  | every `VCKLog` level, `cfg.debug` gating, dedup, `VK_CHECK` fail-loud path (rule 14), GPU / driver / memory / surface dump — no draw loop, pure tour |
 | 11 | `AAShowcaseExample`     | `DetectRecommendedAA` decision matrix printed across `forward`×`motionVectors` combinations, live swapchain auto-pick reported via `GetAATechnique()` + `GetMSAASamples()`, RGB triangle drawn with the picked AA so sample-based edges are visible |
+| 12 | `EasyCubeExample`       | `Primitives::Cube()` + `VertexLayout` + `PushConstants` + `VCKMath` (`Perspective` / `LookAt`) — spinning cube in ~50 lines (v0.2.1) |
+| 13 | `SecondaryCmdExample`   | `VulkanCommand::AllocateSecondary / BeginSecondary / EndSecondary / ExecuteSecondaries` — per-slot secondary re-recorded each frame, primary opens the render pass with `VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS`; uses the scheduler-aware `HandleLiveResize` (v0.3) |
 
 ## Building
 
