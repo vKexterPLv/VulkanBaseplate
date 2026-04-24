@@ -242,6 +242,7 @@ maintainer can push them to the `*.wiki.git` repo at any time.
 | Page | Covers |
 |------|--------|
 | [`docs/Home.md`](docs/Home.md)                     | index + layer map |
+| [`docs/Overview.md`](docs/Overview.md)             | **one-page tour**: what VCK is / gives / never takes, modern v0.3 optimisations, why it's fresh |
 | [`docs/Core-API.md`](docs/Core-API.md)             | `VCK.h` — Context / Device / Swapchain / Pipeline / Command / Sync / Buffer / Image |
 | [`docs/Expansion-API.md`](docs/Expansion-API.md)   | `VCKExpansion.h` — framebuffers, depth, samplers, textures, meshes, descriptors, mipmaps |
 | [`docs/Execution-Layer.md`](docs/Execution-Layer.md) | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `QueueSet`, `DebugTimeline` |

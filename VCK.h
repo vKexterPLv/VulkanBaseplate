@@ -49,6 +49,9 @@
 //      <13 example dirs>         - see example/README.md or docs/Examples.md.
 //                                   Menu now runs [1]-[13], [A] builds all.
 //  docs/                         - design, build, examples, API reference.
+//                                  Start with docs/Overview.md for the
+//                                  one-page "what VCK is / gives / never
+//                                  takes / modern v0.3 optimisations" tour.
 //  .github/workflows/build.yml   - CI (Windows runner, build.bat [A]).
 //
 //  LAYERING

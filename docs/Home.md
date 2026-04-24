@@ -69,6 +69,7 @@ That's the whole library. The rest of this wiki is deep-dive reference.
 
 | Page | Covers |
 |------|--------|
+| [Overview](Overview)                 | One-page tour: what VCK is / gives / never takes, modern optimisations (v0.3), why it's fresh, honest summary |
 | [Core API](Core-API)                 | `VCK.h` — Context, Device, Swapchain, Pipeline, Command, Sync, Buffer, Image, Window |
 | [Expansion API](Expansion-API)       | `VCKExpansion.h` — framebuffers, depth, samplers, textures, meshes, descriptors, mipmaps |
 | [Execution Layer](Execution-Layer)   | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `DependencyToken`, `QueueSet`, `DebugTimeline` |
