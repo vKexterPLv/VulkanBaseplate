@@ -870,6 +870,14 @@ void VulkanMemoryManager::SubmitStagingCmd()
     VkFenceCreateInfo fi{};
     fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
+    // Tracks whether the transfer submit actually executed on the GPU so we
+    // can decide whether the release barriers ran.  When false, the staging
+    // command (containing UNDEFINED->TRANSFER_DST transitions, copies, and
+    // release halves) never executed, so the matching acquire halves would
+    // issue layout transitions against resources whose actual layout is
+    // still UNDEFINED - undefined behavior per spec.
+    bool transferSucceeded = false;
+
     VkFence submitFence = VK_NULL_HANDLE;
     if (!VK_CHECK(vkCreateFence(m_Device->GetDevice(), &fi, nullptr, &submitFence)))
     {
@@ -877,8 +885,11 @@ void VulkanMemoryManager::SubmitStagingCmd()
         // Fall back to the legacy path (queue wait) rather than leaking the
         // staging command buffer.  Rule 14: noisy, not silent.
         VCKLog::Warn("VMM", "Staging fence creation failed; falling back to queue wait.");
-        vkQueueSubmit(stagingQueue, 1, &si, VK_NULL_HANDLE);
-        vkQueueWaitIdle(stagingQueue);
+        if (VK_CHECK(vkQueueSubmit(stagingQueue, 1, &si, VK_NULL_HANDLE)))
+        {
+            if (VK_CHECK(vkQueueWaitIdle(stagingQueue)))
+                transferSucceeded = true;
+        }
     }
     else
     {
@@ -888,8 +899,18 @@ void VulkanMemoryManager::SubmitStagingCmd()
             // other work on the same queue, and leaves the graphics queue
             // untouched entirely when a dedicated transfer queue exists.
             vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+            transferSucceeded = true;
         }
         vkDestroyFence(m_Device->GetDevice(), submitFence, nullptr);
+    }
+
+    // If the transfer submit failed, the release barriers never executed.
+    // Discard pending acquires to avoid issuing layout transitions with a
+    // mismatched oldLayout (resource is still in its pre-staging state).
+    if (!transferSucceeded)
+    {
+        m_PendingAcquireBuffers.clear();
+        m_PendingAcquireImages.clear();
     }
 
     vkFreeCommandBuffers(m_Device->GetDevice(),
