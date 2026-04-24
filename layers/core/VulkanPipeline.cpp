@@ -60,7 +60,7 @@ namespace VCK {
         if (!CreatePipelineLayout())               return false;
         if (!CreateGraphicsPipeline(shaders, vertexInput)) return false;
 
-        LogVk("VulkanPipeline initialized");
+        VCKLog::Info("Pipeline", "Initialized");
         return true;
     }
 
@@ -76,7 +76,7 @@ namespace VCK {
         if (m_RenderPass) { vkDestroyRenderPass(device, m_RenderPass, nullptr); m_RenderPass = VK_NULL_HANDLE; }
 
         m_Device = nullptr;
-        LogVk("VulkanPipeline shut down");
+        VCKLog::Info("Pipeline", "Shut down");
     }
 
 

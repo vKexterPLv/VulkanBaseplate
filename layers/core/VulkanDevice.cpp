@@ -32,28 +32,28 @@ namespace VCK {
 
     bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface)
     {
-        LogVk("[Device] Selecting physical device...");
+        VCKLog::Info("Device", "Selecting physical device...");
         if (!PickPhysicalDevice(instance, surface))
         {
-            LogVk("[Device] ERROR - no suitable GPU found");
+            VCKLog::Error("Device", "No suitable GPU found");
             return false;
         }
 
-        LogVk("[Device] Creating logical device...");
+        VCKLog::Info("Device", "Creating logical device...");
         if (!CreateLogicalDevice())
         {
-            LogVk("[Device] ERROR - logical device creation failed");
+            VCKLog::Error("Device", "Logical device creation failed");
             return false;
         }
 
-        LogVk("[Device] Creating VMA allocator...");
+        VCKLog::Info("Device", "Creating VMA allocator...");
         if (!CreateAllocator(instance))
         {
-            LogVk("[Device] ERROR - VMA allocator creation failed");
+            VCKLog::Error("Device", "VMA allocator creation failed");
             return false;
         }
 
-        LogVk("[Device] Initialized OK");
+        VCKLog::Notice("Device", "Initialized OK");
         return true;
     }
 
@@ -63,7 +63,7 @@ namespace VCK {
         {
             vmaDestroyAllocator(m_Allocator);
             m_Allocator = VK_NULL_HANDLE;
-            LogVk("[Device] VMA allocator destroyed");
+            VCKLog::Info("Device", "VMA allocator destroyed");
         }
 
         if (m_LogicalDevice != VK_NULL_HANDLE)
@@ -72,7 +72,7 @@ namespace VCK {
             m_LogicalDevice = VK_NULL_HANDLE;
             m_GraphicsQueue = VK_NULL_HANDLE;
             m_PresentQueue = VK_NULL_HANDLE;
-            LogVk("[Device] Logical device destroyed");
+            VCKLog::Info("Device", "Logical device destroyed");
         }
 
         m_PhysicalDevice = VK_NULL_HANDLE;
@@ -89,14 +89,14 @@ namespace VCK {
 
         if (deviceCount == 0)
         {
-            LogVk("[Device] No Vulkan-capable GPUs found");
+            VCKLog::Error("Device", "No Vulkan-capable GPUs found");
             return false;
         }
 
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-        LogVk("[Device] Found " + std::to_string(deviceCount) + " GPU(s):");
+        VCKLog::Info("Device", "Found " + std::to_string(deviceCount) + " GPU(s):");
 
         VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
         int              bestScore = -1;
@@ -126,7 +126,8 @@ namespace VCK {
             default: break;
             }
 
-            LogVk(std::string("  [") + properties.deviceName + "] " +
+            VCKLog::Info("Device",
+                std::string("  [") + properties.deviceName + "] " +
                 typeString + " | VRAM: " + std::to_string(vramBytes / (1024ull * 1024ull)) + " MB");
 
             int score = ScorePhysicalDevice(device, surface);
@@ -145,7 +146,7 @@ namespace VCK {
 
         VkPhysicalDeviceProperties chosen{};
         vkGetPhysicalDeviceProperties(bestDevice, &chosen);
-        LogVk(std::string("[Device] Selected: ") + chosen.deviceName);
+        VCKLog::Notice("Device", std::string("Selected: ") + chosen.deviceName);
 
         return true;
     }
@@ -218,7 +219,7 @@ namespace VCK {
             }
             if (!found)
             {
-                LogVk(std::string("[Device] Missing required extension: ") + needed);
+                VCKLog::Error("Device", std::string("Missing required extension: ") + needed);
                 return false;
             }
         }
@@ -416,8 +417,8 @@ namespace VCK {
         else
             queueSummary += " | transfer: aliased to graphics";
 
-        LogVk("[Device] Queues OK - " + queueSummary);
-        LogVk(std::string("[Device] Timeline semaphores: ") +
+        VCKLog::Notice("Device", "Queues OK - " + queueSummary);
+        VCKLog::Notice("Device", std::string("Timeline semaphores: ") +
               (m_TimelineSemaphoresEnabled ? "enabled" : "disabled"));
 
         return true;
@@ -436,7 +437,7 @@ namespace VCK {
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_2;
 
         VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator));
-        LogVk("[Device] VMA allocator ready");
+        VCKLog::Info("Device", "VMA allocator ready");
         return true;
     }
 

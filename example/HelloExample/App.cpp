@@ -269,8 +269,8 @@ namespace VCK::HelloExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        LogVk("[HelloExample] FrameScheduler running with FramePolicy::Pipelined.");
-        LogVk(std::string("[HelloExample] \"") + kText + "\" -- "
+        VCKLog::Notice("HelloExample", "FrameScheduler running with FramePolicy::Pipelined.");
+        VCKLog::Notice("HelloExample", std::string("\"") + kText + "\" -- "
               + std::to_string(numQuads)       + " quads, "
               + std::to_string(numVerts)       + " verts, "
               + std::to_string(indices.size()) + " indices.");

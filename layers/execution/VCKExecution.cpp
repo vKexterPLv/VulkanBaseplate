@@ -30,7 +30,7 @@ bool TimelineSemaphore::Initialize(VulkanDevice& device, uint64_t initialValue)
     const VkResult r = vkCreateSemaphore(device.GetDevice(), &ci, nullptr, &m_Sem);
     if (r != VK_SUCCESS)
     {
-        LogVk("[TimelineSemaphore] vkCreateSemaphore failed (VkResult=" +
+        VCKLog::Error("TimelineSemaphore", "vkCreateSemaphore failed (VkResult=" +
               std::to_string(static_cast<int>(r)) +
               "). The device was likely not created with timelineSemaphore=VK_TRUE; "
               "fall back to VulkanSync.");
@@ -220,7 +220,7 @@ void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag, uint3
     uint32_t clamped = maxLag == 0 ? 1u : maxLag;
     if (clamped > framesInFlight)
     {
-        LogVk(std::string("[BackpressureGovernor] asyncMaxLag=") +
+        VCKLog::Info("BackpressureGovernor", std::string("asyncMaxLag=") +
               std::to_string(maxLag) +
               " exceeds framesInFlight=" +
               std::to_string(framesInFlight) +
@@ -336,7 +336,7 @@ JobGraph::JobId JobGraph::Add(const char* name, Fn fn, std::initializer_list<Job
         }
         else
         {
-            LogVk(std::string("[JobGraph] Add('") +
+            VCKLog::Info("JobGraph", std::string("Add('") +
                   (name != nullptr ? name : "job") +
                   "'): ignoring invalid dep " + std::to_string(dep));
         }
@@ -558,11 +558,11 @@ void DebugTimeline::Dump()
     std::sort(snapshot.begin(), snapshot.end(),
               [](const Span& a, const Span& b) { return a.startUs < b.startUs; });
 
-    LogVk("[DebugTimeline] " + std::to_string(snapshot.size()) + " spans:");
+    VCKLog::Info("DebugTimeline", std::to_string(snapshot.size()) + " spans:");
     for (const Span& s : snapshot)
     {
         const uint64_t dur = s.endUs > s.startUs ? s.endUs - s.startUs : 0;
-        LogVk(std::string("  f=") + std::to_string(s.frame) +
+        VCKLog::Info("DebugTimeline", std::string("  f=") + std::to_string(s.frame) +
               " [" + s.track + "] " + s.name +
               " @" + std::to_string(s.startUs) + "us  dur=" +
               std::to_string(dur) + "us");
@@ -668,12 +668,12 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
 
     if (!m_Queues.Initialize(device))
     {
-        LogVk("[FrameScheduler] QueueSet::Initialize failed.");
+        VCKLog::Error("FrameScheduler", "QueueSet::Initialize failed.");
         return false;
     }
     if (!m_Submissions.Initialize(device, m_Queues))
     {
-        LogVk("[FrameScheduler] GpuSubmissionBatcher::Initialize failed.");
+        VCKLog::Error("FrameScheduler", "GpuSubmissionBatcher::Initialize failed.");
         return false;
     }
     // Runtime framesInFlight comes from VulkanSync (already clamped in its
@@ -703,7 +703,7 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
     m_Absolute = 0;
     m_InFrame  = false;
 
-    LogVk(std::string("[FrameScheduler] policy=") + FramePolicyName(cfg.policy) +
+    VCKLog::Info("FrameScheduler", std::string("policy=") + FramePolicyName(cfg.policy) +
           " maxLag="   + std::to_string(cfg.asyncMaxLag) +
           " workers="  + std::to_string(m_Jobs[0].WorkerCount()) +
           " timeline=" + (cfg.enableTimeline ? "on" : "off"));

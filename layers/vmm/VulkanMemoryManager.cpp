@@ -37,7 +37,7 @@ VmmBuffer VmmRawAlloc::CreateBuffer(VulkanDevice&      device,
                                  &result.buffer, &result.alloc, &allocInfo);
     if (r != VK_SUCCESS)
     {
-        LogVk("VmmRawAlloc::CreateBuffer failed: " + std::to_string(r));
+        VCKLog::Error("VMM", "VmmRawAlloc::CreateBuffer failed: " + std::to_string(r));
         return result;
     }
 
@@ -117,7 +117,7 @@ VmmImage VmmRawAlloc::CreateImage(VulkanDevice&      device,
                                 &result.image, &result.alloc, nullptr);
     if (r != VK_SUCCESS)
     {
-        LogVk("VmmRawAlloc::CreateImage failed: " + std::to_string(r));
+        VCKLog::Error("VMM", "VmmRawAlloc::CreateImage failed: " + std::to_string(r));
         return result;
     }
 
@@ -135,7 +135,7 @@ VmmImage VmmRawAlloc::CreateImage(VulkanDevice&      device,
 
     if (vkCreateImageView(device.GetDevice(), &vci, nullptr, &result.view) != VK_SUCCESS)
     {
-        LogVk("VmmRawAlloc::CreateImage - vkCreateImageView failed");
+        VCKLog::Error("VMM", "VmmRawAlloc::CreateImage - vkCreateImageView failed");
         vmaDestroyImage(device.GetAllocator(), result.image, result.alloc);
         result.image = VK_NULL_HANDLE;
         result.alloc = VK_NULL_HANDLE;
@@ -287,7 +287,7 @@ void VmmRegistry::FreeAll()
 // -----------------------------------------------------------------------------
 void VmmRegistry::LogStats() const
 {
-    LogVk("VMM Registry - " +
+    VCKLog::Info("VMM", "Registry - " +
           std::to_string(m_Buffers.size()) + " buffers, " +
           std::to_string(m_Images.size())  + " images tracked");
 
@@ -298,7 +298,7 @@ void VmmRegistry::LogStats() const
             entry.info.lifetime == Lifetime::FrameBuffered  ? "FrameBuffered"  :
             entry.info.lifetime == Lifetime::Persistent     ? "Persistent"     :
                                                               "Manual";
-        LogVk("  [buf " + std::to_string(id) + "] " +
+        VCKLog::Info("VMM", "  [buf " + std::to_string(id) + "] " +
               std::string(entry.info.debugName ? entry.info.debugName : "(unnamed)") +
               "  " + lt +
               "  size=" + std::to_string(entry.buf.size));
@@ -308,7 +308,7 @@ void VmmRegistry::LogStats() const
     {
         const char* lt =
             entry.info.lifetime == Lifetime::Persistent ? "Persistent" : "Manual";
-        LogVk("  [img " + std::to_string(id) + "] " +
+        VCKLog::Info("VMM", "  [img " + std::to_string(id) + "] " +
               std::string(entry.info.debugName ? entry.info.debugName : "(unnamed)") +
               "  " + lt +
               "  " + std::to_string(entry.img.width) + "x" + std::to_string(entry.img.height));
@@ -386,12 +386,12 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
 
     if (!m_Ring.buffer.IsValid())
     {
-        LogVk("VMM: failed to allocate staging ring (" +
+        VCKLog::Error("VMM", "Failed to allocate staging ring (" +
               std::to_string(config.stagingRingSize / (1024*1024)) + " MB)");
         return false;
     }
 
-    LogVk("VMM: staging ring " +
+    VCKLog::Info("VMM", "Staging ring " +
           std::to_string(config.stagingRingSize / (1024*1024)) + " MB allocated");
 
     // ── Transient blocks (one per frame slot) ─────────────────────────────────
@@ -414,12 +414,12 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
 
         if (!m_Transient[i].buffer.IsValid())
         {
-            LogVk("VMM: failed to allocate transient block for slot " + std::to_string(i));
+            VCKLog::Error("VMM", "Failed to allocate transient block for slot " + std::to_string(i));
             return false;
         }
     }
 
-    LogVk("VMM: " + std::to_string(MAX_FRAMES_IN_FLIGHT) + " transient blocks x " +
+    VCKLog::Info("VMM", std::to_string(MAX_FRAMES_IN_FLIGHT) + " transient blocks x " +
           std::to_string(config.transientBlockSize / (1024*1024)) + " MB allocated");
 
     return true;
@@ -504,7 +504,7 @@ bool VulkanMemoryManager::StageToBuffer(VmmBuffer&   dst,
 {
     if (!m_Ring.HasSpace(size))
     {
-        LogVk("VMM::StageToBuffer - staging ring full ("
+        VCKLog::Warn("VMM", std::string("StageToBuffer - staging ring full (")
               + std::to_string(m_Ring.writeHead) + "/"
               + std::to_string(m_Ring.capacity) + " bytes used)");
         return false;
@@ -536,7 +536,7 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
 {
     if (!m_Ring.HasSpace(size))
     {
-        LogVk("VMM::StageToImage - staging ring full");
+        VCKLog::Warn("VMM", "StageToImage - staging ring full");
         return false;
     }
 
@@ -633,7 +633,7 @@ VmmBuffer VulkanMemoryManager::AllocTransient(uint32_t     frameIndex,
     }
 
     // Overflow: fall back to a standalone allocation
-    LogVk("VMM::AllocTransient - block full for slot " + std::to_string(frameIndex) +
+    VCKLog::Warn("VMM", "AllocTransient - block full for slot " + std::to_string(frameIndex) +
           ", falling back to standalone alloc for '" +
           std::string(debugName ? debugName : "?") + "'");
 
@@ -715,13 +715,13 @@ void VulkanMemoryManager::FreeImage(VmmImage& img)
 // -----------------------------------------------------------------------------
 void VulkanMemoryManager::LogStats() const
 {
-    LogVk("VMM stats - ring: " +
+    VCKLog::Info("VMM", "Stats - ring: " +
           std::to_string(m_Ring.writeHead) + "/" +
           std::to_string(m_Ring.capacity) + " bytes in use");
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        LogVk("  transient[" + std::to_string(i) + "]: " +
+        VCKLog::Info("VMM", "  transient[" + std::to_string(i) + "]: " +
               std::to_string(m_Transient[i].offset) + "/" +
               std::to_string(m_Transient[i].capacity) + " bytes used");
     }

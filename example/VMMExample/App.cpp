@@ -478,7 +478,7 @@ namespace VCK::VMMExample {
         //  After this point the persistent buffers and texture are GPU-resident
         //  and the staging ring space is fully retired.
         vmm.FlushStaging();
-        LogVk("VMMExample: FlushStaging complete - persistent resources on GPU");
+        VCKLog::Info("VMMExample", "FlushStaging complete - persistent resources on GPU");
 
         // Wire texture into set 1
         set1Set = descAllocator.Allocate(modelPipeline.GetSet1Layout());

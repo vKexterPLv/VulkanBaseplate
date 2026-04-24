@@ -173,7 +173,7 @@ namespace VCK {
         if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR)    presentModeStr = "Mailbox";
         else if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR)  presentModeStr = "Immediate";
 
-        LogVk(std::string("[Swapchain] Format: ") + std::to_string(surfaceFormat.format) +
+        VCKLog::Info("Swapchain", std::string("Format: ") + std::to_string(surfaceFormat.format) +
             " | PresentMode: " + presentModeStr +
             " | Images: " + std::to_string(imageCount));
 
@@ -269,7 +269,7 @@ namespace VCK {
                     m_CfgSwapchain.msaaSamples);
                 if (!ok)
                 {
-                    LogVk("[Swapchain] ERROR - MSAA target[" + std::to_string(i) + "] creation failed");
+                    VCKLog::Error("Swapchain", "MSAA target[" + std::to_string(i) + "] creation failed");
                     return false;
                 }
             }
@@ -334,12 +334,12 @@ namespace VCK {
                 if (avail.format == m_CfgSwapchain.surfaceFormat &&
                     avail.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
                 {
-                    LogVk("[Swapchain] Using caller-requested surface format: " +
+                    VCKLog::Info("Swapchain", "Using caller-requested surface format: " +
                           std::to_string(avail.format));
                     return avail;
                 }
             }
-            LogVk("[Swapchain] Requested surface format not supported, falling back to defaults");
+            VCKLog::Warn("Swapchain", "Requested surface format not supported, falling back to defaults");
         }
 
         const VkFormat k_PreferredFormats[] = {
@@ -356,7 +356,7 @@ namespace VCK {
                 if (avail.format    == preferred &&
                     avail.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
                 {
-                    LogVk("[Swapchain] Selected surface format: " +
+                    VCKLog::Info("Swapchain", "Selected surface format: " +
                           std::to_string(avail.format));
                     return avail;
                 }
@@ -364,7 +364,7 @@ namespace VCK {
         }
 
         // Last resort: use whatever the driver gives us first.
-        LogVk("[Swapchain] No preferred surface format found - using fallback: " +
+        VCKLog::Warn("Swapchain", "No preferred surface format found - using fallback: " +
               std::to_string(available[0].format));
         return available[0];
     }

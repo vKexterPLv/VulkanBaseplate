@@ -664,7 +664,7 @@ bool VulkanModelPipeline::Initialize(VulkanDevice&                          devi
     if (!BuildPipelineLayout())                                              return false;
     if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput, samples))   return false;
 
-    LogVk("VulkanModelPipeline initialized");
+    VCKLog::Info("ModelPipeline", "Initialized");
     return true;
 }
 
@@ -679,7 +679,7 @@ void VulkanModelPipeline::Shutdown()
     if (m_Set0Layout)     { vkDestroyDescriptorSetLayout(dev,  m_Set0Layout,     nullptr); m_Set0Layout     = VK_NULL_HANDLE; }
 
     m_Device = nullptr;
-    LogVk("VulkanModelPipeline shut down");
+    VCKLog::Info("ModelPipeline", "Shut down");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

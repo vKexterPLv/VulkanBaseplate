@@ -20,7 +20,7 @@ namespace VCK {
         uint32_t requested = cfg.sync.framesInFlight;
         if (requested == 0) requested = 1;
         if (requested > MAX_FRAMES_IN_FLIGHT) {
-            LogVk("[Command] framesInFlight=" + std::to_string(requested) +
+            VCKLog::Warn("Command", "framesInFlight=" + std::to_string(requested) +
                   " exceeds MAX_FRAMES_IN_FLIGHT=" + std::to_string(MAX_FRAMES_IN_FLIGHT) +
                   ", clamping");
             requested = MAX_FRAMES_IN_FLIGHT;
@@ -49,7 +49,7 @@ namespace VCK {
         if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
             return false;
 
-        LogVk("VulkanCommand initialized - pool + "
+        VCKLog::Info("Command", std::string("Initialized - pool + ")
             + std::to_string(m_FramesInFlight) + " command buffers");
         return true;
     }
@@ -67,7 +67,7 @@ namespace VCK {
         }
 
         m_Device = nullptr;
-        LogVk("VulkanCommand shut down");
+        VCKLog::Info("Command", "Shut down");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
