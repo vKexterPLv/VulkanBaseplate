@@ -387,7 +387,8 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
     // When transfer aliases graphics (Intel iGPU etc.) the pool is still
     // correct - it's just on the same family.
     const QueueFamilyIndices& qfi = device.GetQueueFamilyIndices();
-    m_TransferFamily = qfi.TransferFamily.value_or(qfi.GraphicsFamily.value_or(0));
+    m_GraphicsFamily = qfi.GraphicsFamily.value_or(0);
+    m_TransferFamily = qfi.TransferFamily.value_or(m_GraphicsFamily);
 
     VkCommandPoolCreateInfo tpci{};
     tpci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -558,6 +559,27 @@ bool VulkanMemoryManager::StageToBuffer(VmmBuffer&   dst,
     region.size      = size;
     vkCmdCopyBuffer(m_StagingCmd, m_Ring.buffer.buffer, dst.buffer, 1, &region);
 
+    // Release ownership to graphics family when transfer is dedicated.
+    // The matching acquire barrier will be recorded on the graphics queue
+    // in SubmitStagingCmd after the transfer fence retires.  Spec §7.7.4.
+    if (FamiliesDiffer())
+    {
+        VkBufferMemoryBarrier release{};
+        release.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        release.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+        release.dstAccessMask       = 0;                           // release half
+        release.srcQueueFamilyIndex = m_TransferFamily;
+        release.dstQueueFamilyIndex = m_GraphicsFamily;
+        release.buffer              = dst.buffer;
+        release.offset              = dstOffset;
+        release.size                = size;
+        vkCmdPipelineBarrier(m_StagingCmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            0, 0, nullptr, 1, &release, 0, nullptr);
+
+        m_PendingAcquireBuffers.push_back({ dst.buffer, size, dstOffset });
+    }
+
     return true;
 }
 
@@ -610,15 +632,36 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
                            dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            1, &region);
 
-    // Transition TRANSFER_DST → SHADER_READ_ONLY
+    // Transition TRANSFER_DST → SHADER_READ_ONLY and (when families differ)
+    // release ownership to graphics.  The matching acquire barrier will be
+    // recorded on the graphics queue in SubmitStagingCmd after the transfer
+    // fence retires.  When families alias (same family), this degenerates
+    // to a plain layout transition - spec §7.7.4 lets the transition happen
+    // in either barrier if both specify matching oldLayout/newLayout.
     VkImageMemoryBarrier toShader = toTransfer;
-    toShader.oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toShader.newLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(m_StagingCmd,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &toShader);
+    toShader.oldLayout             = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toShader.newLayout             = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toShader.srcAccessMask         = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    if (FamiliesDiffer())
+    {
+        // Release half - dstAccessMask is ignored for the release barrier.
+        toShader.dstAccessMask         = 0;
+        toShader.srcQueueFamilyIndex   = m_TransferFamily;
+        toShader.dstQueueFamilyIndex   = m_GraphicsFamily;
+        vkCmdPipelineBarrier(m_StagingCmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toShader);
+
+        m_PendingAcquireImages.push_back({ dst.image, dst.mipLevels });
+    }
+    else
+    {
+        toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(m_StagingCmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toShader);
+    }
 
     return true;
 }
@@ -853,6 +896,116 @@ void VulkanMemoryManager::SubmitStagingCmd()
                          m_TransferPool, 1, &m_StagingCmd);
     m_StagingCmd  = VK_NULL_HANDLE;
     m_StagingOpen = false;
+
+    // ── Acquire half of the queue-family ownership transfer ──────────────────
+    //
+    // Only needed when the transfer queue family differs from graphics.  At
+    // this point the transfer submit has fully retired (we waited on its
+    // fence), which per Vulkan spec §7.7.4 satisfies the execution dependency
+    // between the release and acquire halves - semaphores would be required
+    // only if the two submits overlapped in time.  Record a matching acquire
+    // barrier on the graphics queue for every resource StageTo* released.
+    if (FamiliesDiffer() &&
+        (!m_PendingAcquireBuffers.empty() || !m_PendingAcquireImages.empty()))
+    {
+        VkCommandBufferAllocateInfo gai{};
+        gai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        gai.commandPool        = m_Command->GetCommandPool();         // graphics family
+        gai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        gai.commandBufferCount = 1;
+
+        VkCommandBuffer acquireCmd = VK_NULL_HANDLE;
+        if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &gai, &acquireCmd)))
+        {
+            VCKLog::Error("VMM", "Failed to allocate acquire-barrier cmd; resources may be in undefined state on graphics queue.");
+            m_PendingAcquireBuffers.clear();
+            m_PendingAcquireImages.clear();
+            return;
+        }
+
+        VkCommandBufferBeginInfo gbi{};
+        gbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        gbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(acquireCmd, &gbi);
+
+        // Buffer acquires - srcAccessMask ignored; conservative dstAccessMask
+        // covers vertex/index/uniform reads (the common post-upload usage).
+        std::vector<VkBufferMemoryBarrier> bbs;
+        bbs.reserve(m_PendingAcquireBuffers.size());
+        for (const auto& p : m_PendingAcquireBuffers)
+        {
+            VkBufferMemoryBarrier b{};
+            b.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            b.srcAccessMask       = 0;
+            b.dstAccessMask       = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+                                    VK_ACCESS_INDEX_READ_BIT            |
+                                    VK_ACCESS_UNIFORM_READ_BIT          |
+                                    VK_ACCESS_SHADER_READ_BIT;
+            b.srcQueueFamilyIndex = m_TransferFamily;
+            b.dstQueueFamilyIndex = m_GraphicsFamily;
+            b.buffer              = p.buffer;
+            b.offset              = p.offset;
+            b.size                = p.size;
+            bbs.push_back(b);
+        }
+
+        // Image acquires - complete the layout transition (TRANSFER_DST →
+        // SHADER_READ_ONLY started by the release half).  Both halves
+        // specify matching oldLayout/newLayout, spec §7.7.4 says the
+        // transition executes exactly once.
+        std::vector<VkImageMemoryBarrier> ibs;
+        ibs.reserve(m_PendingAcquireImages.size());
+        for (const auto& p : m_PendingAcquireImages)
+        {
+            VkImageMemoryBarrier b{};
+            b.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            b.oldLayout                       = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            b.newLayout                       = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            b.srcAccessMask                   = 0;
+            b.dstAccessMask                   = VK_ACCESS_SHADER_READ_BIT;
+            b.srcQueueFamilyIndex             = m_TransferFamily;
+            b.dstQueueFamilyIndex             = m_GraphicsFamily;
+            b.image                           = p.image;
+            b.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            b.subresourceRange.levelCount     = p.mipLevels;
+            b.subresourceRange.layerCount     = 1;
+            ibs.push_back(b);
+        }
+
+        vkCmdPipelineBarrier(acquireCmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0,
+            0, nullptr,
+            static_cast<uint32_t>(bbs.size()), bbs.empty() ? nullptr : bbs.data(),
+            static_cast<uint32_t>(ibs.size()), ibs.empty() ? nullptr : ibs.data());
+
+        vkEndCommandBuffer(acquireCmd);
+
+        VkSubmitInfo gsi{};
+        gsi.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        gsi.commandBufferCount = 1;
+        gsi.pCommandBuffers    = &acquireCmd;
+
+        VkFence acquireFence = VK_NULL_HANDLE;
+        VkFenceCreateInfo afi{};
+        afi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+        if (VK_CHECK(vkCreateFence(m_Device->GetDevice(), &afi, nullptr, &acquireFence)))
+        {
+            if (VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &gsi, acquireFence)))
+            {
+                vkWaitForFences(m_Device->GetDevice(), 1, &acquireFence, VK_TRUE, UINT64_MAX);
+            }
+            vkDestroyFence(m_Device->GetDevice(), acquireFence, nullptr);
+        }
+
+        vkFreeCommandBuffers(m_Device->GetDevice(),
+                             m_Command->GetCommandPool(), 1, &acquireCmd);
+
+        m_PendingAcquireBuffers.clear();
+        m_PendingAcquireImages.clear();
+    }
 }
 
 
