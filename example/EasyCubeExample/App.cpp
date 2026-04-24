@@ -245,9 +245,13 @@ namespace VCK::EasyCubeExample {
         }
         g_Indices = cpu.indices;
 
+        // VulkanMesh::Upload's `vertexSize` is the TOTAL byte count of the
+        // vertex buffer (staging.CreateStaging + staging.Upload use it
+        // directly), not the per-vertex stride.  sizeof(V) alone would upload
+        // a single vertex's worth of bytes and the cube would render garbage.
         mesh.Upload(device, command,
                     g_Verts.data(),
-                    sizeof(V),
+                    static_cast<VkDeviceSize>(sizeof(V) * g_Verts.size()),
                     static_cast<uint32_t>(g_Verts.size()),
                     g_Indices.data(),
                     static_cast<uint32_t>(g_Indices.size()));

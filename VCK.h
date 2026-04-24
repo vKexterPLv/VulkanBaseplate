@@ -1088,9 +1088,13 @@
      Mesh Primitives::Line  (const Vec3& a, const Vec3& b)
    Example:
      auto cube = VCK::Primitives::Cube(1.0f);
+     // vertexSize is the TOTAL byte count of the vertex buffer, not the
+     // per-vertex stride - VulkanMesh::Upload passes it straight to
+     // staging.CreateStaging / staging.Upload.  Multiply the element size
+     // by the element count.
      mesh.Upload(device, command,
                  cube.positions.data(),
-                 sizeof(VCK::Vec3),
+                 sizeof(VCK::Vec3) * cube.positions.size(),
                  static_cast<uint32_t>(cube.positions.size()),
                  cube.indices.data(),
                  static_cast<uint32_t>(cube.indices.size()));

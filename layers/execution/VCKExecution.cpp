@@ -614,7 +614,12 @@ bool DebugTimeline::DumpChromeTracing(const char* path)
         const Span& s = snapshot[i];
         const int   tid = tidForTrack(s.track);
         const bool  isStall = (s.endUs == 0);
-        const uint64_t dur = isStall ? 0 : (s.endUs - s.startUs);
+        // Guard the subtraction - matches Dump() (rule 14: never emit garbage).
+        // Caller-supplied GPU spans from RecordGpuSpan may arrive with endUs <
+        // startUs if timestamp-period math rounds weirdly; uint64_t underflow
+        // would write nonsense into the JSON and confuse chrome://tracing.
+        const uint64_t dur = isStall ? 0
+                           : (s.endUs > s.startUs ? s.endUs - s.startUs : 0);
 
         if (i != 0) out << ",\n";
         out << "  {"
