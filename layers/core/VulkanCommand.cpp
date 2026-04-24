@@ -94,4 +94,59 @@ namespace VCK {
         return VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex]));
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  Secondary command buffers  (v0.3)
+    // ─────────────────────────────────────────────────────────────────────────────
+    VkCommandBuffer VulkanCommand::AllocateSecondary()
+    {
+        if (m_Device == nullptr || m_CommandPool == VK_NULL_HANDLE)
+            return VK_NULL_HANDLE;
+
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool        = m_CommandPool;
+        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer cb = VK_NULL_HANDLE;
+        if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &cb)))
+            return VK_NULL_HANDLE;
+        return cb;
+    }
+
+    void VulkanCommand::FreeSecondary(VkCommandBuffer cb)
+    {
+        if (m_Device == nullptr || m_CommandPool == VK_NULL_HANDLE || cb == VK_NULL_HANDLE)
+            return;
+        vkFreeCommandBuffers(m_Device->GetDevice(), m_CommandPool, 1, &cb);
+    }
+
+    bool VulkanCommand::BeginSecondary(VkCommandBuffer                           cb,
+                                       const VkCommandBufferInheritanceInfo&     inheritance,
+                                       VkCommandBufferUsageFlags                 extraFlags)
+    {
+        VkCommandBufferBeginInfo bi{};
+        bi.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        // RENDER_PASS_CONTINUE is required for secondaries that will be
+        // executed inside a render pass.  Callers may pass 0 for extraFlags
+        // to get only the continue bit (the common case) or add
+        // ONE_TIME_SUBMIT / SIMULTANEOUS_USE to match their usage.
+        bi.flags            = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | extraFlags;
+        bi.pInheritanceInfo = &inheritance;
+        return VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+    }
+
+    bool VulkanCommand::EndSecondary(VkCommandBuffer cb)
+    {
+        return VK_CHECK(vkEndCommandBuffer(cb));
+    }
+
+    void VulkanCommand::ExecuteSecondaries(VkCommandBuffer         primary,
+                                           const VkCommandBuffer*  secondaries,
+                                           uint32_t                count)
+    {
+        if (primary == VK_NULL_HANDLE || secondaries == nullptr || count == 0) return;
+        vkCmdExecuteCommands(primary, count, secondaries);
+    }
+
 } // namespace VCK
