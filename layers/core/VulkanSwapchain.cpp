@@ -415,8 +415,8 @@ namespace VCK {
                 return VK_PRESENT_MODE_FIFO_LATEST_READY_EXT;
             }
 #endif
-            VCKLog::Notice("Swapchain",
-                "cfg.swapchain.presentMode=FifoLatestReady requested but VK_EXT_present_mode_fifo_latest_ready unavailable - falling back to FIFO (R23)");
+            VCKLog::Warn("Swapchain",
+                "FifoLatestReady requested but VK_EXT_present_mode_fifo_latest_ready unavailable, falling back to FIFO (R23)");
             return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::Auto:
         default:
