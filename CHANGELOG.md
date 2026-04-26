@@ -4,6 +4,10 @@ All notable changes to VCK are documented here. Format: [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- **Example menu reordered low → high VCK assist** — `example/build.bat` and `example/build.sh` now present examples in tiers (raw core → debug + tooling → expansion → execution layer → mostly VCK) so the menu narrates the design surface from "you write everything" to "VCK does the boring parts". New numbering: `[1] RGBTriangle`, `[2] MipmapExample`, `[3] VMMExample`, `[4] SecondaryCmdExample`, `[5] DebugTimelineExample`, `[6] DebugShowcaseExample`, `[7] AAShowcaseExample`, `[8] JobGraphExample`, `[9] SubmissionBatchingExample`, `[10] TimelineExample`, `[11] SchedulerPolicyExample`, `[12] HelloExample`, `[13] EasyCubeExample`. No example code or behaviour changes — menu, dispatch, build-all, and `docs/Examples.md` reflect the new ordering. Historical `[#]` references in the v0.3.0 / v0.2.x sections below are kept as shipped at the time.
+- **Cookbook expanded to 24 recipes** — added recipes 12-24 covering compute dispatch, GPU particles, indirect draw, async compute, shadow mapping, skybox / cubemap, PBR Cook-Torrance + IBL, deferred shading, HDR + tonemapping, bloom, shader hot-reload, GPU picking, and frustum culling. Cookbook now covers most rule-16 gaps (things VCK explicitly refuses to ship but every renderer ends up needing). Doc-only.
+
 ## [0.3.0] - 2026-04-24
 
 v0.3 is a synchronisation-layer release. The runtime no longer calls

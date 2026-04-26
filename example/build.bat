@@ -90,24 +90,28 @@ set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\cor
 :: ── Banner + menu ------------------------------------------------------------
 call :BANNER
 
-echo  %C_BOLD%%C_WHT%Core reference%C_RESET%          %C_DIM%(core VulkanSync / VulkanCommand path)%C_RESET%
+echo  %C_BOLD%%C_WHT%Raw core%C_RESET%                %C_DIM%(VulkanSync / VulkanCommand path, you write everything)%C_RESET%
 echo    %C_YEL%[1]%C_RESET%  %C_WHT%RGBTriangle%C_RESET%                 coloured triangle, live resize
 echo    %C_YEL%[2]%C_RESET%  %C_WHT%MipmapExample%C_RESET%               mip chain generation and sampling
 echo    %C_YEL%[3]%C_RESET%  %C_WHT%VMMExample%C_RESET%                  VMM all three layers
+echo    %C_YEL%[4]%C_RESET%  %C_WHT%SecondaryCmdExample%C_RESET%         secondary command buffers + scheduler-aware resize (v0.3)
 echo.
-echo  %C_BOLD%%C_WHT%VCKExpansion execution layer%C_RESET%
-echo    %C_YEL%[4]%C_RESET%  %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
-echo    %C_YEL%[5]%C_RESET%  %C_WHT%JobGraphExample%C_RESET%             CPU task graph with dependencies
-echo    %C_YEL%[6]%C_RESET%  %C_WHT%SchedulerPolicyExample%C_RESET%      Lockstep / Pipelined / AsyncMax at runtime
-echo    %C_YEL%[7]%C_RESET%  %C_WHT%SubmissionBatchingExample%C_RESET%   2 cmd buffers, 1 vkQueueSubmit
-echo    %C_YEL%[8]%C_RESET%  %C_WHT%TimelineExample%C_RESET%             TimelineSemaphore + DependencyToken
-echo    %C_YEL%[9]%C_RESET%  %C_WHT%DebugTimelineExample%C_RESET%        span recorder + Dump every 120 frames
+echo  %C_BOLD%%C_WHT%Debug + tooling%C_RESET%         %C_DIM%(opt-in instrumentation, still hand-records)%C_RESET%
+echo    %C_YEL%[5]%C_RESET%  %C_WHT%DebugTimelineExample%C_RESET%        span recorder + Dump every 120 frames
+echo    %C_YEL%[6]%C_RESET%  %C_WHT%DebugShowcaseExample%C_RESET%        VCKLog levels / dedup / VK_CHECK / debug toggle
 echo.
-echo  %C_BOLD%%C_WHT%Showcase%C_RESET%                 %C_DIM%(guided tours of new v0.2 APIs)%C_RESET%
-echo   %C_YEL%[10]%C_RESET% %C_WHT%DebugShowcaseExample%C_RESET%        VCKLog levels / dedup / VK_CHECK / debug toggle
-echo   %C_YEL%[11]%C_RESET% %C_WHT%AAShowcaseExample%C_RESET%           AATechnique decision matrix + auto-pick + triangle
-echo   %C_YEL%[12]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
-echo   %C_YEL%[13]%C_RESET% %C_WHT%SecondaryCmdExample%C_RESET%         secondary command buffers + scheduler-aware resize (v0.3)
+echo  %C_BOLD%%C_WHT%Expansion%C_RESET%               %C_DIM%(AA / framebuffer / sampler wiring)%C_RESET%
+echo    %C_YEL%[7]%C_RESET%  %C_WHT%AAShowcaseExample%C_RESET%           AATechnique decision matrix + auto-pick + triangle
+echo.
+echo  %C_BOLD%%C_WHT%Execution layer%C_RESET%         %C_DIM%(JobGraph / batching / timeline / policy)%C_RESET%
+echo    %C_YEL%[8]%C_RESET%  %C_WHT%JobGraphExample%C_RESET%             CPU task graph with dependencies
+echo    %C_YEL%[9]%C_RESET%  %C_WHT%SubmissionBatchingExample%C_RESET%   2 cmd buffers, 1 vkQueueSubmit
+echo   %C_YEL%[10]%C_RESET% %C_WHT%TimelineExample%C_RESET%             TimelineSemaphore + DependencyToken
+echo   %C_YEL%[11]%C_RESET% %C_WHT%SchedulerPolicyExample%C_RESET%      Lockstep / Pipelined / AsyncMax at runtime
+echo.
+echo  %C_BOLD%%C_WHT%Mostly VCK%C_RESET%              %C_DIM%(ergonomic API does the work)%C_RESET%
+echo   %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
+echo   %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
 echo.
 echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
 echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
@@ -118,16 +122,16 @@ if /i "%CHOICE%"=="A" goto BUILD_ALL
 if "%CHOICE%"=="1" goto BUILD_TRIANGLE
 if "%CHOICE%"=="2" goto BUILD_MIPMAP
 if "%CHOICE%"=="3" goto BUILD_VMM
-if "%CHOICE%"=="4" ( set EX=HelloExample              & set STEM=hello                     & goto BUILD_ONE )
-if "%CHOICE%"=="5" ( set EX=JobGraphExample           & set STEM=JobGraphExample            & goto BUILD_ONE )
-if "%CHOICE%"=="6" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample     & goto BUILD_ONE )
-if "%CHOICE%"=="7" ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
-if "%CHOICE%"=="8" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
-if "%CHOICE%"=="9" ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
-if "%CHOICE%"=="10" ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
-if "%CHOICE%"=="11" ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
-if "%CHOICE%"=="12" ( set EX=EasyCubeExample          & set STEM=easycube                    & goto BUILD_ONE )
-if "%CHOICE%"=="13" ( set EX=SecondaryCmdExample      & set STEM=secondary                   & goto BUILD_ONE )
+if "%CHOICE%"=="4"  ( set EX=SecondaryCmdExample      & set STEM=secondary                   & goto BUILD_ONE )
+if "%CHOICE%"=="5"  ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
+if "%CHOICE%"=="6"  ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
+if "%CHOICE%"=="7"  ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
+if "%CHOICE%"=="8"  ( set EX=JobGraphExample           & set STEM=JobGraphExample            & goto BUILD_ONE )
+if "%CHOICE%"=="9"  ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
+if "%CHOICE%"=="10" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
+if "%CHOICE%"=="11" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample     & goto BUILD_ONE )
+if "%CHOICE%"=="12" ( set EX=HelloExample              & set STEM=hello                     & goto BUILD_ONE )
+if "%CHOICE%"=="13" ( set EX=EasyCubeExample          & set STEM=easycube                    & goto BUILD_ONE )
 if "%CHOICE%"=="0" exit /b 0
 call :ERR "unknown selection '%CHOICE%'"
 exit /b 1
@@ -201,61 +205,61 @@ set STEM=vmm
 call :COMPILE_SHADERS          || exit /b 1
 call :COMPILE_CPP_WITH_VMM     || exit /b 1
 
-call :STEP "[4/13] HelloExample"
-set EX=HelloExample
-set STEM=hello
+call :STEP "[4/13] SecondaryCmdExample"
+set EX=SecondaryCmdExample
+set STEM=secondary
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[5/13] JobGraphExample"
-set EX=JobGraphExample
-set STEM=JobGraphExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[6/13] SchedulerPolicyExample"
-set EX=SchedulerPolicyExample
-set STEM=SchedulerPolicyExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[7/13] SubmissionBatchingExample"
-set EX=SubmissionBatchingExample
-set STEM=SubmissionBatchingExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[8/13] TimelineExample"
-set EX=TimelineExample
-set STEM=TimelineExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[9/13] DebugTimelineExample"
+call :STEP "[5/13] DebugTimelineExample"
 set EX=DebugTimelineExample
 set STEM=DebugTimelineExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[10/13] DebugShowcaseExample"
+call :STEP "[6/13] DebugShowcaseExample"
 set EX=DebugShowcaseExample
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[11/13] AAShowcaseExample"
+call :STEP "[7/13] AAShowcaseExample"
 set EX=AAShowcaseExample
 set STEM=aa
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[12/13] EasyCubeExample"
-set EX=EasyCubeExample
-set STEM=easycube
+call :STEP "[8/13] JobGraphExample"
+set EX=JobGraphExample
+set STEM=JobGraphExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[13/13] SecondaryCmdExample"
-set EX=SecondaryCmdExample
-set STEM=secondary
+call :STEP "[9/13] SubmissionBatchingExample"
+set EX=SubmissionBatchingExample
+set STEM=SubmissionBatchingExample
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[10/13] TimelineExample"
+set EX=TimelineExample
+set STEM=TimelineExample
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[11/13] SchedulerPolicyExample"
+set EX=SchedulerPolicyExample
+set STEM=SchedulerPolicyExample
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[12/13] HelloExample"
+set EX=HelloExample
+set STEM=hello
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
+call :STEP "[13/13] EasyCubeExample"
+set EX=EasyCubeExample
+set STEM=easycube
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 

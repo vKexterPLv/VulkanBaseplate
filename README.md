@@ -197,19 +197,19 @@ from 720p to 4K is handled in-library). Build with:
 
 | #  | Example                     | Demonstrates |
 |----|-----------------------------|--------------|
-|  1 | `RGBTriangle`               | coloured triangle, live resize |
-|  2 | `MipmapExample`             | texture upload + mip generation + sampling |
-|  3 | `VMMExample`                | VMM persistent / transient / staging |
-|  4 | `HelloExample`              | smallest `FrameScheduler` program |
-|  5 | `JobGraphExample`           | CPU task graph with dependencies |
-|  6 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
-|  7 | `SubmissionBatchingExample` | 2 cmd buffers → 1 `vkQueueSubmit` |
-|  8 | `TimelineExample`           | `TimelineSemaphore` + `DependencyToken` |
-|  9 | `DebugTimelineExample`      | span recorder + `Dump` every 120 frames |
-| 10 | `DebugShowcaseExample`      | every `VCKLog` level, dedup, `VK_CHECK` path |
-| 11 | `AAShowcaseExample`         | `DetectRecommendedAA` matrix + live auto-pick |
-| 12 | `EasyCubeExample`           | `Primitives::Cube` + `VertexLayout` + `PushConstants` + `VCKMath` |
-| 13 | `SecondaryCmdExample`       | secondary command buffers + scheduler-aware resize (v0.3) |
+|  1 | `RGBTriangle`               | coloured triangle, live resize — raw core |
+|  2 | `MipmapExample`             | texture upload + mip generation + sampling — raw core |
+|  3 | `VMMExample`                | VMM persistent / transient / staging — raw core + VMM |
+|  4 | `SecondaryCmdExample`       | secondary command buffers + scheduler-aware resize (v0.3) |
+|  5 | `DebugTimelineExample`      | span recorder + `Dump` every 120 frames — debug tooling |
+|  6 | `DebugShowcaseExample`      | every `VCKLog` level, dedup, `VK_CHECK` path |
+|  7 | `AAShowcaseExample`         | `DetectRecommendedAA` matrix + live auto-pick — expansion |
+|  8 | `JobGraphExample`           | CPU task graph with dependencies — execution layer |
+|  9 | `SubmissionBatchingExample` | 2 cmd buffers → 1 `vkQueueSubmit` |
+| 10 | `TimelineExample`           | `TimelineSemaphore` + `DependencyToken` |
+| 11 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
+| 12 | `HelloExample`              | smallest `FrameScheduler` program — mostly VCK |
+| 13 | `EasyCubeExample`           | `Primitives::Cube` + `VertexLayout` + `PushConstants` + `VCKMath` — peak ergonomic |
 
 Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 

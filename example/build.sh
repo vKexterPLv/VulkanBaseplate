@@ -2,7 +2,7 @@
 # =============================================================================
 #  VCK example builder (Linux + macOS)
 # =============================================================================
-#  Mirror of build.bat for POSIX targets.  Same [1]-[9] / [A] / [0] menu.
+#  Mirror of build.bat for POSIX targets.  Same [1]-[13] / [A] / [0] menu.
 #
 #  Requirements:
 #    - glslangValidator on PATH              (ships with the Vulkan SDK)
@@ -146,20 +146,20 @@ ok_run() {
 build_one() {
     local id="$1" ex stem extra=""
     case "$id" in
-        1) ex=RGBTriangle                stem=triangle                 ;;
-        2) ex=MipmapExample              stem=mip                      ;;
-        3) ex=VMMExample                 stem=vmm
-           extra="../layers/vmm/VulkanMemoryManager.cpp"                 ;;
-        4) ex=HelloExample               stem=hello                    ;;
-        5) ex=JobGraphExample            stem=JobGraphExample          ;;
-        6) ex=SchedulerPolicyExample     stem=SchedulerPolicyExample   ;;
-        7) ex=SubmissionBatchingExample  stem=SubmissionBatchingExample;;
-        8) ex=TimelineExample            stem=TimelineExample          ;;
-        9) ex=DebugTimelineExample       stem=DebugTimelineExample     ;;
-        10) ex=DebugShowcaseExample      stem=                         ;;
-        11) ex=AAShowcaseExample         stem=aa                       ;;
-        12) ex=EasyCubeExample           stem=easycube                 ;;
-        13) ex=SecondaryCmdExample       stem=secondary                ;;
+        1)  ex=RGBTriangle                stem=triangle                 ;;
+        2)  ex=MipmapExample              stem=mip                      ;;
+        3)  ex=VMMExample                 stem=vmm
+            extra="../layers/vmm/VulkanMemoryManager.cpp"                ;;
+        4)  ex=SecondaryCmdExample        stem=secondary                ;;
+        5)  ex=DebugTimelineExample       stem=DebugTimelineExample     ;;
+        6)  ex=DebugShowcaseExample       stem=                         ;;
+        7)  ex=AAShowcaseExample          stem=aa                       ;;
+        8)  ex=JobGraphExample            stem=JobGraphExample          ;;
+        9)  ex=SubmissionBatchingExample  stem=SubmissionBatchingExample;;
+        10) ex=TimelineExample            stem=TimelineExample          ;;
+        11) ex=SchedulerPolicyExample     stem=SchedulerPolicyExample   ;;
+        12) ex=HelloExample               stem=hello                    ;;
+        13) ex=EasyCubeExample            stem=easycube                 ;;
         *) err "unknown example id '$id'"; return 1 ;;
     esac
 
@@ -171,11 +171,10 @@ build_one() {
 
 build_all() {
     local i names=(
-        "RGBTriangle" "MipmapExample" "VMMExample" "HelloExample"
-        "JobGraphExample" "SchedulerPolicyExample" "SubmissionBatchingExample"
-        "TimelineExample" "DebugTimelineExample"
-        "DebugShowcaseExample" "AAShowcaseExample" "EasyCubeExample"
-        "SecondaryCmdExample"
+        "RGBTriangle" "MipmapExample" "VMMExample" "SecondaryCmdExample"
+        "DebugTimelineExample" "DebugShowcaseExample" "AAShowcaseExample"
+        "JobGraphExample" "SubmissionBatchingExample" "TimelineExample"
+        "SchedulerPolicyExample" "HelloExample" "EasyCubeExample"
     )
     for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
         step "[${i}/13] ${names[$((i-1))]}"
@@ -188,24 +187,28 @@ build_all() {
 
 # ── Menu --------------------------------------------------------------------
 banner
-echo " ${C_BOLD}${C_WHT}Core reference${C_RESET}          ${C_DIM}(core VulkanSync / VulkanCommand path)${C_RESET}"
+echo " ${C_BOLD}${C_WHT}Raw core${C_RESET}                ${C_DIM}(VulkanSync / VulkanCommand path, you write everything)${C_RESET}"
 echo "   ${C_YEL}[1]${C_RESET}  ${C_WHT}RGBTriangle${C_RESET}                 coloured triangle, live resize"
 echo "   ${C_YEL}[2]${C_RESET}  ${C_WHT}MipmapExample${C_RESET}               mip chain generation and sampling"
 echo "   ${C_YEL}[3]${C_RESET}  ${C_WHT}VMMExample${C_RESET}                  VMM all three layers"
+echo "   ${C_YEL}[4]${C_RESET}  ${C_WHT}SecondaryCmdExample${C_RESET}         secondary command buffers + scheduler-aware resize (v0.3)"
 echo
-echo " ${C_BOLD}${C_WHT}VCKExpansion execution layer${C_RESET}"
-echo "   ${C_YEL}[4]${C_RESET}  ${C_WHT}HelloExample${C_RESET}                minimal FrameScheduler + triangle"
-echo "   ${C_YEL}[5]${C_RESET}  ${C_WHT}JobGraphExample${C_RESET}             CPU task graph with dependencies"
-echo "   ${C_YEL}[6]${C_RESET}  ${C_WHT}SchedulerPolicyExample${C_RESET}      Lockstep / Pipelined / AsyncMax at runtime"
-echo "   ${C_YEL}[7]${C_RESET}  ${C_WHT}SubmissionBatchingExample${C_RESET}   2 cmd buffers, 1 vkQueueSubmit"
-echo "   ${C_YEL}[8]${C_RESET}  ${C_WHT}TimelineExample${C_RESET}             TimelineSemaphore + DependencyToken"
-echo "   ${C_YEL}[9]${C_RESET}  ${C_WHT}DebugTimelineExample${C_RESET}        span recorder + Dump every 120 frames"
+echo " ${C_BOLD}${C_WHT}Debug + tooling${C_RESET}         ${C_DIM}(opt-in instrumentation, still hand-records)${C_RESET}"
+echo "   ${C_YEL}[5]${C_RESET}  ${C_WHT}DebugTimelineExample${C_RESET}        span recorder + Dump every 120 frames"
+echo "   ${C_YEL}[6]${C_RESET}  ${C_WHT}DebugShowcaseExample${C_RESET}        VCKLog levels / dedup / VK_CHECK / debug toggle"
 echo
-echo " ${C_BOLD}${C_WHT}Showcase${C_RESET}                 ${C_DIM}(guided tours of new v0.2 APIs)${C_RESET}"
-echo "   ${C_YEL}[10]${C_RESET} ${C_WHT}DebugShowcaseExample${C_RESET}        VCKLog levels / dedup / VK_CHECK / debug toggle"
-echo "   ${C_YEL}[11]${C_RESET} ${C_WHT}AAShowcaseExample${C_RESET}           AATechnique decision matrix + auto-pick + triangle"
-echo "   ${C_YEL}[12]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath"
-echo "   ${C_YEL}[13]${C_RESET} ${C_WHT}SecondaryCmdExample${C_RESET}         secondary command buffers + scheduler-aware resize (v0.3)"
+echo " ${C_BOLD}${C_WHT}Expansion${C_RESET}               ${C_DIM}(AA / framebuffer / sampler wiring)${C_RESET}"
+echo "   ${C_YEL}[7]${C_RESET}  ${C_WHT}AAShowcaseExample${C_RESET}           AATechnique decision matrix + auto-pick + triangle"
+echo
+echo " ${C_BOLD}${C_WHT}Execution layer${C_RESET}         ${C_DIM}(JobGraph / batching / timeline / policy)${C_RESET}"
+echo "   ${C_YEL}[8]${C_RESET}  ${C_WHT}JobGraphExample${C_RESET}             CPU task graph with dependencies"
+echo "   ${C_YEL}[9]${C_RESET}  ${C_WHT}SubmissionBatchingExample${C_RESET}   2 cmd buffers, 1 vkQueueSubmit"
+echo "   ${C_YEL}[10]${C_RESET} ${C_WHT}TimelineExample${C_RESET}             TimelineSemaphore + DependencyToken"
+echo "   ${C_YEL}[11]${C_RESET} ${C_WHT}SchedulerPolicyExample${C_RESET}      Lockstep / Pipelined / AsyncMax at runtime"
+echo
+echo " ${C_BOLD}${C_WHT}Mostly VCK${C_RESET}              ${C_DIM}(ergonomic API does the work)${C_RESET}"
+echo "   ${C_YEL}[12]${C_RESET} ${C_WHT}HelloExample${C_RESET}                minimal FrameScheduler + triangle"
+echo "   ${C_YEL}[13]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath"
 echo
 echo "   ${C_CYN}[A]${C_RESET}  ${C_WHT}Build all${C_RESET}                   in order, stops on first failure"
 echo "   ${C_CYN}[0]${C_RESET}  ${C_WHT}Exit${C_RESET}"
@@ -227,16 +230,16 @@ case "$(echo "$CHOICE" | tr '[:upper:]' '[:lower:]')" in
             1)  ok_run RGBTriangle                ;;
             2)  ok_run MipmapExample              ;;
             3)  ok_run VMMExample                 ;;
-            4)  ok_run HelloExample               ;;
-            5)  ok_run JobGraphExample            ;;
-            6)  ok_run SchedulerPolicyExample     ;;
-            7)  ok_run SubmissionBatchingExample  ;;
-            8)  ok_run TimelineExample            ;;
-            9)  ok_run DebugTimelineExample       ;;
-            10) ok_run DebugShowcaseExample       ;;
-            11) ok_run AAShowcaseExample          ;;
-            12) ok_run EasyCubeExample            ;;
-            13) ok_run SecondaryCmdExample        ;;
+            4)  ok_run SecondaryCmdExample        ;;
+            5)  ok_run DebugTimelineExample       ;;
+            6)  ok_run DebugShowcaseExample       ;;
+            7)  ok_run AAShowcaseExample          ;;
+            8)  ok_run JobGraphExample            ;;
+            9)  ok_run SubmissionBatchingExample  ;;
+            10) ok_run TimelineExample            ;;
+            11) ok_run SchedulerPolicyExample     ;;
+            12) ok_run HelloExample               ;;
+            13) ok_run EasyCubeExample            ;;
         esac
         ;;
     *)  err "unknown selection '$CHOICE'"; exit 1 ;;
