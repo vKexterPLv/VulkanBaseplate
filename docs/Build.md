@@ -15,7 +15,7 @@ Two toolchains, one build script. `build.bat` auto-detects Visual Studio
 via `vswhere.exe` and prefers `cl` when available; falls back to MinGW
 `g++` otherwise. Override with `--toolchain={auto|cl|gcc}`.
 
-|              | `--toolchain=cl` (MSVC)                 | `--toolchain=gcc` (MinGW)            |
+|              | `--toolchain cl` (MSVC)                 | `--toolchain gcc` (MinGW)            |
 |--------------|------------------------------------------|---------------------------------------|
 | Compiler     | `cl.exe` + `lib.exe` + `link.exe`        | `g++.exe` + `ar.exe`                  |
 | Parallel TU  | `cl /MP` (cores)                         | sequential                            |
@@ -34,14 +34,14 @@ via `vswhere.exe` and prefers `cl` when available; falls back to MinGW
 
 ### Toolchain-specific requirements
 
-**`--toolchain=cl`** — Visual Studio 2019 / 2022 (any edition) **or** Build
+**`--toolchain cl`** — Visual Studio 2019 / 2022 (any edition) **or** Build
 Tools, with the *Desktop development with C++* workload installed. If you
 launch `build.bat` from a regular `cmd.exe`, `vswhere.exe` finds the install
 and our script calls `vcvars64.bat` in-process so `cl` resolves immediately.
 If you launch from a *Developer Command Prompt for VS* or *Developer
 PowerShell*, `cl` is already on `PATH` and we skip vswhere.
 
-**`--toolchain=gcc`** — MinGW-w64 g++ + `ar` on `PATH` (MSYS2's
+**`--toolchain gcc`** — MinGW-w64 g++ + `ar` on `PATH` (MSYS2's
 `/mingw64/bin` is the simplest source).
 
 ### Dependency layout
@@ -68,8 +68,8 @@ archive or any `vendor/` header is missing.
 ```
 cd example
 build.bat                    :: auto-detect toolchain (prefer cl)
-build.bat --toolchain=gcc    :: force MinGW
-build.bat --toolchain=cl A   :: cl + build all + non-interactive
+build.bat --toolchain gcc    :: force MinGW
+build.bat --toolchain cl A   :: cl + build all + non-interactive
 ```
 
 Pick an example from the menu. On success the executable lands at

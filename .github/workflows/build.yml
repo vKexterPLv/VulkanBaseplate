@@ -125,7 +125,7 @@ jobs:
       - name: Build all examples
         working-directory: example
         run: |
-          echo A| build.bat --toolchain=gcc
+          echo A| build.bat --toolchain gcc
 
       # --- R14 unit-test harness (PR #7).  Builds tests/*.cpp against the
       # libvck.a archive that build.bat just produced, then runs the binary.
@@ -133,20 +133,20 @@ jobs:
       - name: Build + run R14 tests
         working-directory: example
         run: |
-          echo T| build.bat --toolchain=gcc
+          echo T| build.bat --toolchain gcc
           ..\tests\vck_tests.exe
 
   # ---------------------------------------------------------------------------
   #  Windows (MSVC cl + LunarG SDK).
   #  Same lib-once compile model as the MinGW job, but using cl /MP (parallel
-  #  TU compile in one cl invocation).  Validates the --toolchain=cl path
+  #  TU compile in one cl invocation).  Validates the --toolchain cl path
   #  end-to-end including vswhere auto-detect (microsoft/setup-msbuild puts
   #  vswhere on PATH; ilammy/msvc-dev-cmd preloads vcvars64 so cl resolves
   #  immediately and our vswhere fallback is exercised on a fresh shell only
   #  if you remove the msvc-dev-cmd action).
   # ---------------------------------------------------------------------------
   windows-msvc:
-    name: build.bat --toolchain=cl [A]  (Windows / MSVC)
+    name: build.bat --toolchain cl [A]  (Windows / MSVC)
     runs-on: windows-latest
 
     defaults:
@@ -210,7 +210,7 @@ jobs:
 
       # GLFW pre-compiled binaries shipped two flavours: lib-mingw-w64\libglfw3.a
       # (used by the MinGW job above) AND lib-vc2022\glfw3.lib (used here).  Stage
-      # the MSVC archive at example\deps\glfw3.lib so build.bat --toolchain=cl
+      # the MSVC archive at example\deps\glfw3.lib so build.bat --toolchain cl
       # finds it via -LIBPATH:deps.
       - name: Fetch GLFW (Windows MSVC pre-built)
         shell: pwsh
@@ -229,12 +229,12 @@ jobs:
       - name: Build all examples (cl /MP)
         working-directory: example
         run: |
-          echo A| build.bat --toolchain=cl
+          echo A| build.bat --toolchain cl
 
       - name: Build + run R14 tests (cl)
         working-directory: example
         run: |
-          echo T| build.bat --toolchain=cl
+          echo T| build.bat --toolchain cl
           ..\tests\vck_tests.exe
 
   # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ chcp 65001 >nul 2>&1
 :: =============================================================================
 ::  Run from the repo's example\ folder.  Two toolchains supported:
 ::
-::    --toolchain=cl    Microsoft Visual C++  (cl.exe + lib.exe + link.exe).
+::    --toolchain cl   Microsoft Visual C++  (cl.exe + lib.exe + link.exe).
 ::                      Faster: /MP parallelises TU compile across cores.
 ::                      Auto-detected via vswhere.exe when running from a
 ::                      regular cmd.exe; if cl is already on PATH (you ran
@@ -19,12 +19,16 @@ chcp 65001 >nul 2>&1
 ::                      Requires example\deps\glfw3.lib (MSVC pre-compiled
 ::                      from https://www.glfw.org -> lib-vc2022\glfw3.lib).
 ::
-::    --toolchain=gcc   MinGW-w64 g++ + ar  (canonical reference toolchain
+::    --toolchain gcc  MinGW-w64 g++ + ar  (canonical reference toolchain
 ::                      through v0.3).  Requires g++ on PATH and
 ::                      example\deps\libglfw3.a (MinGW pre-compiled,
 ::                      lib-mingw-w64\libglfw3.a).
 ::
-::    --toolchain=auto  default; prefer cl when available, else gcc.
+::    --toolchain auto default; prefer cl when available, else gcc.
+::                     The legacy '--toolchain=cl' / '=gcc' / '=auto' forms are
+::                     also accepted; cmd's batch arg parser truncates at the
+::                     first '=' on some hosts (e.g. github-actions runner),
+::                     so the space-separated form is preferred.
 ::
 ::  Common requirements:
 ::    - VULKAN_SDK env var pointing at your Vulkan SDK root
@@ -75,16 +79,32 @@ set "C_CYN=%ESC%[96m"
 set "C_WHT=%ESC%[97m"
 
 :: ── Argument parsing --------------------------------------------------------
-:: Supports any order: build.bat A --toolchain=cl  /  build.bat --toolchain=cl A
-:: Match the four valid --toolchain= forms literally.  Avoid delayed-expansion
-:: substring tricks: cmd.exe's IF gets unreliable when the expanded value
-:: itself contains '=' (we shipped exactly that bug on PR #7's first push;
-:: the cl runner reported "unknown selection '--toolchain'", the MinGW runner
-:: silently fell into the auto branch because TOOLCHAIN never got set to gcc).
+:: Supports any order:
+::    build.bat A --toolchain cl
+::    build.bat --toolchain cl A
+::    build.bat --toolchain=cl A           (= form too, when cmd preserves it)
+::
+:: cmd.exe is hostile to '=' in batch args.  In some invocation contexts (the
+:: github-actions runner happens to be one), cmd silently splits an arg at
+:: the first '=', so '--toolchain=cl' arrives as %1='--toolchain' with cl
+:: lost entirely - exactly what bit PR #7's first two pushes.  We accept BOTH
+:: '--toolchain VALUE' (preferred, robust) and '--toolchain=VALUE' (legacy,
+:: works when cmd cooperates).
 set "TOOLCHAIN=auto"
 set "CHOICE="
 :PARSE_ARGS
 if "%~1"=="" goto PARSE_DONE
+if /i "%~1"=="--toolchain" (
+    if "%~2"=="" (
+        call :BANNER
+        call :ERR "--toolchain requires a value: cl, gcc, or auto."
+        exit /b 1
+    )
+    set "TOOLCHAIN=%~2"
+    shift
+    shift
+    goto PARSE_ARGS
+)
 if /i "%~1"=="--toolchain=cl"   ( set "TOOLCHAIN=cl"   & shift & goto PARSE_ARGS )
 if /i "%~1"=="--toolchain=gcc"  ( set "TOOLCHAIN=gcc"  & shift & goto PARSE_ARGS )
 if /i "%~1"=="--toolchain=auto" ( set "TOOLCHAIN=auto" & shift & goto PARSE_ARGS )

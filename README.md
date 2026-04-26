@@ -192,7 +192,7 @@ layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
 cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
 from 720p to 4K is handled in-library). Build with:
 
-- Windows: `example/build.bat` (auto-detects MSVC `cl` via `vswhere`, falls back to MinGW g++; `--toolchain={auto|cl|gcc}` to override)
+- Windows: `example/build.bat` (auto-detects MSVC `cl` via `vswhere`, falls back to MinGW g++; `--toolchain {auto|cl|gcc}` to override)
 - Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
 
 | #  | Example                     | Demonstrates |
@@ -216,13 +216,13 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 ## Build
 
 Windows — auto-detects MSVC `cl` via `vswhere` and falls back to MinGW
-g++; `--toolchain={auto|cl|gcc}` overrides:
+g++; `--toolchain {auto|cl|gcc}` overrides:
 
 ```
 cd example
 build.bat                    :: auto (prefer cl)
-build.bat --toolchain=gcc    :: force MinGW (Vulkan SDK + example\deps\libglfw3.a)
-build.bat --toolchain=cl A   :: force cl + build all (Vulkan SDK + example\deps\glfw3.lib)
+build.bat --toolchain gcc    :: force MinGW (Vulkan SDK + example\deps\libglfw3.a)
+build.bat --toolchain cl A   :: force cl + build all (Vulkan SDK + example\deps\glfw3.lib)
 ```
 
 Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
