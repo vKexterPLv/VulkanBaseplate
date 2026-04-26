@@ -101,7 +101,7 @@ jobs:
             Copy-Item "$sdk\Include\vma\vk_mem_alloc.h" $dst
             "VMA copied from SDK: $sdk\Include\vma\vk_mem_alloc.h" | Write-Host
           } else {
-            Invoke-WebRequest 'https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h' -OutFile $dst
+            Invoke-WebRequest 'https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/master/include/vk_mem_alloc.h' -OutFile $dst
             "VMA fetched from GitHub" | Write-Host
           }
           (Get-Item $dst).Length
@@ -161,7 +161,7 @@ jobs:
         run: |
           mkdir -p example/deps
           curl -fsSL \
-            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
+            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
             -o example/deps/vk_mem_alloc.h
           ls -l example/deps/vk_mem_alloc.h
 
@@ -213,7 +213,7 @@ jobs:
         run: |
           mkdir -p example/deps
           curl -fsSL \
-            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
+            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
             -o example/deps/vk_mem_alloc.h
           ls -l example/deps/vk_mem_alloc.h
 
