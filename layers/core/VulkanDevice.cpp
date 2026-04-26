@@ -420,8 +420,24 @@ namespace VCK {
             queueSummary += " | transfer: aliased to graphics";
 
         VCKLog::Notice("Device", "Queues OK - " + queueSummary);
-        VCKLog::Notice("Device", std::string("Timeline semaphores: ") +
-              (m_TimelineSemaphoresEnabled ? "enabled" : "disabled"));
+
+        // Rule 23: every device extension VCK enabled is announced by name,
+        // labelled with where the request came from (required vs cfg) so the
+        // user can grep the log to see exactly what's bound to the device.
+        for (const char* ext : k_RequiredDeviceExtensions)
+            VCKLog::Notice("Device", std::string("ext enabled (required): ") + ext);
+        for (const char* extra : m_CfgDevice.extraDeviceExtensions)
+            VCKLog::Notice("Device", std::string("ext enabled (cfg.extraDeviceExtensions): ") + extra);
+
+        // Rule 23: timeline-semaphore decision is announced including the
+        // fallback path (per-slot fences) when the GPU does not support it.
+        if (m_TimelineSemaphoresEnabled) {
+            VCKLog::Notice("Device", "feature enabled: VK_KHR_timeline_semaphore (cfg.device.enableTimelineSemaphores)");
+        } else if (timelineRequested) {
+            VCKLog::Notice("Device", "feature unavailable: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
+        } else {
+            VCKLog::Notice("Device", "feature disabled by cfg: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
+        }
 
         return true;
     }

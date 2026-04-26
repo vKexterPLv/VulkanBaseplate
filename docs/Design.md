@@ -8,6 +8,27 @@ Rules · status · honest caveats · roadmap
 
 ---
 
+## Categories
+
+The 24 rules below collapse into six categories. Every behavioural choice
+VCK ships should resolve to one of these. New rules go under whichever
+category they fit; no rule lives outside the index.
+
+| # | Category | Slogan | Rules |
+|---|---|---|---|
+| **I** | **Explicitness** | No magic, no hidden behavior, no global state — all choices live in `cfg`. | R1, R6, R10, R23, R24 |
+| **II** | **Ownership** | Core owns. Layers borrow. Strict lifecycle order. VCK destroys only what it created. | R2, R3, R5, R22 |
+| **III** | **Synchronisation** | No hidden sync. Explicit fences / semaphores / timeline only. Frame is the unit of truth. External sync is the caller's responsibility. | R4, R8, R17, R18 |
+| **IV** | **Cost & Scope** | Minimal core surface. No engine assumptions. Zero cost for unused features. | R15, R16, R19 |
+| **V** | **Reliability** | Deterministic frame behaviour. Explicit recreation events. Fail fast, fail loud — always. | R11, R12, R14 |
+| **VI** | **Transparency** | User owns the frame. Escape hatches everywhere. Debuggability is core. Every public API has an example. `VCK.h` is the surface. Extensions are logged. | R7, R9, R13, R20, R21, R23 |
+
+R23 spans I + VI: it's both an explicitness rule (extensions are not
+silent) and a transparency rule (the user can read the log to know what
+their device is running). That overlap is intentional.
+
+---
+
 ## Rules (strict)
 
 1. **Explicit > magic.** No hidden allocations, no singletons, no implicit
@@ -186,6 +207,42 @@ Expansion / Execution / VMM / Tools layers.
   (`GetSwapchain()`, `GetRenderPass()`, `GetCommandBuffer(i)`, …) are
   borrows: the user must not destroy them; they die with their VCK
   owner during the shutdown chain (rule 3).
+
+23. **EXTENSION TRANSPARENCY**
+- Any instance- or device-level extension VCK enables on the user's
+  behalf must be announced via `VCKLog::Notice("<Subsystem>", ...)` at
+  initialisation time, including:
+  - the extension name (`VK_KHR_timeline_semaphore`,
+    `VK_EXT_debug_utils`, …),
+  - whether the adapter / loader actually supports it, and
+  - the fallback path taken when it does not (e.g. "timeline
+    semaphores unavailable — `FrameScheduler` will use per-slot
+    fences").
+- The user must never be surprised by what's running underneath. Every
+  enabled extension is greppable in the log; every absent extension is
+  greppable in the log; the choice between them is greppable in the
+  log.
+- Concretely: `VulkanContext::Initialize` and `VulkanDevice::Initialize`
+  are the two enablement points. Both must emit one `Notice` line per
+  extension they request.
+
+24. **`cfg` IS THE CONTRACT**
+- Every behavioural difference VCK can express must be reachable
+  through `VCK::Config` (and its sub-structs `cfg.device`,
+  `cfg.swapchain`, `cfg.pipeline`, `cfg.scheduler`, `cfg.aa`,
+  `cfg.debug`, …). Nothing that changes rendering behaviour is
+  hardcoded silently inside a `.cpp`.
+- If it is not in `cfg`, it does not exist as a user choice — it is
+  either an implementation detail (and stays out of `cfg`) or a bug
+  (and must be promoted to `cfg`).
+- Defaults belong on the field declaration in the struct, not in code.
+  A user who never touches `cfg` gets the default behaviour; a user
+  who reads the struct sees every knob the kit exposes in one place.
+- Adding a runtime branch on something other than a `cfg` field
+  (compile-time `#define`, environment variable, `extern bool`)
+  violates this rule. The single existing exception is
+  `VULKAN_VALIDATION` — a build-config toggle, not a runtime choice,
+  documented in `VulkanContext.cpp`.
 
 ## Status and caveats
 

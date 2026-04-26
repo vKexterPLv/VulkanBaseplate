@@ -204,6 +204,20 @@ namespace VCK {
             return false;
         }
 
+        // Rule 23: every instance extension VCK enabled is announced by name,
+        // including who asked for it (surface, validation, user) so the user
+        // can grep the log for "ext enabled" and see exactly what's running.
+        for (const char* ext : surfaceExtensions)
+            VCKLog::Notice("Context", std::string("ext enabled (surface): ") + ext);
+        if (ValidationEnabled)
+            VCKLog::Notice("Context", std::string("ext enabled (validation): ") + VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        for (const char* extra : m_CfgContext.extraInstanceExtensions)
+            VCKLog::Notice("Context", std::string("ext enabled (cfg.extraInstanceExtensions): ") + extra);
+        for (const char* layer : enabledLayers)
+            VCKLog::Notice("Context", std::string("layer enabled: ") + layer);
+        if (k_WantValidation && m_CfgContext.enableValidation && !ValidationEnabled)
+            VCKLog::Notice("Context", "validation requested but VK_LAYER_KHRONOS_validation not present - continuing without it");
+
         VCKLog::Info("Context", "VkInstance created - API 1.2, extensions: "
             + std::to_string(EnabledExtensions.size()));
         return true;
