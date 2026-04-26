@@ -349,12 +349,8 @@ namespace VCK {
 
             vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probeF2);
             timelineSupported = probeTs.timelineSemaphore == VK_TRUE;
-
-            if (!timelineSupported)
-            {
-                VCKLog::Notice("Device",
-                    "Timeline semaphores requested but not supported - falling back to binary fences.");
-            }
+            // (Tri-state Notice fires post-vkCreateDevice in the R23 block
+            //  below; no per-feature Notice here to avoid a duplicate.)
         }
 
         // Build the merged extension list: required + user-supplied extras.

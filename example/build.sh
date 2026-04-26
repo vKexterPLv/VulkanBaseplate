@@ -127,9 +127,14 @@ compile_cpp() {
     local ex="$1" extra="${2:-}"
     local out="$ex/$ex"
     echo "  ${C_DIM}$CXX    $ex${C_RESET}"
+    # `-w` matches build.bat's silent-on-warnings behaviour: g++ + clang++
+    # are noisy by default on Linux + macOS (VMA's single-header impl, GLFW
+    # Cocoa deprecations on macOS, vulkan_core.h `-Wmissing-field-initializers`)
+    # and the warnings are not actionable for end users compiling examples.
+    # Real bugs surface as errors via `-Werror=return-type` regardless.
     # shellcheck disable=SC2086
     $CXX "$ex/main.cpp" "$ex/App.cpp" $VKB $extra \
-         -o "$out" -std=c++17 $INCLUDES $LIBS || {
+         -o "$out" -std=c++17 -w -Werror=return-type $INCLUDES $LIBS || {
         err "C++ compile failed: $ex"; return 1; }
     echo "  ${C_GRN}  OK${C_RESET}   $out"
 }

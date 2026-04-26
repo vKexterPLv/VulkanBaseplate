@@ -140,8 +140,9 @@ namespace VCK {
         const bool wantValidation = k_WantValidation && m_CfgContext.enableValidation;
         ValidationEnabled = wantValidation && CheckValidationLayerSupport();
 
-        if (wantValidation && !ValidationEnabled)
-            VCKLog::Warn("Context", "Validation requested but VK_LAYER_KHRONOS_validation not found");
+        // (Mismatch warning is emitted post-vkCreateInstance below as part of the
+        //  R23 extension-transparency block, so the log order matches the user's
+        //  mental model: one consolidated 'Context' Notice/Warn block per init.)
 
         // --- Extensions ----------------------------------------------------------
         // Platform-specific surface extensions are supplied by the caller (either
@@ -216,7 +217,7 @@ namespace VCK {
         for (const char* layer : enabledLayers)
             VCKLog::Notice("Context", std::string("layer enabled: ") + layer);
         if (k_WantValidation && m_CfgContext.enableValidation && !ValidationEnabled)
-            VCKLog::Notice("Context", "validation requested but VK_LAYER_KHRONOS_validation not present - continuing without it");
+            VCKLog::Warn("Context", "validation requested but VK_LAYER_KHRONOS_validation not present - continuing without it");
 
         VCKLog::Info("Context", "VkInstance created - API 1.2, extensions: "
             + std::to_string(EnabledExtensions.size()));

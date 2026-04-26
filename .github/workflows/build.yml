@@ -141,9 +141,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Vulkan + GLFW + glslang + pkg-config
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
             libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
             pkg-config g++
 
@@ -207,9 +209,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Vulkan + GLFW + glslang + MoltenVK + pkg-config
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_AUTO_UPDATE: 1
         run: |
-          brew update
-          brew install vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config
+          brew install -q vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config
 
       # --- Restore vk_video/*.h (same reason as the Linux job).  On macOS
       # the brew vulkan-headers package does ship vk_video, but build.sh adds
