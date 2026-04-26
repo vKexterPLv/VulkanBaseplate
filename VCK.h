@@ -235,13 +235,29 @@
 //          queuePref,
 //          enableTimelineSemaphores,  v0.3: chain VK_KHR_timeline_semaphore
 //          enableDedicatedComputeQueue,  when the device supports it; when
-//          enableDedicatedTransferQueue} off VulkanDevice::HasTimeline-
-//                                     Semaphores()/GetComputeQueue()/
+//          enableDedicatedTransferQueue, off VulkanDevice::HasTimeline-
+//          enableBindless}             Semaphores()/GetComputeQueue()/
 //                                     GetTransferQueue() fall back to the
 //                                     graphics queue (rule 19).
-//  swapchain.{presentMode,         mailbox/fifo/immediate, 1/2/4/8 or
-//             msaaSamples,         MSAA_AUTO sentinel (pick from device).
-//             preferredSurfaceFmt}
+//                                     enableBindless (post-v0.3, R24): when
+//                                     true requests VK_EXT_descriptor_indexing
+//                                     and announces it via R23 Notice.  Stage-1
+//                                     surface only - bindless descriptor
+//                                     helpers ship in v0.4.
+//  rendering.{mode}                post-v0.3 (R24): mode = Classic (default,
+//                                     VkRenderPass + VkFramebuffer) or
+//                                     Dynamic (requests VK_KHR_dynamic_
+//                                     rendering; codepath ships in v0.4 -
+//                                     today the request is acknowledged via
+//                                     R23 Notice and rendering stays Classic).
+//  swapchain.{presentMode,         Mailbox / Fifo / Immediate / FifoLatest-
+//             msaaSamples,         Ready (post-v0.3, R24: requests
+//             preferredSurfaceFmt}    VK_EXT_present_mode_fifo_latest_ready;
+//                                     falls back to FIFO with a Warn when
+//                                     unavailable, fully wired through
+//                                     VulkanDevice + VulkanSwapchain).
+//                                     msaaSamples: 1/2/4/8 or MSAA_AUTO
+//                                     sentinel (pick from device).
 //  sync.{framesInFlight}           clamped to [1, MAX_FRAMES_IN_FLIGHT].
 //  aa.{technique, alphaToCoverage, technique=Auto runs detector once;
 //      sampleRateShading,          user inputs forwardRenderer + motion
@@ -289,6 +305,21 @@
 //     bump the minor version (0.x) until v1.0.0.
 //  22 VCK never owns user handles.  Raw Vk* passed in is caller-owned;
 //     handles VCK returns via getters are borrows, do not destroy them.
+//  23 Extension transparency.  Every instance- / device-level extension
+//     VCK enables silently is announced via VCKLog::Notice("Context"|
+//     "Device", ...) at init, including extension name, support verdict,
+//     and fallback path.  The user is never surprised by what is running
+//     underneath - grep the init log for "ext " to see the full set.
+//  24 cfg is the contract.  Every behavioural difference VCK can express
+//     that the user can reasonably want to choose between lives in cfg.
+//     Litmus test: "If it changes how the user writes their renderer ->
+//     cfg.  If it changes how VCK works underneath -> silent bundle."
+//     Today's silent bundle: VK_KHR_synchronization2, VK_KHR_buffer_
+//     device_address, VK_EXT_memory_budget, VK_EXT_device_fault,
+//     VK_KHR_present_wait, VK_KHR_present_id (probed + enabled when the
+//     device advertises them, R23 Notice per result).  Today's cfg knobs
+//     for extensions: cfg.rendering.mode, cfg.device.enableBindless,
+//     cfg.swapchain.presentMode = FifoLatestReady (see entries above).
 // =============================================================================
 
 

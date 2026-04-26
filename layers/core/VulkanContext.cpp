@@ -1,6 +1,7 @@
 #include "VulkanContext.h"
 #include "VulkanHelpers.h"   // VK_CHECK, LogVk
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -139,8 +140,9 @@ namespace VCK {
         const bool wantValidation = k_WantValidation && m_CfgContext.enableValidation;
         ValidationEnabled = wantValidation && CheckValidationLayerSupport();
 
-        if (wantValidation && !ValidationEnabled)
-            VCKLog::Warn("Context", "Validation requested but VK_LAYER_KHRONOS_validation not found");
+        // (Mismatch warning is emitted post-vkCreateInstance below as part of the
+        //  R23 extension-transparency block, so the log order matches the user's
+        //  mental model: one consolidated 'Context' Notice/Warn block per init.)
 
         // --- Extensions ----------------------------------------------------------
         // Platform-specific surface extensions are supplied by the caller (either
@@ -202,6 +204,20 @@ namespace VCK {
             VCKLog::Error("Context", "vkCreateInstance failed: " + std::to_string(result));
             return false;
         }
+
+        // Rule 23: every instance extension VCK enabled is announced by name,
+        // including who asked for it (surface, validation, user) so the user
+        // can grep the log for "ext enabled" and see exactly what's running.
+        for (const char* ext : surfaceExtensions)
+            VCKLog::Notice("Context", std::string("ext enabled (surface): ") + ext);
+        if (ValidationEnabled)
+            VCKLog::Notice("Context", std::string("ext enabled (validation): ") + VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        for (const char* extra : m_CfgContext.extraInstanceExtensions)
+            VCKLog::Notice("Context", std::string("ext enabled (cfg.extraInstanceExtensions): ") + extra);
+        for (const char* layer : enabledLayers)
+            VCKLog::Notice("Context", std::string("layer enabled: ") + layer);
+        if (k_WantValidation && m_CfgContext.enableValidation && !ValidationEnabled)
+            VCKLog::Warn("Context", "validation requested but VK_LAYER_KHRONOS_validation not present - continuing without it");
 
         VCKLog::Info("Context", "VkInstance created - API 1.2, extensions: "
             + std::to_string(EnabledExtensions.size()));
@@ -313,7 +329,12 @@ namespace VCK {
         else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) prefix = "[VULKAN WARNING] ";
         else                                                                          prefix = "[VULKAN INFO]    ";
 
-        OutputDebugStringA((prefix + pCallbackData->pMessage + "\n").c_str());
+        const std::string line = prefix + pCallbackData->pMessage + "\n";
+#if VCK_PLATFORM_WINDOWS
+        OutputDebugStringA(line.c_str());
+#else
+        std::fputs(line.c_str(), stderr);
+#endif
 
         return VK_FALSE;
     }

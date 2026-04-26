@@ -397,6 +397,27 @@ namespace VCK {
         case PresentMode::Fifo:
             VCKLog::Notice("Swapchain", "Present mode: FIFO (vsync)");
             return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::FifoLatestReady:
+            // R24 cfg knob: VK_PRESENT_MODE_FIFO_LATEST_READY_EXT.  When the
+            // device + driver advertise it (VK_EXT_present_mode_fifo_latest_ready),
+            // pick it; otherwise fall through to plain FIFO with a Notice that
+            // tells the user exactly why they didn't get latest-ready behaviour
+            // (rule 23 - never silently substitute a present mode).
+// Guard on the extension sentinel define, NOT on the present-mode enum
+// constant: VK_PRESENT_MODE_FIFO_LATEST_READY_EXT is a C enum value in
+// VkPresentModeKHR (no #define exists) so #ifdef on it is dead-code.
+// The extension #define lives in vulkan_core.h alongside other ext sentinels.
+#ifdef VK_EXT_present_mode_fifo_latest_ready
+            if (has(VK_PRESENT_MODE_FIFO_LATEST_READY_EXT))
+            {
+                VCKLog::Notice("Swapchain",
+                    "Present mode: FIFO_LATEST_READY (cfg.swapchain.presentMode, VK_EXT_present_mode_fifo_latest_ready)");
+                return VK_PRESENT_MODE_FIFO_LATEST_READY_EXT;
+            }
+#endif
+            VCKLog::Warn("Swapchain",
+                "FifoLatestReady requested but VK_EXT_present_mode_fifo_latest_ready unavailable, falling back to FIFO (R23)");
+            return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::Auto:
         default:
             if (has(VK_PRESENT_MODE_MAILBOX_KHR))   { VCKLog::Notice("Swapchain", "Present mode: Mailbox (auto)"); return VK_PRESENT_MODE_MAILBOX_KHR; }

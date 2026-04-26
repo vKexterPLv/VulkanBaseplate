@@ -69,7 +69,7 @@ on the first failure.
 ## Linux / macOS
 
 `example/build.sh` auto-detects the OS via `uname -s` and mirrors the
-`build.bat` menu (`[1]-[9] / [A] / [0]`).
+`build.bat` menu (`[1]-[13] / [A] / [0]`).
 
 ### Requirements
 

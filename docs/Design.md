@@ -8,6 +8,27 @@ Rules · status · honest caveats · roadmap
 
 ---
 
+## Categories
+
+The 24 rules below collapse into six categories. Every behavioural choice
+VCK ships should resolve to one of these. New rules go under whichever
+category they fit; no rule lives outside the index.
+
+| # | Category | Slogan | Rules |
+|---|---|---|---|
+| **I** | **Explicitness** | No magic, no hidden behavior, no global state — all choices live in `cfg`. | R1, R6, R10, R23, R24 |
+| **II** | **Ownership** | Core owns. Layers borrow. Strict lifecycle order. VCK destroys only what it created. | R2, R3, R5, R22 |
+| **III** | **Synchronisation** | No hidden sync. Explicit fences / semaphores / timeline only. Frame is the unit of truth. External sync is the caller's responsibility. | R4, R8, R17, R18 |
+| **IV** | **Cost & Scope** | Minimal core surface. No engine assumptions. Zero cost for unused features. | R15, R16, R19 |
+| **V** | **Reliability** | Deterministic frame behaviour. Explicit recreation events. Fail fast, fail loud — always. | R11, R12, R14 |
+| **VI** | **Transparency** | User owns the frame. Escape hatches everywhere. Debuggability is core. Every public API has an example. `VCK.h` is the surface. Extensions are logged. | R7, R9, R13, R20, R21, R23 |
+
+R23 spans I + VI: it's both an explicitness rule (extensions are not
+silent) and a transparency rule (the user can read the log to know what
+their device is running). That overlap is intentional.
+
+---
+
 ## Rules (strict)
 
 1. **Explicit > magic.** No hidden allocations, no singletons, no implicit
@@ -187,6 +208,64 @@ Expansion / Execution / VMM / Tools layers.
   borrows: the user must not destroy them; they die with their VCK
   owner during the shutdown chain (rule 3).
 
+23. **EXTENSION TRANSPARENCY**
+- Any instance- or device-level extension VCK enables on the user's
+  behalf must be announced via `VCKLog::Notice("<Subsystem>", ...)` at
+  initialisation time, including:
+  - the extension name (`VK_KHR_timeline_semaphore`,
+    `VK_EXT_debug_utils`, …),
+  - whether the adapter / loader actually supports it, and
+  - the fallback path taken when it does not (e.g. "timeline
+    semaphores unavailable — `FrameScheduler` will use per-slot
+    fences").
+- The user must never be surprised by what's running underneath. Every
+  enabled extension is greppable in the log; every absent extension is
+  greppable in the log; the choice between them is greppable in the
+  log.
+- Concretely: `VulkanContext::Initialize` and `VulkanDevice::Initialize`
+  are the two enablement points. Both must emit one `Notice` line per
+  extension they request.
+
+24. **`cfg` IS THE CONTRACT**
+
+   Anything that needs changing the code is governed by R24. The litmus
+   test for where it lives is two lines:
+
+   - **If it changes how the user writes their renderer → `cfg`.**
+     The user must be able to flip the behaviour without recompiling
+     VCK and without re-reading the source.
+   - **If it changes how VCK works underneath → silent bundle.**
+     Pure implementation detail. No knob, no log line, no doc entry —
+     it would be noise to the user.
+
+   Concretely:
+
+   - Every behavioural difference VCK can express **that the user can
+     reasonably want to choose between** must be reachable through
+     `VCK::Config` and its sub-structs (`cfg.device`, `cfg.swapchain`,
+     `cfg.pipeline`, `cfg.scheduler`, `cfg.aa`, `cfg.debug`, …).
+     Nothing in this set is hardcoded silently inside a `.cpp`.
+   - Defaults belong on the field declaration in the struct, not in
+     code. A user who never touches `cfg` gets the default behaviour;
+     a user who reads the struct sees every knob the kit exposes in
+     one place.
+   - Adding a runtime branch on something other than a `cfg` field
+     (compile-time `#define`, environment variable, `extern bool`,
+     hidden static) for a user-visible behaviour violates this rule.
+     The single existing exception is `VULKAN_VALIDATION` — a
+     build-config toggle, not a runtime choice, documented in
+     `VulkanContext.cpp`.
+   - **Silent bundles are explicitly allowed and expected.** If VCK
+     changes how something works internally (e.g. switching from
+     `vkQueueWaitIdle` to a per-submit fence, or reordering pool
+     creation, or batching N submits into one) without changing the
+     user-facing API or the rendered output, the change ships as part
+     of the version that introduces it and does not get a `cfg` knob.
+     R23 still applies — extension enablement is never silent — but
+     the *plumbing* is. Asking "does the user write a different line
+     of renderer code if I flip this?" decides which side of the line
+     it falls on.
+
 ## Status and caveats
 
 - **Dedicated queues (v0.3).** `VulkanDevice::FindQueueFamilies` picks a
@@ -217,6 +296,29 @@ Expansion / Execution / VMM / Tools layers.
   execution / vmm / example routes through `VCKLog::{Info, Notice, Warn,
   Error}` with a subsystem tag (rule 14). The old `LogVk` free function
   remains as a shim so user code written against v0.2 still compiles.
+- **Extension matrix (rules 23 + 24, post-v0.3).** `VulkanDevice::
+  CreateLogicalDevice` enumerates device extensions once and runs two
+  passes:
+    - **Silent bundle (R24 silent path).** When the device advertises
+      them, VCK enables `VK_KHR_synchronization2`, `VK_KHR_buffer_device_
+      address`, `VK_EXT_memory_budget`, `VK_EXT_device_fault`,
+      `VK_KHR_present_wait`, `VK_KHR_present_id`. No public API surface;
+      symbols are reachable for v0.4 use sites (sync2 in `FrameScheduler`,
+      BDA in VMM, `memory_budget` polling in `DebugTimeline`,
+      `present_wait` / `present_id` pacing in `FrameScheduler`). Each
+      result is one `VCKLog::Notice("Device", "ext enabled (bundle): ...")`
+      / `"ext unavailable (bundle): ..."` line — R23.
+    - **`cfg`-gated (R24 user-visible path).** `cfg.rendering.mode =
+      RenderingMode::Dynamic` requests `VK_KHR_dynamic_rendering`,
+      `cfg.device.enableBindless` requests `VK_EXT_descriptor_indexing`,
+      `cfg.swapchain.presentMode = PresentMode::FifoLatestReady`
+      requests `VK_EXT_present_mode_fifo_latest_ready`. Stage-1 surface:
+      the extension is enabled and announced, but the rendering /
+      bindless codepaths themselves ship in v0.4; today the request is
+      acknowledged with a fallback `Notice` and behaviour stays Classic
+      / non-bindless. The present-mode knob is fully wired — when the
+      extension is present, `VulkanSwapchain::ChoosePresentMode` returns
+      `VK_PRESENT_MODE_FIFO_LATEST_READY_EXT` directly.
 - `JobGraph` is a correct-but-simple `std::thread` + condvar scheduler. No
   fibres, no work-stealing. Drop-in replacement planned when a real
   workload demands it.
