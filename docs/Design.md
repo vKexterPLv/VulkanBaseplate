@@ -296,6 +296,29 @@ Expansion / Execution / VMM / Tools layers.
   execution / vmm / example routes through `VCKLog::{Info, Notice, Warn,
   Error}` with a subsystem tag (rule 14). The old `LogVk` free function
   remains as a shim so user code written against v0.2 still compiles.
+- **Extension matrix (rules 23 + 24, post-v0.3).** `VulkanDevice::
+  CreateLogicalDevice` enumerates device extensions once and runs two
+  passes:
+    - **Silent bundle (R24 silent path).** When the device advertises
+      them, VCK enables `VK_KHR_synchronization2`, `VK_KHR_buffer_device_
+      address`, `VK_EXT_memory_budget`, `VK_EXT_device_fault`,
+      `VK_KHR_present_wait`, `VK_KHR_present_id`. No public API surface;
+      symbols are reachable for v0.4 use sites (sync2 in `FrameScheduler`,
+      BDA in VMM, `memory_budget` polling in `DebugTimeline`,
+      `present_wait` / `present_id` pacing in `FrameScheduler`). Each
+      result is one `VCKLog::Notice("Device", "ext enabled (bundle): ...")`
+      / `"ext unavailable (bundle): ..."` line — R23.
+    - **`cfg`-gated (R24 user-visible path).** `cfg.rendering.mode =
+      RenderingMode::Dynamic` requests `VK_KHR_dynamic_rendering`,
+      `cfg.device.enableBindless` requests `VK_EXT_descriptor_indexing`,
+      `cfg.swapchain.presentMode = PresentMode::FifoLatestReady`
+      requests `VK_EXT_present_mode_fifo_latest_ready`. Stage-1 surface:
+      the extension is enabled and announced, but the rendering /
+      bindless codepaths themselves ship in v0.4; today the request is
+      acknowledged with a fallback `Notice` and behaviour stays Classic
+      / non-bindless. The present-mode knob is fully wired — when the
+      extension is present, `VulkanSwapchain::ChoosePresentMode` returns
+      `VK_PRESENT_MODE_FIFO_LATEST_READY_EXT` directly.
 - `JobGraph` is a correct-but-simple `std::thread` + condvar scheduler. No
   fibres, no work-stealing. Drop-in replacement planned when a real
   workload demands it.

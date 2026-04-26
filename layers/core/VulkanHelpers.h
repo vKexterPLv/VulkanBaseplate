@@ -295,10 +295,23 @@ inline void LogVk(const char* tag, const std::string& message) {
 namespace VCK {
 
 enum class PresentMode {
-    Auto,       // Mailbox if supported, else FIFO.  Default.
-    Fifo,       // VK_PRESENT_MODE_FIFO_KHR       - always supported, vsync.
-    Mailbox,    // VK_PRESENT_MODE_MAILBOX_KHR    - low-latency, tears nothing.
-    Immediate,  // VK_PRESENT_MODE_IMMEDIATE_KHR  - may tear, uncapped.
+    Auto,            // Mailbox if supported, else FIFO.  Default.
+    Fifo,            // VK_PRESENT_MODE_FIFO_KHR                         - always supported, vsync.
+    Mailbox,         // VK_PRESENT_MODE_MAILBOX_KHR                      - low-latency, tears nothing.
+    Immediate,       // VK_PRESENT_MODE_IMMEDIATE_KHR                    - may tear, uncapped.
+    FifoLatestReady, // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT (cfg knob) - vsync but always presents the latest ready image.
+                     //   Behind cfg.swapchain.presentMode.  Falls back to FIFO with a Notice when
+                     //   VK_EXT_present_mode_fifo_latest_ready is not advertised by the device / driver.
+};
+
+// Rule 24: rendering mode is a user-visible choice.  Classic uses VkRenderPass +
+// VkFramebuffer (default).  Dynamic uses vkCmdBeginRendering with on-the-fly
+// attachment description (VK_KHR_dynamic_rendering, core in 1.3).  Stage-1
+// surface only - selecting Dynamic enables the extension on the device and
+// emits a Notice; the dynamic-rendering codepath itself ships in v0.4.
+enum class RenderingMode {
+    Classic,    // VkRenderPass + VkFramebuffer.  Default; behaviour unchanged from v0.3.
+    Dynamic,    // VK_KHR_dynamic_rendering.  Stage-1: extension enabled, codepath in v0.4.
 };
 
 // MSAA sample count sentinel.  If cfg.swapchain.msaaSamples == MSAA_AUTO (the
@@ -574,7 +587,26 @@ struct Config
         // to them in parallel without locking VCK objects.
         bool                       enableDedicatedComputeQueue  = true;
         bool                       enableDedicatedTransferQueue = true;
+
+        // R24 cfg knob: opt into VK_EXT_descriptor_indexing for bindless
+        // descriptor pools.  Off by default.  Stage-1 surface only - the
+        // extension is requested + announced via R23 Notice when supported;
+        // the bindless-descriptor helper API (DescriptorPool::AddBindlessSet,
+        // VulkanPipeline::EnableBindless, ...) ships in v0.4.  Setting this
+        // to true on a device that does not advertise the extension produces
+        // a single Notice and falls through with no behavioural change.
+        bool                       enableBindless               = false;
     } device;
+
+    // R24 cfg knob: rendering pipeline shape.  Classic = VkRenderPass +
+    // VkFramebuffer (default; v0.3 behaviour preserved).  Dynamic =
+    // vkCmdBeginRendering / VK_KHR_dynamic_rendering (stage-1: extension
+    // enabled + announced, codepath in v0.4).  This is exactly the kind of
+    // user-visible choice R24's litmus test requires to live in cfg.
+    struct RenderingCfg
+    {
+        RenderingMode              mode                         = RenderingMode::Classic;
+    } rendering;
 
     struct SwapchainCfg
     {

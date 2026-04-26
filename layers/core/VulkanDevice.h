@@ -128,7 +128,13 @@ namespace VCK {
         bool               m_TimelineSemaphoresEnabled = false; // v0.3
 
         // Snapshot of cfg.device (preferDiscreteGpu / extra exts / queue pref).
-        Config::DeviceCfg  m_CfgDevice;
+        Config::DeviceCfg     m_CfgDevice;
+
+        // Snapshot of cfg.rendering (cfg.rendering.mode = Classic / Dynamic).
+        // Captured here because the rendering mode toggles which device
+        // extension VCK requests (VK_KHR_dynamic_rendering); the actual
+        // codepath split lives in VulkanPipeline / Frame in v0.4.
+        Config::RenderingCfg  m_CfgRendering;
 
         static constexpr const char* k_RequiredDeviceExtensions[] = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME

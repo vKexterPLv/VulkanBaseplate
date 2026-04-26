@@ -26,7 +26,8 @@ namespace VCK {
 
     bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface, const Config& cfg)
     {
-        m_CfgDevice = cfg.device;
+        m_CfgDevice    = cfg.device;
+        m_CfgRendering = cfg.rendering;
         return Initialize(instance, surface);
     }
 
@@ -357,6 +358,100 @@ namespace VCK {
         std::vector<const char*> enabledExts(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
         for (const char* extra : m_CfgDevice.extraDeviceExtensions)
             enabledExts.push_back(extra);
+
+        // ── Build the available-extension set once (Vulkan device-level) ─────
+        // Used by the silent-bundle and cfg-gated probes below.  Rule 23: each
+        // attempt logs Notice("Device", ...) so the user can grep "ext " and
+        // see exactly what VCK requested + what the driver gave us back.
+        std::set<std::string> availSet;
+        {
+            uint32_t cnt = 0;
+            vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &cnt, nullptr);
+            std::vector<VkExtensionProperties> props(cnt);
+            vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &cnt, props.data());
+            for (const auto& p : props) availSet.insert(p.extensionName);
+        }
+        auto extAvail = [&](const char* name) {
+            return availSet.count(name) > 0;
+        };
+
+        // ── Silent bundle (R24: no cfg knob, internal plumbing only) ─────────
+        // Each of these is enabled on-demand when the device advertises it.
+        // VCK does not yet *use* the matching feature in any codepath - the
+        // bundle is the prep for v0.4 (sync2 in FrameScheduler, BDA in VMM,
+        // memory_budget polling in DebugTimeline, present_wait/id pacing in
+        // FrameScheduler).  Today the user just sees the Notice line and can
+        // start writing code that assumes the symbols are reachable.
+        auto tryBundle = [&](const char* name) -> bool {
+            if (!extAvail(name)) {
+                VCKLog::Notice("Device", std::string("ext unavailable (bundle): ") + name);
+                return false;
+            }
+            enabledExts.push_back(name);
+            VCKLog::Notice("Device", std::string("ext enabled (bundle): ") + name);
+            return true;
+        };
+
+#ifdef VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+        (void)tryBundle(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+#endif
+#ifdef VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
+        (void)tryBundle(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+#endif
+#ifdef VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
+        (void)tryBundle(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+#endif
+#ifdef VK_EXT_DEVICE_FAULT_EXTENSION_NAME
+        (void)tryBundle(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+#endif
+#ifdef VK_KHR_PRESENT_WAIT_EXTENSION_NAME
+        (void)tryBundle(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+#endif
+#ifdef VK_KHR_PRESENT_ID_EXTENSION_NAME
+        (void)tryBundle(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+#endif
+
+        // ── cfg-gated extensions (R24: user-visible behaviour) ───────────────
+        // The extension is requested only when the corresponding cfg knob is
+        // set, with a per-knob Notice line so the user always sees both the
+        // request and the driver's verdict.
+        auto tryGated = [&](const char* name, const char* knob) -> bool {
+            if (!extAvail(name)) {
+                VCKLog::Notice("Device", std::string("ext unavailable (") + knob + "): " + name);
+                return false;
+            }
+            enabledExts.push_back(name);
+            VCKLog::Notice("Device", std::string("ext enabled (") + knob + "): " + name);
+            return true;
+        };
+
+        if (m_CfgRendering.mode == RenderingMode::Dynamic)
+        {
+#ifdef VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
+            (void)tryGated(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, "cfg.rendering.mode=Dynamic");
+#endif
+            // R23 fallback path: today VulkanPipeline / Frame still emit the
+            // Classic VkRenderPass + VkFramebuffer codepath.  The Dynamic
+            // codepath (vkCmdBeginRendering, on-the-fly attachment description)
+            // ships in v0.4; until then the extension is enabled but VCK still
+            // renders Classic to keep behaviour identical for early adopters.
+            VCKLog::Notice("Device",
+                "cfg.rendering.mode=Dynamic acknowledged - dynamic rendering codepath ships in v0.4; rendering falls back to Classic (R23)");
+        }
+
+        if (m_CfgDevice.enableBindless)
+        {
+#ifdef VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+            (void)tryGated(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, "cfg.device.enableBindless");
+#endif
+            // R23 fallback path: bindless descriptor helpers (DescriptorPool::
+            // AddBindlessSet, VulkanPipeline::EnableBindless, ...) ship in
+            // v0.4.  Today the extension is enabled but the public API surface
+            // is unchanged, so the user can probe support without having a
+            // codepath to call into yet.
+            VCKLog::Notice("Device",
+                "cfg.device.enableBindless acknowledged - bindless descriptor helpers ship in v0.4; extension enabled, no public API surface yet (R23)");
+        }
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
