@@ -17,8 +17,27 @@
 #pragma once
 
 #include "VulkanHelpers.h"
+#include <ostream>
 #include <string>
 #include <vector>
+
+// ASSERT_EQ in vck_test.h streams both operands into an ostringstream when
+// the comparison fails, so any type used with ASSERT_EQ must be streamable.
+// VCKLog::Level is an `enum class` with no implicit conversion - provide a
+// streaming overload here, in the same namespace as the enum so ADL finds
+// it from any TU that already includes vck_log_capture.h.
+namespace VCK { namespace Log {
+inline std::ostream& operator<<(std::ostream& os, Level lvl)
+{
+    switch (lvl) {
+        case Level::Info:   return os << "Info";
+        case Level::Notice: return os << "Notice";
+        case Level::Warn:   return os << "Warn";
+        case Level::Error:  return os << "Error";
+    }
+    return os << "Level(?)";
+}
+}} // namespace VCK::Log
 
 namespace VCK { namespace Test {
 
