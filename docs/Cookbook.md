@@ -978,7 +978,6 @@ layout(set=0, binding=0, std430) readonly buffer Particles {
 } P;
 layout(push_constant) uniform PC { mat4 vp; } pc;
 void main() {
-    P.p[gl_InstanceIndex];
     gl_Position  = pc.vp * vec4(P.p[gl_InstanceIndex].pos, 1.0);
     gl_PointSize = 4.0;
 }
@@ -1256,6 +1255,7 @@ layout(set=0, binding=2) uniform sampler2D    uBrdfLUT;
 layout(location=0) in vec3 vWPos;
 layout(location=1) in vec3 vN;
 layout(location=2) in vec2 vUV;
+layout(location=0) out vec4 outColor;
 
 layout(push_constant) uniform PC {
     vec4 cam;        // xyz = camera world pos
@@ -1304,7 +1304,7 @@ void main() {
     vec2 brdf = texture(uBrdfLUT, vec2(NoV, roughness)).rg;
     vec3 ibl  = irr + prf * (f0 * brdf.x + brdf.y);
 
-    gl_FragData[0] = vec4(direct + ibl, 1.0);
+    outColor = vec4(direct + ibl, 1.0);
 }
 ```
 
