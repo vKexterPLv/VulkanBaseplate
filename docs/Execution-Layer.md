@@ -157,7 +157,8 @@ Thin wrapper over `VK_KHR_timeline_semaphore`:
 VCK::TimelineSemaphore uploadsDone;
 if (!uploadsDone.Initialize(dev, /*initial=*/0))
 {
-    LogVk("timeline semas not enabled on device — use VulkanSync fences instead");
+    VCKLog::Notice("TimelineSemaphore",
+                   "feature not enabled — use VulkanSync fences instead");
 }
 
 // Producer (GPU-side): submit with pSignalSemaphores = { uploadsDone.Handle() }
@@ -172,11 +173,15 @@ tok.WaitHost(/*timeoutNs=*/1'000'000);   // CPU blocks until value >= N
 tokens are a no-op on wait, which keeps call sites uniform whether the
 producer ran or not.
 
-> **Caveat:** VCK's current `VulkanDevice` does not enable the
-> `timelineSemaphore` feature when creating the logical device, so
-> `TimelineSemaphore::Initialize` returns `false` on most setups today.
-> Enabling it is a one-line core change planned for a follow-up. Until then,
-> `FrameScheduler` uses `VulkanSync`'s binary primitives.
+> **Status (v0.3):** `VulkanDevice::Initialize` now enables
+> `VK_KHR_timeline_semaphore` when the adapter supports it (Vulkan 1.2+, i.e.
+> every modern desktop GPU). `VulkanDevice::HasTimelineSemaphores()` reports
+> the capability. `FrameScheduler` automatically uses a single per-scheduler
+> timeline for frame retirement when the feature is available and falls back
+> to per-slot `VkFence` waits when it isn't. Both paths are exposed:
+> `FrameScheduler::FrameTimeline()` returns the scheduler's own timeline,
+> and `FrameScheduler::SlotToken(slot)` returns a `DependencyToken`
+> bound to the slot's last signalled value.
 
 ## QueueSet
 
@@ -188,16 +193,24 @@ VkQueue t = qs.Transfer();   // may alias Graphics
 if (qs.HasDedicatedTransfer()) { /* real async uploads */ }
 ```
 
-`VulkanDevice` currently creates only a graphics queue, so `Compute()` and
-`Transfer()` alias it. `QueueSet` exists so call sites can be written with
-multi-queue intent today and pick up real parallelism when `VulkanDevice`
-grows dedicated queue support.
+**Status (v0.3):** `VulkanDevice::FindQueueFamilies` now picks a dedicated
+compute-only family and a dedicated transfer-only family when the vendor
+exposes them (AMD / NVIDIA almost always; Intel often does not).
+`QueueSet::Compute()` / `QueueSet::Transfer()` return the dedicated
+`VkQueue`s; fallback to the graphics queue still happens when separate
+families aren't available and is logged via `VCKLog::Notice("Device", ...)`.
+
+Thread safety follows rule 18: different `VkQueue`s are independent
+external-sync scopes, so graphics + compute + transfer submits from
+separate threads are safe as long as each `VkQueue` is only touched by one
+thread at a time. VMM staging (v0.3) uses `Transfer()` with release/acquire
+ownership barriers against `Graphics()` when the families differ.
 
 ## DebugTimeline
 
 Plain-text span recorder. Enable via
 `FrameScheduler::Config::enableTimeline = true`. When disabled every method
-is a cheap no-op.
+is a cheap no-op (rule 19, zero cost for unused features).
 
 ```cpp
 auto& tl = sched.Timeline();
@@ -206,7 +219,8 @@ Cull(scene, visible);
 tl.EndCpuSpan("cull", f.Absolute());
 
 // later:
-tl.Dump();   // prints chronological spans to LogVk
+tl.Dump();                              // plain text into VCKLog
+tl.DumpChromeTracing("frame.json");     // chrome://tracing / Perfetto (v0.2.1)
 ```
 
 The scheduler itself records `frame`, `jobs`, `fence-wait`, and

@@ -30,7 +30,7 @@ bool TimelineSemaphore::Initialize(VulkanDevice& device, uint64_t initialValue)
     const VkResult r = vkCreateSemaphore(device.GetDevice(), &ci, nullptr, &m_Sem);
     if (r != VK_SUCCESS)
     {
-        LogVk("[TimelineSemaphore] vkCreateSemaphore failed (VkResult=" +
+        VCKLog::Error("TimelineSemaphore", "vkCreateSemaphore failed (VkResult=" +
               std::to_string(static_cast<int>(r)) +
               "). The device was likely not created with timelineSemaphore=VK_TRUE; "
               "fall back to VulkanSync.");
@@ -86,17 +86,22 @@ bool TimelineSemaphore::Signal(uint64_t value)
 // -----------------------------------------------------------------------------
 bool QueueSet::Initialize(VulkanDevice& device)
 {
-    m_Graphics       = device.GetGraphicsQueue();
-    m_GraphicsFamily = device.GetQueueFamilyIndices().GraphicsFamily.value_or(0);
+    const QueueFamilyIndices& qfi = device.GetQueueFamilyIndices();
 
-    // VCK's current VulkanDevice only creates a graphics queue.  Until
-    // VulkanDevice grows a dedicated compute / transfer queue, both slots
-    // alias the graphics queue.  This is legal for vkQueueSubmit - it just
-    // means no real queue-level parallelism is achieved.
-    m_Compute        = m_Graphics;
-    m_ComputeFamily  = m_GraphicsFamily;
-    m_Transfer       = m_Graphics;
-    m_TransferFamily = m_GraphicsFamily;
+    m_Graphics       = device.GetGraphicsQueue();
+    m_GraphicsFamily = qfi.GraphicsFamily.value_or(0);
+
+    // v0.3: wire real dedicated queues when VulkanDevice picked them up.
+    // GetComputeQueue / GetTransferQueue fall back to the graphics queue
+    // if no dedicated family exists, so the resulting VkQueue handle is
+    // always non-null.  The Family() accessors, however, must reflect the
+    // actual family the queue belongs to - code paths that care about
+    // family indices (VK_SHARING_MODE_CONCURRENT, ownership transfers,
+    // queue-family image barriers) use them directly.
+    m_Compute        = device.GetComputeQueue();
+    m_ComputeFamily  = qfi.ComputeFamily.value_or(m_GraphicsFamily);
+    m_Transfer       = device.GetTransferQueue();
+    m_TransferFamily = qfi.TransferFamily.value_or(m_GraphicsFamily);
 
     return m_Graphics != VK_NULL_HANDLE;
 }
@@ -136,13 +141,29 @@ void GpuSubmissionBatcher::QueueTransfer(VkCommandBuffer cmd, const SubmitInfo& 
 
 void GpuSubmissionBatcher::FlushAll(VkFence graphicsFence)
 {
+    FlushAll(graphicsFence, VK_NULL_HANDLE, 0);
+}
+
+void GpuSubmissionBatcher::FlushAll(VkFence     graphicsFence,
+                                    VkSemaphore graphicsTimeline,
+                                    uint64_t    graphicsTimelineValue)
+{
     if (m_Queues == nullptr) return;
 
     // Transfer → Compute → Graphics.  Graphics is submitted last with the
-    // in-flight fence so the CPU can track retirement of the whole frame.
+    // in-flight fence (and optional timeline signal) so the CPU can track
+    // retirement of the whole frame by either mechanism.
     FlushQueue(m_Queues->Transfer(), m_Transfer, VK_NULL_HANDLE);
     FlushQueue(m_Queues->Compute(),  m_Compute,  VK_NULL_HANDLE);
-    FlushQueue(m_Queues->Graphics(), m_Graphics, graphicsFence);
+    if (graphicsTimeline != VK_NULL_HANDLE)
+    {
+        FlushQueueWithTimeline(m_Queues->Graphics(), m_Graphics,
+                               graphicsFence, graphicsTimeline, graphicsTimelineValue);
+    }
+    else
+    {
+        FlushQueue(m_Queues->Graphics(), m_Graphics, graphicsFence);
+    }
 }
 
 void GpuSubmissionBatcher::DiscardAll()
@@ -197,6 +218,108 @@ void GpuSubmissionBatcher::FlushQueue(VkQueue q, std::vector<Entry>& bucket, VkF
     bucket.clear();
 }
 
+void GpuSubmissionBatcher::FlushQueueWithTimeline(VkQueue              q,
+                                                  std::vector<Entry>&  bucket,
+                                                  VkFence              fence,
+                                                  VkSemaphore          timelineSem,
+                                                  uint64_t             timelineValue)
+{
+    // Empty bucket + timeline signal: one synthetic submit that just
+    // signals the timeline value (and the fence, if present).  This
+    // keeps both retirement mechanisms in lock-step with CPU frame N.
+    if (bucket.empty())
+    {
+        VkTimelineSemaphoreSubmitInfo ts{};
+        ts.sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        ts.signalSemaphoreValueCount = 1;
+        ts.pSignalSemaphoreValues    = &timelineValue;
+
+        VkSubmitInfo si{};
+        si.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.pNext                = &ts;
+        si.signalSemaphoreCount = 1;
+        si.pSignalSemaphores    = &timelineSem;
+
+        VK_CHECK(vkQueueSubmit(q, 1, &si, fence));
+        return;
+    }
+
+    // Non-empty bucket: append the timeline semaphore as an *extra* signal
+    // on the last submit.  We rebuild signal arrays per entry to include
+    // the existing per-entry signalSem (if any) alongside the timeline
+    // signal on the trailing submit.  Earlier submits are unchanged.
+    std::vector<VkSubmitInfo>                  submits;
+    std::vector<VkTimelineSemaphoreSubmitInfo> tlInfos;
+    std::vector<std::array<VkSemaphore,    2>> signals;
+    std::vector<std::array<uint64_t,       2>> signalVals;
+
+    submits.reserve(bucket.size());
+    tlInfos.reserve(1);
+    signals.reserve(bucket.size());
+    signalVals.reserve(bucket.size());
+
+    const size_t last = bucket.size() - 1;
+    for (size_t i = 0; i < bucket.size(); ++i)
+    {
+        const Entry& e = bucket[i];
+        VkSubmitInfo si{};
+        si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers    = &e.cmd;
+
+        if (e.info.waitSem != VK_NULL_HANDLE)
+        {
+            si.waitSemaphoreCount = 1;
+            si.pWaitSemaphores    = &e.info.waitSem;
+            si.pWaitDstStageMask  = &e.info.waitStage;
+        }
+
+        if (i == last)
+        {
+            // Trailing submit: combine the per-entry signal (if any) with
+            // the timeline signal.  Values are meaningful only for the
+            // timeline slot (binary semaphores ignore the paired value).
+            signals.push_back({});
+            signalVals.push_back({});
+            auto&    sArr  = signals.back();
+            auto&    vArr  = signalVals.back();
+            uint32_t count = 0;
+
+            if (e.info.signalSem != VK_NULL_HANDLE)
+            {
+                sArr[count] = e.info.signalSem;
+                vArr[count] = 0;
+                ++count;
+            }
+            sArr[count] = timelineSem;
+            vArr[count] = timelineValue;
+            ++count;
+
+            tlInfos.push_back({});
+            VkTimelineSemaphoreSubmitInfo& ts = tlInfos.back();
+            ts.sType                          = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+            ts.signalSemaphoreValueCount      = count;
+            ts.pSignalSemaphoreValues         = vArr.data();
+
+            si.pNext                = &ts;
+            si.signalSemaphoreCount = count;
+            si.pSignalSemaphores    = sArr.data();
+        }
+        else if (e.info.signalSem != VK_NULL_HANDLE)
+        {
+            si.signalSemaphoreCount = 1;
+            si.pSignalSemaphores    = &e.info.signalSem;
+        }
+        submits.push_back(si);
+    }
+
+    VK_CHECK(vkQueueSubmit(q,
+                           static_cast<uint32_t>(submits.size()),
+                           submits.data(),
+                           fence));
+    bucket.clear();
+}
+
 
 // -----------------------------------------------------------------------------
 // [18] BackpressureGovernor
@@ -215,7 +338,7 @@ void BackpressureGovernor::Initialize(FramePolicy policy, uint32_t maxLag, uint3
     uint32_t clamped = maxLag == 0 ? 1u : maxLag;
     if (clamped > framesInFlight)
     {
-        LogVk(std::string("[BackpressureGovernor] asyncMaxLag=") +
+        VCKLog::Info("BackpressureGovernor", std::string("asyncMaxLag=") +
               std::to_string(maxLag) +
               " exceeds framesInFlight=" +
               std::to_string(framesInFlight) +
@@ -331,7 +454,7 @@ JobGraph::JobId JobGraph::Add(const char* name, Fn fn, std::initializer_list<Job
         }
         else
         {
-            LogVk(std::string("[JobGraph] Add('") +
+            VCKLog::Info("JobGraph", std::string("Add('") +
                   (name != nullptr ? name : "job") +
                   "'): ignoring invalid dep " + std::to_string(dep));
         }
@@ -553,11 +676,11 @@ void DebugTimeline::Dump()
     std::sort(snapshot.begin(), snapshot.end(),
               [](const Span& a, const Span& b) { return a.startUs < b.startUs; });
 
-    LogVk("[DebugTimeline] " + std::to_string(snapshot.size()) + " spans:");
+    VCKLog::Info("DebugTimeline", std::to_string(snapshot.size()) + " spans:");
     for (const Span& s : snapshot)
     {
         const uint64_t dur = s.endUs > s.startUs ? s.endUs - s.startUs : 0;
-        LogVk(std::string("  f=") + std::to_string(s.frame) +
+        VCKLog::Info("DebugTimeline", std::string("  f=") + std::to_string(s.frame) +
               " [" + s.track + "] " + s.name +
               " @" + std::to_string(s.startUs) + "us  dur=" +
               std::to_string(dur) + "us");
@@ -663,12 +786,12 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
 
     if (!m_Queues.Initialize(device))
     {
-        LogVk("[FrameScheduler] QueueSet::Initialize failed.");
+        VCKLog::Error("FrameScheduler", "QueueSet::Initialize failed.");
         return false;
     }
     if (!m_Submissions.Initialize(device, m_Queues))
     {
-        LogVk("[FrameScheduler] GpuSubmissionBatcher::Initialize failed.");
+        VCKLog::Error("FrameScheduler", "GpuSubmissionBatcher::Initialize failed.");
         return false;
     }
     // Runtime framesInFlight comes from VulkanSync (already clamped in its
@@ -680,6 +803,27 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
 
     m_Governor.Initialize(cfg.policy, cfg.asyncMaxLag, m_FramesInFlight);
     m_Timeline.Initialize(cfg.enableTimeline);
+
+    // v0.3: only create the per-scheduler timeline semaphore when both
+    // the user opts in (cfg.enableTimeline) AND the device exposes the
+    // feature (VulkanDevice::HasTimelineSemaphores()).  The binary-fence
+    // path remains fully functional; the timeline is layered on top.
+    m_NextTimelineValue = 0;
+    m_SlotTimelineValue.fill(0);
+    bool timelineActive = false;
+    if (cfg.enableTimeline && device.HasTimelineSemaphores())
+    {
+        if (m_FrameTimeline.Initialize(device, 0))
+        {
+            timelineActive = true;
+        }
+        else
+        {
+            VCKLog::Warn("FrameScheduler",
+                  "Timeline requested but TimelineSemaphore::Initialize failed; "
+                  "falling back to binary fences.");
+        }
+    }
 
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
@@ -698,10 +842,11 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
     m_Absolute = 0;
     m_InFrame  = false;
 
-    LogVk(std::string("[FrameScheduler] policy=") + FramePolicyName(cfg.policy) +
-          " maxLag="   + std::to_string(cfg.asyncMaxLag) +
-          " workers="  + std::to_string(m_Jobs[0].WorkerCount()) +
-          " timeline=" + (cfg.enableTimeline ? "on" : "off"));
+    VCKLog::Info("FrameScheduler", std::string("policy=") + FramePolicyName(cfg.policy) +
+          " maxLag="    + std::to_string(cfg.asyncMaxLag) +
+          " workers="   + std::to_string(m_Jobs[0].WorkerCount()) +
+          " dbgSpans="  + (cfg.enableTimeline ? "on" : "off") +
+          " frameSem="  + (timelineActive     ? "timeline" : "fence"));
 
     return true;
 }
@@ -712,15 +857,65 @@ void FrameScheduler::Shutdown()
     {
         m_Jobs[i].Shutdown();
     }
+    m_FrameTimeline.Shutdown();
     m_Timeline.Shutdown();
     m_Governor.Shutdown();
     m_Submissions.Shutdown();
     m_Queues.Shutdown();
 
+    m_SlotTimelineValue.fill(0);
+    m_NextTimelineValue = 0;
+
     m_Device  = nullptr;
     m_Command = nullptr;
     m_Sync    = nullptr;
     m_InFrame = false;
+}
+
+DependencyToken FrameScheduler::SlotToken(uint32_t slot)
+{
+    DependencyToken t;
+    if (!TimelineActive() || slot >= m_FramesInFlight) return t;
+    t.sem   = &m_FrameTimeline;
+    t.value = m_SlotTimelineValue[slot];
+    return t;
+}
+
+void FrameScheduler::DrainInFlight()
+{
+    if (m_Device == nullptr) return;
+
+    // Timeline path: wait on the largest value we've ever scheduled.
+    // Covers every slot in one call (timeline values are monotonic and
+    // EndFrame assigns them in submission order, so waiting on the max
+    // implies waiting on all slots' most recent submits).
+    if (TimelineActive())
+    {
+        uint64_t maxVal = 0;
+        for (uint32_t i = 0; i < m_FramesInFlight; ++i)
+        {
+            if (m_SlotTimelineValue[i] > maxVal) maxVal = m_SlotTimelineValue[i];
+        }
+        if (maxVal != 0)
+        {
+            m_FrameTimeline.Wait(maxVal);
+            m_Governor.NoteGpuFrameRetired(m_Absolute);
+        }
+        return;
+    }
+
+    // Fence path: wait on every slot that has actually submitted work.
+    // Resetting afterwards is NOT required - BeginFrame's
+    // WaitInFlightFence will reset the slot's fence on its next pass.
+    if (m_Sync == nullptr) return;
+    for (uint32_t i = 0; i < m_FramesInFlight; ++i)
+    {
+        if (m_SlotAbsolute[i] == 0) continue;
+        VkFence f = m_Sync->GetInFlightFence(i);
+        if (f == VK_NULL_HANDLE) continue;
+        VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &f, VK_TRUE, UINT64_MAX));
+        m_Governor.NoteGpuFrameRetired(m_SlotAbsolute[i]);
+    }
 }
 
 uint32_t FrameScheduler::CurrentSlot() const
@@ -731,36 +926,90 @@ uint32_t FrameScheduler::CurrentSlot() const
 void FrameScheduler::WaitInFlightFence(uint32_t slot)
 {
     if (m_Sync == nullptr || m_Device == nullptr) return;
-    VkFence fence = m_Sync->GetInFlightFence(slot);
-    if (fence == VK_NULL_HANDLE) return;
 
     const auto t0 = std::chrono::steady_clock::now();
-    VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
-    VK_CHECK(vkResetFences(m_Device->GetDevice(), 1, &fence));
+
+    // v0.3: prefer the timeline value when active.  The binary fence is
+    // still reset (VulkanSync's next submit expects an unsignalled
+    // fence), but the wait itself is done on the timeline so we get the
+    // cheaper host wait and the slot can carry its retirement value
+    // across BeginFrame→EndFrame→BeginFrame without needing the fence
+    // round-trip.  When the timeline is inactive the fence does both.
+    if (TimelineActive())
+    {
+        const uint64_t v = m_SlotTimelineValue[slot];
+        if (v != 0)
+        {
+            m_FrameTimeline.Wait(v);
+        }
+
+        VkFence fence = m_Sync->GetInFlightFence(slot);
+        if (fence != VK_NULL_HANDLE)
+        {
+            // VulkanSync creates fences with VK_FENCE_CREATE_SIGNALED_BIT, so
+            // on the first pass through a slot the fence is already signalled
+            // even though no submit has happened yet - wait returns immediately
+            // and reset transitions it to unsignalled for the upcoming EndFrame
+            // submit.  If we skip the reset here (e.g. gated on m_SlotAbsolute)
+            // EndFrame would call vkQueueSubmit with a signalled fence and hit
+            // VUID-vkQueueSubmit-fence-00064.  Subsequent passes match the
+            // non-timeline path below.
+            VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
+            VK_CHECK(vkResetFences (m_Device->GetDevice(), 1, &fence));
+        }
+    }
+    else
+    {
+        VkFence fence = m_Sync->GetInFlightFence(slot);
+        if (fence == VK_NULL_HANDLE) return;
+
+        VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
+        VK_CHECK(vkResetFences(m_Device->GetDevice(), 1, &fence));
+    }
+
     const auto t1 = std::chrono::steady_clock::now();
 
     // Anything the CPU spent blocking is a stall.
     const uint64_t waitedUs = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
 
-    // When a slot's fence clears, the GPU has finished the frame previously
-    // assigned to that slot.  That is the most precise retirement signal we
-    // can get without timeline semaphores.
+    // When a slot's fence/timeline clears, the GPU has finished the frame
+    // previously assigned to that slot.  That is the most precise
+    // retirement signal we can produce.
     if (m_SlotAbsolute[slot] != 0)
     {
         m_Governor.NoteGpuFrameRetired(m_SlotAbsolute[slot]);
     }
     if (waitedUs > 100 && m_Timeline.Enabled())
     {
-        m_Timeline.NoteStall("fence-wait", m_Absolute, waitedUs);
+        m_Timeline.NoteStall(TimelineActive() ? "timeline-wait" : "fence-wait",
+                             m_Absolute, waitedUs);
     }
 }
 
 void FrameScheduler::RetireCompletedFrames()
 {
-    // Non-blocking probe: for each slot whose fence is signalled, mark its
-    // absolute frame as retired.  Cheap - just a device-side query.
+    // Non-blocking probe: for each slot whose GPU work has retired, mark
+    // its absolute frame as retired.  When the timeline is active we read
+    // the single counter once (cheaper than N fence-status queries) and
+    // compare each slot's target value against it; otherwise we fall
+    // back to vkGetFenceStatus per slot.
     if (m_Device == nullptr || m_Sync == nullptr) return;
+
+    if (TimelineActive())
+    {
+        const uint64_t retired = m_FrameTimeline.LastSignaledValue();
+        for (uint32_t i = 0; i < m_FramesInFlight; ++i)
+        {
+            if (m_SlotAbsolute[i] == 0) continue;
+            if (m_SlotTimelineValue[i] != 0 && retired >= m_SlotTimelineValue[i])
+            {
+                m_Governor.NoteGpuFrameRetired(m_SlotAbsolute[i]);
+            }
+        }
+        return;
+    }
+
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
         if (m_SlotAbsolute[i] == 0) continue;
@@ -854,8 +1103,20 @@ void FrameScheduler::EndFrame()
         m_Command->EndRecording(slot);
     }
 
-    // Flush all batched submits.  Graphics queue gets the fence.
-    m_Submissions.FlushAll(fence);
+    // Flush all batched submits.  Graphics queue gets the fence, and - if
+    // the per-scheduler timeline is active - signals the slot's timeline
+    // value in the same submit so downstream consumers (SlotToken,
+    // RetireCompletedFrames, Lockstep end-wait) can wait on either.
+    if (TimelineActive())
+    {
+        const uint64_t v = ++m_NextTimelineValue;
+        m_SlotTimelineValue[slot] = v;
+        m_Submissions.FlushAll(fence, m_FrameTimeline.Handle(), v);
+    }
+    else
+    {
+        m_Submissions.FlushAll(fence);
+    }
 
     // Advance VulkanSync's internal frame index.
     if (m_Sync != nullptr)
@@ -873,10 +1134,18 @@ void FrameScheduler::EndFrame()
     // this slot, which does the reset inside WaitInFlightFence.  Resetting
     // here would leave the fence in a state where the next same-slot
     // BeginFrame hangs on a never-submitted fence.
-    if (m_Cfg.policy == FramePolicy::Lockstep && fence != VK_NULL_HANDLE && m_Device != nullptr)
+    if (m_Cfg.policy == FramePolicy::Lockstep && m_Device != nullptr)
     {
-        VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
-        m_Governor.NoteGpuFrameRetired(m_Absolute);
+        if (TimelineActive())
+        {
+            m_FrameTimeline.Wait(m_SlotTimelineValue[slot]);
+            m_Governor.NoteGpuFrameRetired(m_Absolute);
+        }
+        else if (fence != VK_NULL_HANDLE)
+        {
+            VK_CHECK(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX));
+            m_Governor.NoteGpuFrameRetired(m_Absolute);
+        }
     }
 
     m_InFrame = false;

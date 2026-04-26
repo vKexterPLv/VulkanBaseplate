@@ -127,7 +127,7 @@ namespace VCK::DebugTimelineExample {
         (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         if ((++frameCounter % 120) == 0)
         {
-            LogVk("[DebugTimeline] ── dumping 120 frames of spans ──");
+            VCKLog::Notice("DebugTimeline", "\u2500\u2500 dumping 120 frames of spans \u2500\u2500");
             scheduler.Timeline().Dump();
         }
     }
@@ -174,7 +174,7 @@ namespace VCK::DebugTimelineExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        LogVk("[DebugTimelineExample] DebugTimeline enabled; Dump() every 120 frames.");
+        VCKLog::Notice("DebugTimelineExample", "DebugTimeline enabled; Dump() every 120 frames.");
     }
 
     void Shutdown()

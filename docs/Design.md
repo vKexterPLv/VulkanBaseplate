@@ -27,18 +27,28 @@ Shutdown: (Scheduler / VMM) → Sync → Command → Pipeline → Swapchain → 
 Expansion objects and VMM resources must be shut down **before** the core
 objects they reference.
 
-4. **No hidden synchronisation.** The only places the kit blocks the CPU on
-the GPU are:
-- `VulkanOneTimeCommand::End` and `VulkanMemoryManager::SubmitStagingCmd`
-  — `vkQueueWaitIdle`, setup paths only.
-- `FrameScheduler::BeginFrame` / `EndFrame` when policy dictates (per
-  slot fence wait).
+4. **No hidden synchronisation.** Only `Shutdown()` paths may call
+`vkDeviceWaitIdle`; the runtime hot path never does (v0.3). The remaining
+blocking sites are the concrete allow-list rule 8 expands on:
+- `VulkanOneTimeCommand::End` — `vkWaitForFences` on the per-command fence,
+  setup paths only. Short-circuits on submit failure (no infinite hang).
+- `VulkanMemoryManager::SubmitStagingCmd` — `vkWaitForFences` on a
+  per-submit `VkFence` (v0.3 replaced the old `vkQueueWaitIdle`). Release /
+  acquire ownership barriers when the transfer queue is dedicated.
+- `FrameScheduler::BeginFrame` / `EndFrame` — `vkWaitSemaphores` on the
+  scheduler's timeline (v0.3) or, when the device doesn't expose
+  `VK_KHR_timeline_semaphore`, per-slot `vkWaitForFences`.
+- `FrameScheduler::DrainInFlight` — the scheduler's own full drain (used
+  by the scheduler-aware `HandleLiveResize` overload instead of
+  `vkDeviceWaitIdle`).
 - `BackpressureGovernor::WaitIfOverrun` for `AsyncMax`.
-- `VulkanSwapchain::Recreate` and `VCK::HandleLiveResize`
-  — `vkDeviceWaitIdle` around swapchain/framebuffer rebuild, always
-  logged via `VCKLog::Notice("LiveResize", ...)` and
-  `VCKLog::Notice("Swapchain", "Recreating ...")`; the `DebugTimeline`
-  overload of `HandleLiveResize` also emits a CPU span.
+- `VulkanSwapchain::Recreate(w, h, drainedExternally = false)` —
+  `vkDeviceWaitIdle` around swapchain/framebuffer rebuild by default; the
+  scheduler-aware `HandleLiveResize(window, sc, fb, pipe, scheduler)`
+  overload drains via `FrameScheduler::DrainInFlight()` and passes
+  `drainedExternally = true` so the global wait is skipped. Both paths
+  log via `VCKLog::Notice("LiveResize", ...)` and
+  `VCKLog::Notice("Swapchain", "Recreating ...")`.
 - Anything you do manually.
 
 5. **Frame-scoped or persistent, nothing else.** Every GPU resource has a
@@ -179,21 +189,41 @@ Expansion / Execution / VMM / Tools layers.
 
 ## Status and caveats
 
-- `VulkanDevice` creates only a graphics queue. `QueueSet`'s compute /
-  transfer slots alias graphics until that's plumbed through.
-  `TimelineSemaphore::Initialize` similarly returns `false` on most setups
-  because the feature bit isn't enabled yet. Both are one-line core changes
-  planned as follow-ups — the **surface** is already in place so call sites
-  don't need to change when they land.
-- `VulkanOneTimeCommand` and `VulkanMemoryManager::SubmitStagingCmd` still
-  use `vkQueueWaitIdle`. The staging ring gets reset on each
-  `EndFrame` / `FlushStaging` while this is true. Replacing with a
-  fence-per-submit (or timeline) path is the next VMM milestone.
+- **Dedicated queues (v0.3).** `VulkanDevice::FindQueueFamilies` picks a
+  compute-only and a transfer-only family when the vendor exposes them.
+  Fallbacks to the graphics family are logged via `VCKLog::Notice("Device",
+  ...)`. Thread safety is governed by rule 18 — different `VkQueue`s are
+  independent external-sync scopes, so graphics + compute + transfer
+  submits from separate threads are safe.
+- **Timeline semaphores (v0.3).** `VulkanDevice::Initialize` enables
+  `VK_KHR_timeline_semaphore` when the adapter supports it (Vulkan 1.2+).
+  `VulkanDevice::HasTimelineSemaphores()` exposes the capability.
+  `FrameScheduler` automatically uses a single per-scheduler timeline for
+  frame retirement; per-slot fence path remains as a fallback. Driven by
+  rule 19: the timeline is only allocated when both `cfg.enableTimeline`
+  and `HasTimelineSemaphores()` are true.
+- **VMM staging (v0.3).** `VulkanMemoryManager::SubmitStagingCmd` no longer
+  calls `vkQueueWaitIdle`; it uses a per-submit `VkFence`. When the
+  transfer queue is dedicated, staging runs on the transfer family and a
+  release/acquire ownership-barrier pair is recorded so the graphics queue
+  sees the expected image layout (Vulkan §7.7.4). CPU-serialised for v0.3;
+  a semaphore-driven async acquire is on the v0.4 roadmap.
+- **Secondary command buffers (v0.3).** `VulkanCommand::AllocateSecondary /
+  BeginSecondary / EndSecondary / ExecuteSecondaries` are the
+  record-in-a-secondary / execute-via-`vkCmdExecuteCommands` path. The
+  pool is shared with the primaries; multi-threaded allocation is the
+  caller's sync responsibility (rule 18).
+- **`LogVk` migration (v0.3).** Every call site in core / expansion /
+  execution / vmm / example routes through `VCKLog::{Info, Notice, Warn,
+  Error}` with a subsystem tag (rule 14). The old `LogVk` free function
+  remains as a shim so user code written against v0.2 still compiles.
 - `JobGraph` is a correct-but-simple `std::thread` + condvar scheduler. No
   fibres, no work-stealing. Drop-in replacement planned when a real
   workload demands it.
-- `DebugTimeline` dumps as plain text to `LogVk`. No graphical viewer. A
-  chrome://tracing exporter is easy to add later.
+- `DebugTimeline` dumps as plain text to `VCKLog` and optionally exports
+  `chrome://tracing` JSON via `DumpChromeTracing(path)` (v0.2.1). No
+  in-repo graphical viewer — use `chrome://tracing` or
+  `https://ui.perfetto.dev`.
 - Supported platforms: **Windows** (MinGW-w64 g++), **Linux**, **macOS**
   (latter two via `VCK::Window` + `example/build.sh`, pkg-config
   `vulkan`/`glfw3`). MSVC/cl is not wired today — mechanical port.
@@ -275,14 +305,28 @@ what got picked without enabling debug.
 
 ## Roadmap
 
-Deferred features, in rough priority order:
+Shipped in v0.3:
 
-1. Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
-   to use timeline primitives throughout.
-2. Real dedicated transfer / compute queues in `VulkanDevice` and
-   `QueueSet`.
-3. Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
-4. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
+- [x] Enable `timelineSemaphore` on `VulkanDevice` and wire `FrameScheduler`
+  to use timeline primitives throughout.
+- [x] Real dedicated transfer / compute queues in `VulkanDevice` and
+  `QueueSet`.
+- [x] Async staging path in VMM — fence-per-submit, no `vkQueueWaitIdle`.
+  Release/acquire ownership barriers across queue families.
+- [x] Secondary command buffer support in `VulkanCommand`.
+- [x] Remove runtime `vkDeviceWaitIdle` — scheduler-aware `HandleLiveResize`
+  drains via `FrameScheduler::DrainInFlight()`.
+- [x] `chrome://tracing` export (v0.2.1:
+  `DebugTimeline::DumpChromeTracing`).
+
+Deferred, in rough priority order:
+
+1. Semaphore-driven async acquire in VMM staging (today's v0.3 path
+   CPU-serialises the acquire after the transfer fence retires).
+2. GPU-driven indirect-draw sample (compute generates `vkCmdDrawIndirect`
    commands).
-5. Graphical profiler — chrome://tracing export, then a bundled viewer.
-6. MSVC/cl toolchain support (currently MinGW-w64 g++ only on Windows).
+3. Bundled graphical profiler viewer (Perfetto / chrome://tracing is the
+   external viewer today).
+4. MSVC/cl toolchain support (currently MinGW-w64 g++ only on Windows).
+5. Unit-test harness (currently only CI-gated compile + manual Windows
+   validation).

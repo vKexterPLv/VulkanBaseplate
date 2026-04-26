@@ -20,6 +20,11 @@ namespace VCK {
     {
         std::optional<uint32_t> GraphicsFamily;
         std::optional<uint32_t> PresentFamily;
+        // v0.3: optional dedicated compute / transfer families.  Absent
+        // when the vendor does not expose graphics-less queues; in that
+        // case QueueSet::Compute() / Transfer() alias the graphics queue.
+        std::optional<uint32_t> ComputeFamily;
+        std::optional<uint32_t> TransferFamily;
 
         bool IsComplete() const
         {
@@ -30,6 +35,9 @@ namespace VCK {
         {
             return IsComplete() && (GraphicsFamily.value() == PresentFamily.value());
         }
+
+        bool HasDedicatedCompute()  const { return ComputeFamily.has_value();  }
+        bool HasDedicatedTransfer() const { return TransferFamily.has_value(); }
     };
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -65,9 +73,27 @@ namespace VCK {
         VkPhysicalDevice   GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkQueue            GetGraphicsQueue()  const { return m_GraphicsQueue; }
         VkQueue            GetPresentQueue()   const { return m_PresentQueue; }
+        // v0.3: dedicated-queue accessors.  Fall back to the graphics
+        // queue when the device did not expose a dedicated family or the
+        // caller opted out via Config::DeviceCfg::enableDedicated*Queue.
+        VkQueue            GetComputeQueue()   const
+        {
+            return m_ComputeQueue  != VK_NULL_HANDLE ? m_ComputeQueue  : m_GraphicsQueue;
+        }
+        VkQueue            GetTransferQueue()  const
+        {
+            return m_TransferQueue != VK_NULL_HANDLE ? m_TransferQueue : m_GraphicsQueue;
+        }
         VmaAllocator       GetAllocator()      const { return m_Allocator; }
 
         const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_QueueFamilyIndices; }
+
+        // True when the VK_KHR_timeline_semaphore feature was requested
+        // (Config::DeviceCfg::enableTimelineSemaphores = true) AND the
+        // physical device reported support AND we actually enabled it on
+        // VkDevice.  Execution-layer TimelineSemaphore / FrameScheduler
+        // check this before creating timeline objects.
+        bool               HasTimelineSemaphores() const { return m_TimelineSemaphoresEnabled; }
 
         // ── Swapchain support query (used by VulkanSwapchain) ────────────────────
         struct SwapchainSupportDetails
@@ -94,9 +120,12 @@ namespace VCK {
         VkPhysicalDevice   m_PhysicalDevice = VK_NULL_HANDLE;
         VkDevice           m_LogicalDevice = VK_NULL_HANDLE;
         VkQueue            m_GraphicsQueue = VK_NULL_HANDLE;
-        VkQueue            m_PresentQueue = VK_NULL_HANDLE;
+        VkQueue            m_PresentQueue  = VK_NULL_HANDLE;
+        VkQueue            m_ComputeQueue  = VK_NULL_HANDLE;  // v0.3, dedicated only
+        VkQueue            m_TransferQueue = VK_NULL_HANDLE;  // v0.3, dedicated only
         VmaAllocator       m_Allocator = VK_NULL_HANDLE;
         QueueFamilyIndices m_QueueFamilyIndices;
+        bool               m_TimelineSemaphoresEnabled = false; // v0.3
 
         // Snapshot of cfg.device (preferDiscreteGpu / extra exts / queue pref).
         Config::DeviceCfg  m_CfgDevice;

@@ -159,6 +159,7 @@ build_one() {
         10) ex=DebugShowcaseExample      stem=                         ;;
         11) ex=AAShowcaseExample         stem=aa                       ;;
         12) ex=EasyCubeExample           stem=easycube                 ;;
+        13) ex=SecondaryCmdExample       stem=secondary                ;;
         *) err "unknown example id '$id'"; return 1 ;;
     esac
 
@@ -174,13 +175,14 @@ build_all() {
         "JobGraphExample" "SchedulerPolicyExample" "SubmissionBatchingExample"
         "TimelineExample" "DebugTimelineExample"
         "DebugShowcaseExample" "AAShowcaseExample" "EasyCubeExample"
+        "SecondaryCmdExample"
     )
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        step "[${i}/12] ${names[$((i-1))]}"
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
+        step "[${i}/13] ${names[$((i-1))]}"
         build_one "$i" || return 1
     done
     echo
-    echo "${C_GRN}  all 12 examples built.${C_RESET}"
+    echo "${C_GRN}  all 13 examples built.${C_RESET}"
     echo
 }
 
@@ -203,6 +205,7 @@ echo " ${C_BOLD}${C_WHT}Showcase${C_RESET}                 ${C_DIM}(guided tours
 echo "   ${C_YEL}[10]${C_RESET} ${C_WHT}DebugShowcaseExample${C_RESET}        VCKLog levels / dedup / VK_CHECK / debug toggle"
 echo "   ${C_YEL}[11]${C_RESET} ${C_WHT}AAShowcaseExample${C_RESET}           AATechnique decision matrix + auto-pick + triangle"
 echo "   ${C_YEL}[12]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath"
+echo "   ${C_YEL}[13]${C_RESET} ${C_WHT}SecondaryCmdExample${C_RESET}         secondary command buffers + scheduler-aware resize (v0.3)"
 echo
 echo "   ${C_CYN}[A]${C_RESET}  ${C_WHT}Build all${C_RESET}                   in order, stops on first failure"
 echo "   ${C_CYN}[0]${C_RESET}  ${C_WHT}Exit${C_RESET}"
@@ -217,7 +220,7 @@ fi
 case "$(echo "$CHOICE" | tr '[:upper:]' '[:lower:]')" in
     0)  exit 0 ;;
     a)  build_all || exit 1; exit 0 ;;
-    1|2|3|4|5|6|7|8|9|10|11|12)
+    1|2|3|4|5|6|7|8|9|10|11|12|13)
         build_one "$CHOICE" || exit 1
         # name lookup again for the run hint
         case "$CHOICE" in
@@ -233,6 +236,7 @@ case "$(echo "$CHOICE" | tr '[:upper:]' '[:lower:]')" in
             10) ok_run DebugShowcaseExample       ;;
             11) ok_run AAShowcaseExample          ;;
             12) ok_run EasyCubeExample            ;;
+            13) ok_run SecondaryCmdExample        ;;
         esac
         ;;
     *)  err "unknown selection '$CHOICE'"; exit 1 ;;

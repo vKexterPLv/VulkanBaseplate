@@ -20,7 +20,7 @@ namespace VCK {
         if (requested == 0) requested = 1;
         if (requested > MAX_FRAMES_IN_FLIGHT)
         {
-            LogVk("[VulkanSync] framesInFlight " + std::to_string(requested) +
+            VCKLog::Warn("Sync", "framesInFlight " + std::to_string(requested) +
                   " exceeds MAX_FRAMES_IN_FLIGHT (" + std::to_string(MAX_FRAMES_IN_FLIGHT) +
                   "), clamping");
             requested = MAX_FRAMES_IN_FLIGHT;
@@ -48,7 +48,7 @@ namespace VCK {
                 return false;
         }
 
-        LogVk("VulkanSync initialized - " + std::to_string(m_FramesInFlight) + " frames in flight");
+        VCKLog::Info("Sync", "Initialized - " + std::to_string(m_FramesInFlight) + " frames in flight");
         return true;
     }
 
@@ -73,7 +73,7 @@ namespace VCK {
 
         m_Device = nullptr;
         m_CurrentFrame = 0;
-        LogVk("VulkanSync shut down");
+        VCKLog::Info("Sync", "Shut down");
     }
 
 } // namespace VCK

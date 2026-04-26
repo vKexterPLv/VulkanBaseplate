@@ -139,7 +139,7 @@ namespace VCK::SubmissionBatchingExample {
         (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         if ((++frameCounter % 120) == 0)
         {
-            LogVk("[SubmissionBatching] frame=" + std::to_string(frameCounter) +
+            VCKLog::Info("SubmissionBatching", "frame=" + std::to_string(frameCounter) +
                   " - each frame queued 2 cmd buffers via GpuSubmissionBatcher,"
                   " resulting in 1 vkQueueSubmit.");
         }
@@ -200,7 +200,7 @@ namespace VCK::SubmissionBatchingExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        LogVk("[SubmissionBatchingExample] 2 cmd buffers → 1 vkQueueSubmit per frame.");
+        VCKLog::Notice("SubmissionBatchingExample", "2 cmd buffers \u2192 1 vkQueueSubmit per frame.");
     }
 
     void Shutdown()

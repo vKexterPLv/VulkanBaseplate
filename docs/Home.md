@@ -9,7 +9,7 @@ A layer you *opt into*, never one that takes over.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/vKexterPLv/VCK/blob/VCK/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-wiki-informational)](https://github.com/vKexterPLv/VCK/wiki)
 [![One include](https://img.shields.io/badge/%23include-%22VCK.h%22-success)](Core-API)
-[![Examples](https://img.shields.io/badge/examples-9-orange)](Examples)
+[![Examples](https://img.shields.io/badge/examples-13-orange)](Examples)
 
 </div>
 
@@ -69,11 +69,12 @@ That's the whole library. The rest of this wiki is deep-dive reference.
 
 | Page | Covers |
 |------|--------|
+| [Overview](Overview)                 | One-page tour: what VCK is / gives / never takes, modern optimisations (v0.3), why it's fresh, honest summary |
 | [Core API](Core-API)                 | `VCK.h` — Context, Device, Swapchain, Pipeline, Command, Sync, Buffer, Image, Window |
 | [Expansion API](Expansion-API)       | `VCKExpansion.h` — framebuffers, depth, samplers, textures, meshes, descriptors, mipmaps |
 | [Execution Layer](Execution-Layer)   | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `DependencyToken`, `QueueSet`, `DebugTimeline` |
 | [VMM](VMM)                           | `VulkanMemoryManager` — persistent / transient / frame-buffered lifetimes, staging ring |
-| [Examples](Examples)                 | Walk-through of the 11 runnable examples in `example/` |
+| [Examples](Examples)                 | Walk-through of the 13 runnable examples in `example/` |
 | [Hello VCK](Hello-VCK)               | Build your first app: per-line walkthrough of `HelloExample` with a "why you might need this" note on every call |
 | [Cookbook](Cookbook)                 | Copy-paste recipes for things VCK doesn't ship: image / OBJ loading, cube / line / SDF / text rendering, FXAA / SMAA / TAA, ImGui, offscreen PNG readback |
 | [Build](Build)                       | Windows (`build.bat`) + Linux/macOS (`build.sh`): Vulkan SDK + GLFW setup |

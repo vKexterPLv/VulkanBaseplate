@@ -216,6 +216,25 @@ public:
     // to vkQueueSubmit on the graphics queue so the CPU can wait on it.
     void FlushAll(VkFence graphicsFence = VK_NULL_HANDLE);
 
+    // v0.3: flush with an additional timeline signal on the graphics queue.
+    // When graphicsTimeline != VK_NULL_HANDLE, the graphics submit chains
+    // VkTimelineSemaphoreSubmitInfo into pNext so the GPU signals
+    // `graphicsTimelineValue` when the frame's graphics work retires.
+    // FrameScheduler uses this to consolidate per-slot frame completion
+    // under a single monotonically-increasing counter (one timeline
+    // semaphore per scheduler, one value per frame) - cheaper than N
+    // binary fences and the value can be composed with DependencyToken
+    // for cross-queue/async waits.
+    //
+    // graphicsFence is still honoured; callers typically pass both during
+    // the timeline transition window so non-timeline consumers (fence
+    // status probes in RetireCompletedFrames, Lockstep end-wait) keep
+    // working.  When the timeline semaphore is valid, the FrameScheduler
+    // prefers the timeline for its own waits.
+    void FlushAll(VkFence             graphicsFence,
+                  VkSemaphore         graphicsTimeline,
+                  uint64_t            graphicsTimelineValue);
+
     // Clear without submitting - used when a swapchain recreate aborts a frame.
     void DiscardAll();
 
@@ -227,6 +246,10 @@ private:
     struct Entry { VkCommandBuffer cmd; SubmitInfo info; };
 
     void FlushQueue(VkQueue q, std::vector<Entry>& bucket, VkFence fence);
+    void FlushQueueWithTimeline(VkQueue q, std::vector<Entry>& bucket,
+                                VkFence fence,
+                                VkSemaphore timelineSem,
+                                uint64_t    timelineValue);
 
     VulkanDevice* m_Device = nullptr;
     QueueSet*     m_Queues = nullptr;
@@ -555,6 +578,18 @@ public:
     void   DispatchJobs();
     void   EndFrame();
 
+    // v0.3: wait for every slot's most-recent submit to retire without
+    // touching the graphics queue globally.  Replaces vkDeviceWaitIdle on
+    // the swapchain-recreate / resize path: only the scheduler's own
+    // in-flight work is waited on, so concurrent work on dedicated
+    // compute / transfer queues keeps making progress.  Uses the timeline
+    // semaphore when active, the per-slot binary fences otherwise.  No-op
+    // outside of a frame range (i.e., before the first EndFrame).
+    //
+    // Safe to call between frames (not while InFrame()==true).  Does not
+    // advance m_Absolute or CurrentSlot().
+    void   DrainInFlight();
+
     // Accessors.
     uint64_t              AbsoluteFrame()      const { return m_Absolute; }
     uint32_t              CurrentSlot()        const;
@@ -567,11 +602,35 @@ public:
     BackpressureGovernor& Governor()     { return m_Governor;    }
     DebugTimeline&        Timeline()     { return m_Timeline;    }
 
+    // v0.3: per-frame timeline semaphore.  Valid (IsValid() == true) when
+    // cfg.enableTimeline was set AND the device exposes
+    // VK_KHR_timeline_semaphore (VulkanDevice::HasTimelineSemaphores()).
+    // When valid, EndFrame signals a monotonically-increasing value on
+    // this semaphore as part of the graphics submit; BeginFrame and
+    // Lockstep's end-wait prefer the timeline value over the binary
+    // fence.  The fence path stays active as a fallback / compatibility
+    // mechanism so callers that peek at vkGetFenceStatus (or the
+    // scheduler's own RetireCompletedFrames) keep working unchanged.
+    //
+    // Intended primarily for authoring DependencyToken instances that
+    // compose with async compute / transfer submits (see example [13]).
+    TimelineSemaphore&       FrameTimeline()        { return m_FrameTimeline; }
+    const TimelineSemaphore& FrameTimeline() const  { return m_FrameTimeline; }
+
+    // Token that resolves when the given frame slot's graphics work
+    // retires.  IsValid() mirrors FrameTimeline().IsValid().  Value is
+    // the per-slot timeline value last scheduled on that slot.  Safe to
+    // call between BeginFrame / EndFrame; reading between frames returns
+    // the most recent token for the slot (i.e., the token for the last
+    // EndFrame that ran on it).
+    DependencyToken          SlotToken(uint32_t slot);
+
     const Config&         Cfg()          const { return m_Cfg; }
 
 private:
     void WaitInFlightFence(uint32_t slot);
     void RetireCompletedFrames();
+    bool TimelineActive() const { return m_FrameTimeline.IsValid(); }
 
     VulkanDevice*  m_Device  = nullptr;
     VulkanCommand* m_Command = nullptr;
@@ -587,6 +646,15 @@ private:
     std::array<Frame,    MAX_FRAMES_IN_FLIGHT> m_Frames{};
     std::array<JobGraph, MAX_FRAMES_IN_FLIGHT> m_Jobs{};
     std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> m_SlotAbsolute{};
+
+    // v0.3: timeline-semaphore frame retirement.  One semaphore per
+    // scheduler.  m_SlotTimelineValue[i] is the value that will be
+    // signalled on the timeline when slot i's graphics work finishes.
+    // m_NextTimelineValue is the monotonic counter advanced in EndFrame.
+    // All three are only populated when TimelineActive() is true.
+    TimelineSemaphore                          m_FrameTimeline;
+    std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> m_SlotTimelineValue{};
+    uint64_t                                   m_NextTimelineValue = 0;
 
     // Runtime frames-in-flight captured from VulkanSync (clamped to
     // MAX_FRAMES_IN_FLIGHT).  Loops over m_Frames / m_Jobs / m_SlotAbsolute
@@ -616,5 +684,27 @@ bool HandleLiveResize(Window&               window,
                       VulkanDepthBuffer&    depth,
                       DebugTimeline&        timeline,
                       uint64_t              frame);
+
+// v0.3: scheduler-aware live-resize.  Instead of vkDeviceWaitIdle, waits
+// only on the scheduler's per-slot in-flight work (timeline or fence),
+// leaving independent compute / transfer work on dedicated queues alone.
+// Uses scheduler.Timeline() for the DebugTimeline span and reads the
+// frame counter from scheduler.AbsoluteFrame().
+//
+// Drop-in replacement for the legacy vkDeviceWaitIdle-based overloads
+// when a FrameScheduler drives the frame loop (which is the recommended
+// v0.3 path - direct VulkanSync users can stay on the legacy overloads).
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      FrameScheduler&       scheduler);
+
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      FrameScheduler&       scheduler);
 
 } // namespace VCK

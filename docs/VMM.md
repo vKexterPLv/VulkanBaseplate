@@ -88,8 +88,14 @@ the staging ring's current high-water mark.
 
 ## Current caveats
 
-- `VulkanOneTimeCommand` / `VulkanMemoryManager::SubmitStagingCmd` still use
-  `vkQueueWaitIdle`. The staging ring resets at the end of each
-  `EndFrame` / `FlushStaging` while this is true.
-- Replacing with a fence-per-submit (or timeline) path is the next VMM
-  milestone.
+- **v0.3**: `VulkanMemoryManager::SubmitStagingCmd` now uses a per-submit
+  `VkFence` (no `vkQueueWaitIdle`). When the transfer queue is dedicated,
+  staging submits to the transfer family and records a release/acquire
+  ownership-barrier pair so the graphics queue sees the expected image
+  layout (Vulkan §7.7.4). The acquire is CPU-serialised today — a
+  semaphore-driven async acquire is on the v0.4 roadmap.
+- **v0.3**: The staging ring still resets at the end of each `EndFrame` /
+  `FlushStaging`; per-frame staging is still the recommended pattern for
+  pipelined uploads.
+- `VulkanOneTimeCommand::End` uses a short-circuiting `vkWaitForFences` so a
+  failed submit no longer hangs the caller (v0.3 fix).

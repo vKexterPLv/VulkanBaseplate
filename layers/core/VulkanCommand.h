@@ -46,6 +46,30 @@ namespace VCK {
         VkCommandPool   GetCommandPool()                    const { return m_CommandPool; }
         uint32_t        GetFramesInFlight()                 const { return m_FramesInFlight; }
 
+        // ── v0.3: secondary command buffer support ──────────────────────────
+        //
+        // Secondaries are allocated on demand from the same graphics pool as
+        // the per-slot primary buffers.  They can be recorded from worker
+        // threads in parallel (Vulkan requires external sync on the *pool*,
+        // but the intended usage here is: one thread per secondary with its
+        // own short-lived allocation; for multi-threaded recording from one
+        // pool the user must serialise AllocateSecondary / FreeSecondary).
+        // Rule 18: no internal lock.
+        //
+        // BeginSecondary accepts a VkCommandBufferInheritanceInfo filled by
+        // the caller (render pass / subpass / framebuffer).  ExecuteSecondaries
+        // is a thin vkCmdExecuteCommands wrapper exposed for ergonomic
+        // symmetry with BeginRecording / EndRecording.
+        VkCommandBuffer AllocateSecondary();
+        void            FreeSecondary(VkCommandBuffer cb);
+        bool            BeginSecondary(VkCommandBuffer                           cb,
+                                       const VkCommandBufferInheritanceInfo&     inheritance,
+                                       VkCommandBufferUsageFlags                 extraFlags = 0);
+        bool            EndSecondary(VkCommandBuffer cb);
+        static void     ExecuteSecondaries(VkCommandBuffer primary,
+                                           const VkCommandBuffer* secondaries,
+                                           uint32_t               count);
+
     private:
         VulkanDevice* m_Device = nullptr;
 

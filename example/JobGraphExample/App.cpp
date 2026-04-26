@@ -150,7 +150,7 @@ namespace VCK::JobGraphExample {
         // ── Periodic stats dump ──────────────────────────────────────────────
         if ((++frameCounter % 60) == 0)
         {
-            LogVk("[JobGraph] avg us/frame: physics=" + std::to_string(physicsStats.Average()) +
+            VCKLog::Info("JobGraph", "avg us/frame: physics=" + std::to_string(physicsStats.Average()) +
                   " animate=" + std::to_string(animateStats.Average()) +
                   " audio="   + std::to_string(audioStats.Average()) +
                   " build="   + std::to_string(buildStats.Average()));
@@ -201,7 +201,7 @@ namespace VCK::JobGraphExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        LogVk("[JobGraphExample] scheduler + 4-job CPU graph.  Logs averages every 60 frames.");
+        VCKLog::Notice("JobGraphExample", "scheduler + 4-job CPU graph.  Logs averages every 60 frames.");
     }
 
     void Shutdown()

@@ -64,14 +64,14 @@ namespace VCK::TimelineExample {
         ++timelineCounter;
         if (!timeline.Signal(timelineCounter))
         {
-            LogVk("[Timeline] Signal failed - skipping wait.");
+            VCKLog::Warn("Timeline", "Signal failed - skipping wait.");
             return;
         }
 
         DependencyToken token{ &timeline, timelineCounter };
         const bool ok = token.WaitHost(/*timeoutNs*/ 1'000'000);   // 1 ms
 
-        LogVk("[Timeline] counter=" + std::to_string(timelineCounter) +
+        VCKLog::Info("Timeline", "counter=" + std::to_string(timelineCounter) +
               " wait=" + (ok ? "ok" : "timeout") +
               " last_signaled=" + std::to_string(timeline.LastSignaledValue()));
     }
@@ -181,11 +181,11 @@ namespace VCK::TimelineExample {
         timelineAvailable = timeline.Initialize(device, /*initial*/ 0);
         if (timelineAvailable)
         {
-            LogVk("[TimelineExample] TimelineSemaphore OK - will probe every 60 frames.");
+            VCKLog::Notice("TimelineExample", "TimelineSemaphore OK - will probe every 60 frames.");
         }
         else
         {
-            LogVk("[TimelineExample] TimelineSemaphore unavailable - "
+            VCKLog::Notice("TimelineExample", "TimelineSemaphore unavailable - "
                   "enable the timelineSemaphore device feature to exercise this path.");
         }
     }

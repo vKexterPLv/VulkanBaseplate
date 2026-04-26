@@ -144,13 +144,13 @@ namespace VCK::MipmapExample {
         // ── 2. Create VkImage with full mip chain ─────────────────────────────
         if (!VulkanMipmapGenerator::IsFormatSupported(device, kFmt))
         {
-            LogVk("MipmapExample: linear blitting not supported - mip levels will be 1");
+            VCKLog::Warn("MipmapExample", "linear blitting not supported - mip levels will be 1");
             g_MipLevels = 1;
         }
         else
         {
             g_MipLevels = VulkanMipmapGenerator::MipLevels(kTexW, kTexH);
-            LogVk("MipmapExample: creating " + std::to_string(g_MipLevels) +
+            VCKLog::Info("MipmapExample", "creating " + std::to_string(g_MipLevels) +
                   "-level mip chain for " + std::to_string(kTexW) +
                   "x" + std::to_string(kTexH) + " checkerboard");
         }

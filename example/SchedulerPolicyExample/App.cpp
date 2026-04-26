@@ -78,7 +78,7 @@ namespace VCK::SchedulerPolicyExample {
 
         std::string t = title + " - " + PolicyName(p);
         glfwSetWindowTitle(static_cast<GLFWwindow*>(window.NativeHandle()), t.c_str());
-        LogVk(std::string("[SchedulerPolicy] switched to ") + PolicyName(p));
+        VCKLog::Notice("SchedulerPolicy", std::string("switched to ") + PolicyName(p));
     }
 
     void OnKey(GLFWwindow*, int key, int, int action, int)
@@ -153,7 +153,7 @@ namespace VCK::SchedulerPolicyExample {
         ++framesSinceSwitch;
         if (framesSinceSwitch % 120 == 0)
         {
-            LogVk("[SchedulerPolicy] policy=" + std::string(PolicyName(currentPolicy)) +
+            VCKLog::Info("SchedulerPolicy", "policy=" + std::string(PolicyName(currentPolicy)) +
                   " avg_frame_us="   + std::to_string(cpuUsSum / 120) +
                   " gpu_retired="    + std::to_string(scheduler.Governor().GpuFrame()) +
                   " cpu_absolute="   + std::to_string(scheduler.AbsoluteFrame()));
@@ -205,7 +205,7 @@ namespace VCK::SchedulerPolicyExample {
                     vertices.data(), vertices.size() * sizeof(Vertex),
                     indices.data(),  static_cast<uint32_t>(indices.size()));
 
-        LogVk("[SchedulerPolicyExample] press 1=Lockstep, 2=Pipelined, 3=AsyncMax.");
+        VCKLog::Notice("SchedulerPolicyExample", "press 1=Lockstep, 2=Pipelined, 3=AsyncMax.");
     }
 
     void Shutdown()

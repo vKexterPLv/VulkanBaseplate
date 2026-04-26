@@ -64,8 +64,32 @@ void VulkanOneTimeCommand::End()
     si.commandBufferCount = 1;
     si.pCommandBuffers    = &m_Cmd;
 
-    VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE));
-    VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
+    // v0.3: per-submit fence instead of vkQueueWaitIdle.  Same reasoning
+    // as VulkanMemoryManager::SubmitStagingCmd - rule 4 shrinks, only the
+    // specific one-shot submit is waited on, the rest of the graphics
+    // queue stays hot.
+    VkFenceCreateInfo fi{};
+    fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    VkFence submitFence = VK_NULL_HANDLE;
+    if (!VK_CHECK(vkCreateFence(m_Device->GetDevice(), &fi, nullptr, &submitFence)))
+    {
+        // Rule 14: loud fallback.
+        VCKLog::Warn("OneTime", "Fence creation failed; falling back to queue wait.");
+        VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, VK_NULL_HANDLE));
+        VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
+    }
+    else
+    {
+        // Only wait on the fence if the submit itself succeeded - otherwise
+        // the fence is never signaled and vkWaitForFences(UINT64_MAX) would
+        // hang forever.  VK_CHECK logs the VkResult on failure (rule 14).
+        if (VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &si, submitFence)))
+        {
+            vkWaitForFences(m_Device->GetDevice(), 1, &submitFence, VK_TRUE, UINT64_MAX);
+        }
+        vkDestroyFence(m_Device->GetDevice(), submitFence, nullptr);
+    }
 
     vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
     m_Cmd = VK_NULL_HANDLE;
@@ -242,6 +266,78 @@ bool HandleLiveResize(Window&               window,
     if (!framebuffers.Recreate(pipeline, depth))   { window.ClearResized(); return false; }
     window.ClearResized();
     VCKLog::Notice("LiveResize", "done (with depth)");
+    return true;
+}
+
+// ---- v0.3: scheduler-aware overloads ---------------------------------------
+//
+// When a FrameScheduler owns the frame loop, use its DrainInFlight() to
+// wait only on the scheduler's submitted work instead of vkDeviceWaitIdle.
+// Independent work on dedicated compute / transfer queues (VMM uploads,
+// AsyncComputeExample dispatches) keeps progressing during the resize.
+// Rule 4: this replaces the last runtime vkDeviceWaitIdle on the hot path
+// - Shutdown still uses it (allow-list entry).
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      FrameScheduler&       scheduler)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (scheduler drain)");
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().BeginCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    scheduler.DrainInFlight();
+    const bool ok_sc  = swapchain.Recreate(w, h, /*drainedExternally=*/true);
+    const bool ok_fb  = ok_sc && framebuffers.Recreate(pipeline);
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().EndCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    window.ClearResized();
+    if (!ok_sc || !ok_fb) return false;
+    VCKLog::Notice("LiveResize", "done (scheduler drain)");
+    return true;
+}
+
+bool HandleLiveResize(Window&               window,
+                      VulkanSwapchain&      swapchain,
+                      VulkanFramebufferSet& framebuffers,
+                      VulkanPipeline&       pipeline,
+                      VulkanDepthBuffer&    depth,
+                      FrameScheduler&       scheduler)
+{
+    if (!window.WasResized())  return false;
+    if (window.IsMinimized())  return false;
+
+    const uint32_t w = static_cast<uint32_t>(window.GetWidth());
+    const uint32_t h = static_cast<uint32_t>(window.GetHeight());
+
+    VCKLog::Notice("LiveResize",
+        "triggered - " + std::to_string(w) + "x" + std::to_string(h) + " (scheduler drain, with depth)");
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().BeginCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    scheduler.DrainInFlight();
+    const bool ok_sc  = swapchain.Recreate(w, h, /*drainedExternally=*/true);
+    const bool ok_dp  = ok_sc && depth.Recreate(w, h);
+    const bool ok_fb  = ok_dp && framebuffers.Recreate(pipeline, depth);
+
+    if (scheduler.Timeline().Enabled())
+        scheduler.Timeline().EndCpuSpan("HandleLiveResize", scheduler.AbsoluteFrame());
+
+    window.ClearResized();
+    if (!ok_sc || !ok_dp || !ok_fb) return false;
+    VCKLog::Notice("LiveResize", "done (scheduler drain, with depth)");
     return true;
 }
 
@@ -645,7 +741,7 @@ bool VulkanModelPipeline::Initialize(VulkanDevice&                          devi
     if (!BuildPipelineLayout())                                              return false;
     if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput, samples))   return false;
 
-    LogVk("VulkanModelPipeline initialized");
+    VCKLog::Info("ModelPipeline", "Initialized");
     return true;
 }
 
@@ -660,7 +756,7 @@ void VulkanModelPipeline::Shutdown()
     if (m_Set0Layout)     { vkDestroyDescriptorSetLayout(dev,  m_Set0Layout,     nullptr); m_Set0Layout     = VK_NULL_HANDLE; }
 
     m_Device = nullptr;
-    LogVk("VulkanModelPipeline shut down");
+    VCKLog::Info("ModelPipeline", "Shut down");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

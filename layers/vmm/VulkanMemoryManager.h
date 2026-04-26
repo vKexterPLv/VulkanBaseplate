@@ -419,9 +419,36 @@ private:
 
     std::array<TransientBlock, MAX_FRAMES_IN_FLIGHT> m_Transient{};
 
-    // Staging uses a dedicated one-time command buffer (not the per-frame ones)
-    VkCommandBuffer m_StagingCmd  = VK_NULL_HANDLE;
-    bool            m_StagingOpen = false;
+    // Staging uses a dedicated one-time command buffer (not the per-frame ones).
+    //
+    // v0.3: VMM owns its own VkCommandPool bound to the transfer queue family
+    // (which may be dedicated or aliased to graphics).  This is required by
+    // VUID-vkQueueSubmit-pCommandBuffers-00074: the pool a command buffer was
+    // allocated from must belong to the same queue family as the queue it is
+    // submitted to.  Using VulkanCommand's graphics pool here would violate
+    // the spec on AMD/NVIDIA (dedicated transfer family) and trigger GPU
+    // hang / corruption.
+    VkCommandPool   m_TransferPool   = VK_NULL_HANDLE;
+    uint32_t        m_TransferFamily = 0;
+    uint32_t        m_GraphicsFamily = 0;
+    VkCommandBuffer m_StagingCmd     = VK_NULL_HANDLE;
+    bool            m_StagingOpen    = false;
+
+    // Queue ownership transfer tracking (v0.3).  When transferFamily differs
+    // from graphicsFamily, every StageTo* records a release half on the
+    // transfer queue and pushes a matching acquire half here.  After the
+    // transfer submit completes, SubmitStagingCmd allocates a short command
+    // buffer from the graphics-family pool, records all acquire barriers,
+    // and submits it to the graphics queue (CPU-serialised: the transfer
+    // fence is waited on before the graphics submit, which satisfies the
+    // execution dependency required between release and acquire per Vulkan
+    // spec section 7.7.4).  Empty when families alias.
+    struct PendingAcquireBuffer { VkBuffer     buffer;     VkDeviceSize size; VkDeviceSize offset; };
+    struct PendingAcquireImage  { VkImage      image;      uint32_t     mipLevels; };
+    std::vector<PendingAcquireBuffer> m_PendingAcquireBuffers;
+    std::vector<PendingAcquireImage>  m_PendingAcquireImages;
+
+    bool FamiliesDiffer() const { return m_TransferFamily != m_GraphicsFamily; }
 
     uint32_t m_AbsoluteFrame = 0;
 };

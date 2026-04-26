@@ -107,6 +107,7 @@ echo  %C_BOLD%%C_WHT%Showcase%C_RESET%                 %C_DIM%(guided tours of n
 echo   %C_YEL%[10]%C_RESET% %C_WHT%DebugShowcaseExample%C_RESET%        VCKLog levels / dedup / VK_CHECK / debug toggle
 echo   %C_YEL%[11]%C_RESET% %C_WHT%AAShowcaseExample%C_RESET%           AATechnique decision matrix + auto-pick + triangle
 echo   %C_YEL%[12]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
+echo   %C_YEL%[13]%C_RESET% %C_WHT%SecondaryCmdExample%C_RESET%         secondary command buffers + scheduler-aware resize (v0.3)
 echo.
 echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
 echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
@@ -126,6 +127,7 @@ if "%CHOICE%"=="9" ( set EX=DebugTimelineExample      & set STEM=DebugTimelineEx
 if "%CHOICE%"=="10" ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
 if "%CHOICE%"=="11" ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
 if "%CHOICE%"=="12" ( set EX=EasyCubeExample          & set STEM=easycube                    & goto BUILD_ONE )
+if "%CHOICE%"=="13" ( set EX=SecondaryCmdExample      & set STEM=secondary                   & goto BUILD_ONE )
 if "%CHOICE%"=="0" exit /b 0
 call :ERR "unknown selection '%CHOICE%'"
 exit /b 1
@@ -181,78 +183,84 @@ goto END
 :: =============================================================================
 
 :BUILD_ALL
-call :STEP "[1/12] RGBTriangle"
+call :STEP "[1/13] RGBTriangle"
 set EX=RGBTriangle
 set STEM=triangle
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[2/12] MipmapExample"
+call :STEP "[2/13] MipmapExample"
 set EX=MipmapExample
 set STEM=mip
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[3/12] VMMExample"
+call :STEP "[3/13] VMMExample"
 set EX=VMMExample
 set STEM=vmm
 call :COMPILE_SHADERS          || exit /b 1
 call :COMPILE_CPP_WITH_VMM     || exit /b 1
 
-call :STEP "[4/12] HelloExample"
+call :STEP "[4/13] HelloExample"
 set EX=HelloExample
 set STEM=hello
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[5/12] JobGraphExample"
+call :STEP "[5/13] JobGraphExample"
 set EX=JobGraphExample
 set STEM=JobGraphExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[6/12] SchedulerPolicyExample"
+call :STEP "[6/13] SchedulerPolicyExample"
 set EX=SchedulerPolicyExample
 set STEM=SchedulerPolicyExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[7/12] SubmissionBatchingExample"
+call :STEP "[7/13] SubmissionBatchingExample"
 set EX=SubmissionBatchingExample
 set STEM=SubmissionBatchingExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[8/12] TimelineExample"
+call :STEP "[8/13] TimelineExample"
 set EX=TimelineExample
 set STEM=TimelineExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[9/12] DebugTimelineExample"
+call :STEP "[9/13] DebugTimelineExample"
 set EX=DebugTimelineExample
 set STEM=DebugTimelineExample
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[10/12] DebugShowcaseExample"
+call :STEP "[10/13] DebugShowcaseExample"
 set EX=DebugShowcaseExample
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[11/12] AAShowcaseExample"
+call :STEP "[11/13] AAShowcaseExample"
 set EX=AAShowcaseExample
 set STEM=aa
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
-call :STEP "[12/12] EasyCubeExample"
+call :STEP "[12/13] EasyCubeExample"
 set EX=EasyCubeExample
 set STEM=easycube
 call :COMPILE_SHADERS || exit /b 1
 call :COMPILE_CPP     || exit /b 1
 
+call :STEP "[13/13] SecondaryCmdExample"
+set EX=SecondaryCmdExample
+set STEM=secondary
+call :COMPILE_SHADERS || exit /b 1
+call :COMPILE_CPP     || exit /b 1
+
 echo.
-echo %C_GRN%  all 12 examples built.%C_RESET%
+echo %C_GRN%  all 13 examples built.%C_RESET%
 echo.
 goto END
 

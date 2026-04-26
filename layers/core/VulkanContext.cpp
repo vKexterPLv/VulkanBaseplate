@@ -124,7 +124,7 @@ namespace VCK {
         }
 
         EnabledExtensions.clear();
-        LogVk("[VulkanContext] Shutdown complete");
+        VCKLog::Info("Context", "Shutdown complete");
     }
 
     // ===========================================================================
@@ -140,7 +140,7 @@ namespace VCK {
         ValidationEnabled = wantValidation && CheckValidationLayerSupport();
 
         if (wantValidation && !ValidationEnabled)
-            LogVk("[VulkanContext] WARNING: Validation requested but VK_LAYER_KHRONOS_validation not found");
+            VCKLog::Warn("Context", "Validation requested but VK_LAYER_KHRONOS_validation not found");
 
         // --- Extensions ----------------------------------------------------------
         // Platform-specific surface extensions are supplied by the caller (either
@@ -199,11 +199,11 @@ namespace VCK {
 
         VkResult result = vkCreateInstance(&createInfo, nullptr, &Instance);
         if (result != VK_SUCCESS) {
-            LogVk("[VulkanContext] vkCreateInstance failed: " + std::to_string(result));
+            VCKLog::Error("Context", "vkCreateInstance failed: " + std::to_string(result));
             return false;
         }
 
-        LogVk("[VulkanContext] VkInstance created - API 1.2, extensions: "
+        VCKLog::Info("Context", "VkInstance created - API 1.2, extensions: "
             + std::to_string(EnabledExtensions.size()));
         return true;
     }
@@ -219,7 +219,7 @@ namespace VCK {
             vkGetInstanceProcAddr(Instance, "vkDestroyDebugUtilsMessengerEXT"));
 
         if (!fnCreateDebugMessenger || !fnDestroyDebugMessenger) {
-            LogVk("[VulkanContext] vkCreateDebugUtilsMessengerEXT not found in instance");
+            VCKLog::Error("Context", "vkCreateDebugUtilsMessengerEXT not found in instance");
             return false;
         }
 
@@ -238,11 +238,11 @@ namespace VCK {
 
         VkResult result = fnCreateDebugMessenger(Instance, &createInfo, nullptr, &DebugMessenger);
         if (result != VK_SUCCESS) {
-            LogVk("[VulkanContext] Failed to create debug messenger: " + std::to_string(result));
+            VCKLog::Error("Context", "Failed to create debug messenger: " + std::to_string(result));
             return false;
         }
 
-        LogVk("[VulkanContext] Debug messenger active");
+        VCKLog::Notice("Context", "Debug messenger active");
         return true;
     }
 
@@ -255,10 +255,10 @@ namespace VCK {
     bool VulkanContext::CreateSurface(const Window& window) {
         VkResult result = window.CreateSurface(Instance, &Surface);
         if (result != VK_SUCCESS) {
-            LogVk("[VulkanContext] VCK::Window::CreateSurface failed: " + std::to_string(result));
+            VCKLog::Error("Context", "VCK::Window::CreateSurface failed: " + std::to_string(result));
             return false;
         }
-        LogVk(std::string("[VulkanContext] Surface created (") + VCK_PLATFORM_NAME + ")");
+        VCKLog::Notice("Context", std::string("Surface created (") + VCK_PLATFORM_NAME + ")");
         return true;
     }
 
@@ -271,11 +271,11 @@ namespace VCK {
 
         VkResult result = vkCreateWin32SurfaceKHR(Instance, &createInfo, nullptr, &Surface);
         if (result != VK_SUCCESS) {
-            LogVk("[VulkanContext] vkCreateWin32SurfaceKHR failed: " + std::to_string(result));
+            VCKLog::Error("Context", "vkCreateWin32SurfaceKHR failed: " + std::to_string(result));
             return false;
         }
 
-        LogVk("[VulkanContext] Win32 surface created");
+        VCKLog::Notice("Context", "Win32 surface created");
         return true;
     }
 #endif

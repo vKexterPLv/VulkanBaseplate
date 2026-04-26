@@ -10,7 +10,7 @@ Copy-paste recipes for things the kit doesn't ship but every Vulkan app ends up 
 
 Every recipe assumes you already have a running VCK app — a `VulkanContext`,
 `VulkanDevice`, `VulkanSwapchain`, `VulkanSync`, `VulkanCommand`, and a
-draw loop (copy any of the 11 examples). Snippets below slot **into** that
+draw loop (copy any of the 13 examples). Snippets below slot **into** that
 app; they are not standalone programs.
 
 Each recipe calls out:

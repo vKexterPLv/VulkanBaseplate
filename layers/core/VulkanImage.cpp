@@ -94,7 +94,7 @@ namespace VCK {
 
         if (result != VK_SUCCESS)
         {
-            LogVk("VulkanImage::Create - vmaCreateImage failed: " + std::to_string(result));
+            VCKLog::Error("Image", "Create - vmaCreateImage failed: " + std::to_string(result));
             return false;
         }
 
