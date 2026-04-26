@@ -1,10 +1,10 @@
-name: Windows build (MinGW + Vulkan SDK)
+name: Build (Windows + Linux + macOS)
 
 on:
   push:
-    branches: [main, VCK]
+    branches: [main, base, VCK]
   pull_request:
-    branches: [main, VCK]
+    branches: [main, base, VCK]
   workflow_dispatch:
 
 # Cancel stale runs when a branch gets a new push.
@@ -13,8 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build.bat [A]  (all 13 examples)
+  # ---------------------------------------------------------------------------
+  #  Windows (MinGW + LunarG SDK).
+  #  This is the canonical platform for the project; the build.bat menu the
+  #  user runs locally is exactly what CI runs here, with "A" piped into the
+  #  prompt.
+  # ---------------------------------------------------------------------------
+  windows:
+    name: build.bat [A]  (Windows / MinGW)
     runs-on: windows-latest
 
     defaults:
@@ -25,9 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ─── Install the Vulkan SDK (provides vulkan-1.lib + glslangValidator). ─
-      # Pin a known-good version; the action exports VULKAN_SDK and adds the
-      # SDK's Bin to PATH so glslangValidator resolves.
+      # --- Install the Vulkan SDK (provides vulkan-1.lib + glslangValidator).
       - name: Install Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
@@ -37,7 +41,7 @@ jobs:
           cache: false
           stripdown: false
 
-      # ─── Restore the full vk_video/*.h directory. ───────────────────────────
+      # --- Restore the full vk_video/*.h directory.
       # jakoch/install-vulkan-sdk-action@v1 runs the Windows SDK installer
       # with the 'vulkan_video' component deselected (it's optional in the
       # official LunarG installer).  At the same time, the SDK's bundled
@@ -66,7 +70,7 @@ jobs:
 
           Get-ChildItem $dst | Format-Table Name, Length -AutoSize
 
-      # ─── MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
+      # --- MinGW-w64 GCC.  windows-latest ships MSYS2; we only need mingw-w64
       # on PATH.  Prepending the MSYS2 mingw64 bin directory is enough - we
       # invoke the raw g++.exe, no shell.
       - name: Add MinGW-w64 GCC to PATH
@@ -80,7 +84,7 @@ jobs:
           g++ --version
           glslangValidator --version
 
-      # ─── Dependencies expected by example/build.bat ─────────────────────────
+      # --- Dependencies expected by example/build.bat
       #   deps/vk_mem_alloc.h                       (VMA header-only)
       #   deps/libglfw3.a                           (GLFW 3.4 mingw archive)
       #   deps/glfw/include/GLFW/glfw3.h            (GLFW public header)
@@ -116,9 +120,109 @@ jobs:
           Copy-Item "glfw-$ver.bin.WIN64\lib-mingw-w64\libglfw3.a"   'example\deps\libglfw3.a'
           Get-ChildItem example\deps -Recurse
 
-      # ─── Run the same build.bat the user runs locally.  Pipe "A" into the
+      # --- Run the same build.bat the user runs locally.  Pipe "A" into the
       # interactive menu so it picks "Build all".
       - name: Build all examples
         working-directory: example
         run: |
           echo A| build.bat
+
+  # ---------------------------------------------------------------------------
+  #  Linux (Ubuntu + apt Vulkan SDK + GLFW).
+  #  Mirrors example/build.sh A.  Distro packages provide a complete vk_video/
+  #  header set, so no sparse-checkout patch is needed.
+  # ---------------------------------------------------------------------------
+  linux:
+    name: build.sh A (Linux / Ubuntu / g++)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan + GLFW + glslang + pkg-config
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
+            pkg-config g++
+
+      - name: Verify toolchain
+        run: |
+          which g++
+          which glslangValidator
+          g++ --version
+          glslangValidator --version
+          pkg-config --modversion vulkan
+          pkg-config --modversion glfw3
+
+      # --- VMA header is fetched the same way build.sh expects.
+      - name: Fetch VMA header
+        run: |
+          mkdir -p example/deps
+          curl -fsSL \
+            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
+            -o example/deps/vk_mem_alloc.h
+          ls -l example/deps/vk_mem_alloc.h
+
+      - name: Make build.sh executable
+        run: chmod +x example/build.sh
+
+      - name: Build all examples
+        working-directory: example
+        run: |
+          ./build.sh A
+
+  # ---------------------------------------------------------------------------
+  #  macOS (Homebrew Vulkan headers + loader + GLFW + MoltenVK + glslang).
+  #  Mirrors example/build.sh A.  MoltenVK provides Vulkan-over-Metal at link
+  #  time; runtime ICD selection is not needed for compile-only CI.
+  # ---------------------------------------------------------------------------
+  macos:
+    name: build.sh A (macOS / clang++ + MoltenVK)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan + GLFW + glslang + MoltenVK + pkg-config
+        run: |
+          brew update
+          brew install vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config
+
+      - name: Export Vulkan SDK env
+        run: |
+          # Homebrew installs Vulkan headers + loader under HOMEBREW_PREFIX.
+          # Export PKG_CONFIG_PATH so pkg-config can find the .pc files build.sh queries.
+          PFX="$(brew --prefix)"
+          {
+            echo "PKG_CONFIG_PATH=$PFX/opt/vulkan-headers/share/pkgconfig:$PFX/opt/vulkan-loader/lib/pkgconfig:$PFX/opt/glfw/lib/pkgconfig:$PFX/opt/glslang/lib/pkgconfig:$PFX/lib/pkgconfig"
+            echo "VK_ICD_FILENAMES=$(brew --prefix molten-vk)/share/vulkan/icd.d/MoltenVK_icd.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify toolchain
+        run: |
+          which clang++
+          which glslangValidator || which glslang || true
+          clang++ --version
+          pkg-config --modversion vulkan || pkg-config --modversion vulkan-headers
+          pkg-config --modversion glfw3
+
+      - name: Fetch VMA header
+        run: |
+          mkdir -p example/deps
+          curl -fsSL \
+            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSamples/VulkanMemoryAllocator/master/include/vk_mem_alloc.h \
+            -o example/deps/vk_mem_alloc.h
+          ls -l example/deps/vk_mem_alloc.h
+
+      - name: Make build.sh executable
+        run: chmod +x example/build.sh
+
+      - name: Build all examples
+        working-directory: example
+        env:
+          CXX: clang++
+        run: |
+          ./build.sh A

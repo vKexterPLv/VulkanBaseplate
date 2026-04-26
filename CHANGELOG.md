@@ -4,6 +4,9 @@ All notable changes to VCK are documented here. Format: [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- **CI matrix: Linux + macOS jobs** — `.github/workflows/build.yml` now also runs on `ubuntu-latest` (apt: `libvulkan-dev libglfw3-dev vulkan-tools glslang-tools pkg-config g++`, `./build.sh A`) and `macos-latest` (brew: `vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config`, `CXX=clang++ ./build.sh A`). The Windows job (build.bat [A] on MinGW + LunarG SDK) is unchanged and remains the canonical platform; Linux + macOS catch POSIX regressions in `VCK::Window` / `VCKCrossplatform` / `build.sh` that the Windows runner can't.
+
 ### Changed
 - **Example menu reordered low → high VCK assist** — `example/build.bat` and `example/build.sh` now present examples in tiers (raw core → debug + tooling → expansion → execution layer → mostly VCK) so the menu narrates the design surface from "you write everything" to "VCK does the boring parts". New numbering: `[1] RGBTriangle`, `[2] MipmapExample`, `[3] VMMExample`, `[4] SecondaryCmdExample`, `[5] DebugTimelineExample`, `[6] DebugShowcaseExample`, `[7] AAShowcaseExample`, `[8] JobGraphExample`, `[9] SubmissionBatchingExample`, `[10] TimelineExample`, `[11] SchedulerPolicyExample`, `[12] HelloExample`, `[13] EasyCubeExample`. No example code or behaviour changes — menu, dispatch, build-all, and `docs/Examples.md` reflect the new ordering. Historical `[#]` references in the v0.3.0 / v0.2.x sections below are kept as shipped at the time.
 - **Cookbook expanded to 24 recipes** — added recipes 12-24 covering compute dispatch, GPU particles, indirect draw, async compute, shadow mapping, skybox / cubemap, PBR Cook-Torrance + IBL, deferred shading, HDR + tonemapping, bloom, shader hot-reload, GPU picking, and frustum culling. Cookbook now covers most rule-16 gaps (things VCK explicitly refuses to ship but every renderer ends up needing). Doc-only.
@@ -102,8 +105,108 @@ is scheduler-aware; and secondary command buffers are supported.
 
 ## [0.1.0] - 2026-04-22
 
+The first release under the VCK name. Project was rebranded from VVCS
+("Vulkan-VCS") to **VCK — Vulkan Core Kit** in commit `deced77`. This
+release establishes the public surface (`VCK.h` amalgam header), the
+three-layer architecture (core / expansion / execution), the in-tree
+example builder (`build.bat` + ANSI menu), the structured logger, and
+a Windows CI gate. The project is Windows-only at this point;
+cross-platform support lands in v0.2.0.
+
 ### Added
-- Initial VCK release.
+- **Project rebrand** — `VVCS → VCK (Vulkan Core Kit)`. README, build
+  scripts, header guards, and namespace `VCK::` finalised.
+- **`VCK.h` amalgam header** — single public include surface; per-class
+  declarations stop being duplicated and the amalgam now `#include`s
+  the layer headers directly (rule 21 precursor).
+- **Three-layer architecture** — `core/` (`VulkanContext`,
+  `VulkanDevice`, `VulkanSwapchain`, `VulkanPipeline`,
+  `VulkanCommand`, `VulkanSync`, `VulkanBuffer`, `VulkanImage`,
+  `VulkanHelpers`), **expansion** (framebuffers, depth, samplers,
+  textures, model pipelines, descriptor sets, mipmaps), **execution**
+  (`FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`,
+  `BackpressureGovernor`, `DebugTimeline`, `TimelineSemaphore`).
+- **`VCK::Config`** master init-chain control struct — `cfg.device`,
+  `cfg.swapchain`, `cfg.pipeline`, `cfg.scheduler`, `cfg.aa`, `cfg.debug`
+  knobs; passed once to `VulkanContext::Initialize`.
+- **`VulkanPipeline::Config`** — cull mode, front-face winding, blend
+  state, push-constant ranges, descriptor-set layouts.
+- **Mailbox present mode by default** with FIFO fallback when the
+  surface doesn't expose Mailbox.
+- **Six VCKExpansion examples** — `HelloExample`, `ModelExample`,
+  `VMMExample`, `FrameSchedulerExample`, `TripleBufferExample`,
+  `LockstepExample`, plus three execution-layer examples
+  (`SubmissionBatchingExample`, `JobGraphExample`,
+  `DebugTimelineExample`).
+- **`example/build.bat`** — Windows MinGW builder with `[1]-[9] / [A] / [0]`
+  ANSI-coloured menu, BUILD_ALL section that compiles every example in
+  one pass, and CRLF-safe shader compile via `glslangValidator`.
+- **VMM (Vulkan Memory Manager)** — three-layer allocator
+  (`VmmPersistent` / `VmmTransient` / `VmmStaging`) wrapping VMA's
+  pool-aware allocators. `VmmBuffer` / `VmmImage` are typed
+  POD-by-handle wrappers. `LogStats` dump every N frames for the
+  example.
+- **`VCKLog`** — coloured `[VCK] [Tag] body` logger with `Info` /
+  `Notice` / `Warn` / `Error` levels and an init-time global toggle
+  for debug-gated `Info` lines.
+- **`docs/`** at repo root — split out from README into
+  `Build.md`, `Examples.md`, `Design.md`, `Home.md`. README slimmed to
+  badges + 60-second tour + pointers.
+- **GitHub wiki** — initial structure; `_Sidebar.md`, design rules.
+- **CI: Windows workflow** — `.github/workflows/build.yml` runs
+  `build.bat A` on `windows-latest` for every push / PR. SDK installer
+  + `vk_video/*.h` sparse-checkout patch (the LunarG installer's
+  `vulkan_video` component is optional but `vulkan_core.h` hard-includes
+  it).
+- **`.gitattributes`** — forces CRLF on `*.bat` so Windows CMD doesn't
+  fragment comment lines into garbage tokens.
+
+### Changed
+- **`build.bat`** redesigned with an ANSI UI; `chcp 65001` for UTF-8;
+  em-dashes scrubbed from console-bound strings (CMD prints them as `?`
+  on default codepages).
+- **`AllocConsole` removed** in favour of g++'s default
+  console-subsystem stdout — no flicker on launch, no leftover console
+  if the program crashes.
+- **`VulkanContext::Initialize`** drops the leftover
+  `BuildRequiredExtensions` helper (Win32-only dead code with no header
+  declaration).
+
+### Fixed
+- **VMM lifecycle bugs** — wrong destruction order between
+  `VmmTransient` ring slots and `VmmStaging` was leaking allocations
+  on `Shutdown`. Routed VMM logs to a Windows console.
+- **`FrameScheduler` Lockstep + AsyncMax deadlocks** — Lockstep was
+  waiting on the slot fence before signalling the previous frame's
+  release; AsyncMax could double-acquire the same slot under contention.
+- **`build.bat` BUILD_ALL** trailing whitespace in `set EX=...` causing
+  the all-build pass to skip examples whose name had a trailing space.
+- **MinGW compile** — `SubmitInfo` and `VCK::Config` need explicit
+  default ctors; gcc 13 wouldn't aggregate-init through inheritance.
+- **`JobGraph::Add`** — counted invalid (out-of-range) deps toward the
+  job's wait count, so `Execute()` could deadlock waiting for a job that
+  would never run.
+- **`VCKExpansion.h`** — forward-declared `VulkanDepthBuffer` before
+  `VulkanFramebufferSet` (compile order fix).
+- **`HelloExample`** — quad winding flipped so the embedded "Hello,
+  World" text isn't back-face culled.
+
+## [0.0.x] - 2026-04 (pre-rebrand prehistory)
+
+The original project was named **VVCS** (Vulkan-VCS). These commits are
+preserved in git history but never shipped under the VCK name; they're
+listed here for repo archaeologists. No SemVer was applied during this
+period.
+
+- **Initial drop** — bare-bones `VulkanModule.h` + sample `main.cpp` /
+  `App.cpp` / `App.h` exercising context + device + swapchain +
+  pipeline.
+- **VMM iteration** — first staging / persistent / transient layers;
+  early lifecycle bug fixes.
+- **Windows console plumbing** — `AllocConsole` route for log output
+  (later replaced by g++ console subsystem in v0.1.0).
+- **README iteration** — multiple README rewrites before the v0.1.0
+  rebrand.
 - `core/` (9 primitive classes + `VulkanHelpers`), `VCKExpansion` ([1]-[12] rendering building blocks), execution layer ([13]-[22] frame scheduling), `VMM/` (three-layer memory manager).
 - 17 design rules documented in `docs/Design.md`.
 - 9 example applications (`HelloExample`, `ModelExample`, `VMMExample`, `FrameSchedulerExample`, `TripleBufferExample`, `LockstepExample`, `SubmissionBatchingExample`, `JobGraphExample`, `DebugTimelineExample`).
