@@ -315,7 +315,7 @@ namespace VCK {
         else                                                                          prefix = "[VULKAN INFO]    ";
 
         const std::string line = prefix + pCallbackData->pMessage + "\n";
-#ifdef _WIN32
+#if VCK_PLATFORM_WINDOWS
         OutputDebugStringA(line.c_str());
 #else
         std::fputs(line.c_str(), stderr);
