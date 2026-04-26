@@ -227,22 +227,44 @@ Expansion / Execution / VMM / Tools layers.
   extension they request.
 
 24. **`cfg` IS THE CONTRACT**
-- Every behavioural difference VCK can express must be reachable
-  through `VCK::Config` (and its sub-structs `cfg.device`,
-  `cfg.swapchain`, `cfg.pipeline`, `cfg.scheduler`, `cfg.aa`,
-  `cfg.debug`, …). Nothing that changes rendering behaviour is
-  hardcoded silently inside a `.cpp`.
-- If it is not in `cfg`, it does not exist as a user choice — it is
-  either an implementation detail (and stays out of `cfg`) or a bug
-  (and must be promoted to `cfg`).
-- Defaults belong on the field declaration in the struct, not in code.
-  A user who never touches `cfg` gets the default behaviour; a user
-  who reads the struct sees every knob the kit exposes in one place.
-- Adding a runtime branch on something other than a `cfg` field
-  (compile-time `#define`, environment variable, `extern bool`)
-  violates this rule. The single existing exception is
-  `VULKAN_VALIDATION` — a build-config toggle, not a runtime choice,
-  documented in `VulkanContext.cpp`.
+
+   Anything that needs changing the code is governed by R24. The litmus
+   test for where it lives is two lines:
+
+   - **If it changes how the user writes their renderer → `cfg`.**
+     The user must be able to flip the behaviour without recompiling
+     VCK and without re-reading the source.
+   - **If it changes how VCK works underneath → silent bundle.**
+     Pure implementation detail. No knob, no log line, no doc entry —
+     it would be noise to the user.
+
+   Concretely:
+
+   - Every behavioural difference VCK can express **that the user can
+     reasonably want to choose between** must be reachable through
+     `VCK::Config` and its sub-structs (`cfg.device`, `cfg.swapchain`,
+     `cfg.pipeline`, `cfg.scheduler`, `cfg.aa`, `cfg.debug`, …).
+     Nothing in this set is hardcoded silently inside a `.cpp`.
+   - Defaults belong on the field declaration in the struct, not in
+     code. A user who never touches `cfg` gets the default behaviour;
+     a user who reads the struct sees every knob the kit exposes in
+     one place.
+   - Adding a runtime branch on something other than a `cfg` field
+     (compile-time `#define`, environment variable, `extern bool`,
+     hidden static) for a user-visible behaviour violates this rule.
+     The single existing exception is `VULKAN_VALIDATION` — a
+     build-config toggle, not a runtime choice, documented in
+     `VulkanContext.cpp`.
+   - **Silent bundles are explicitly allowed and expected.** If VCK
+     changes how something works internally (e.g. switching from
+     `vkQueueWaitIdle` to a per-submit fence, or reordering pool
+     creation, or batching N submits into one) without changing the
+     user-facing API or the rendered output, the change ships as part
+     of the version that introduces it and does not get a `cfg` knob.
+     R23 still applies — extension enablement is never silent — but
+     the *plumbing* is. Asking "does the user write a different line
+     of renderer code if I flip this?" decides which side of the line
+     it falls on.
 
 ## Status and caveats
 
