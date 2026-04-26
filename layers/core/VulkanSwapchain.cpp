@@ -403,7 +403,11 @@ namespace VCK {
             // pick it; otherwise fall through to plain FIFO with a Notice that
             // tells the user exactly why they didn't get latest-ready behaviour
             // (rule 23 - never silently substitute a present mode).
-#ifdef VK_PRESENT_MODE_FIFO_LATEST_READY_EXT
+// Guard on the extension sentinel define, NOT on the present-mode enum
+// constant: VK_PRESENT_MODE_FIFO_LATEST_READY_EXT is a C enum value in
+// VkPresentModeKHR (no #define exists) so #ifdef on it is dead-code.
+// The extension #define lives in vulkan_core.h alongside other ext sentinels.
+#ifdef VK_EXT_present_mode_fifo_latest_ready
             if (has(VK_PRESENT_MODE_FIFO_LATEST_READY_EXT))
             {
                 VCKLog::Notice("Swapchain",

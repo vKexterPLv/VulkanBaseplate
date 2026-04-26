@@ -136,6 +136,13 @@ namespace VCK {
         // codepath split lives in VulkanPipeline / Frame in v0.4.
         Config::RenderingCfg  m_CfgRendering;
 
+        // Snapshot of cfg.swapchain.  Only `presentMode` is consulted at
+        // device-creation time, to decide whether to request the
+        // VK_EXT_present_mode_fifo_latest_ready device extension when the
+        // user picks PresentMode::FifoLatestReady.  VulkanSwapchain still
+        // owns the full cfg.swapchain on its side (reads its own copy).
+        Config::SwapchainCfg  m_CfgSwapchain;
+
         static constexpr const char* k_RequiredDeviceExtensions[] = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
         };

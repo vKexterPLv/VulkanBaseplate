@@ -28,6 +28,7 @@ namespace VCK {
     {
         m_CfgDevice    = cfg.device;
         m_CfgRendering = cfg.rendering;
+        m_CfgSwapchain = cfg.swapchain;
         return Initialize(instance, surface);
     }
 
@@ -451,6 +452,21 @@ namespace VCK {
             // codepath to call into yet.
             VCKLog::Notice("Device",
                 "cfg.device.enableBindless acknowledged - bindless descriptor helpers ship in v0.4; extension enabled, no public API surface yet (R23)");
+        }
+
+        // R24 cfg knob (continued from VulkanSwapchain): cfg.swapchain.presentMode
+        // = FifoLatestReady requires the VK_EXT_present_mode_fifo_latest_ready
+        // device extension to be enabled at vkCreateDevice time, otherwise
+        // vkGetPhysicalDeviceSurfacePresentModesKHR will never advertise
+        // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT and the swapchain will silently
+        // fall back to FIFO regardless of cfg.  Wire it here so the swapchain
+        // case is genuinely reachable.
+        if (m_CfgSwapchain.presentMode == PresentMode::FifoLatestReady)
+        {
+#ifdef VK_EXT_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME
+            (void)tryGated(VK_EXT_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME,
+                           "cfg.swapchain.presentMode=FifoLatestReady");
+#endif
         }
 
         VkDeviceCreateInfo deviceInfo{};
