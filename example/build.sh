@@ -2,11 +2,22 @@
 # =============================================================================
 #  VCK example builder (Linux + macOS)
 # =============================================================================
-#  Mirror of build.bat for POSIX targets.  Same [1]-[13] / [A] / [0] menu.
+#  Mirror of build.bat for POSIX targets.  Same [1]-[13] / [A] / [T] / [0] menu.
+#
+#  PR #7: lib-once compile model
+#  -----------------------------
+#  Stage 1: build the VCK static library once into  build/libvck.a
+#           (all 12 VKB sources + VulkanMemoryManager.cpp).
+#  Stage 2: per example, compile only main.cpp + App.cpp (2 TUs) and link
+#           against build/libvck.a.  Cuts ~143 redundant TUs out of build-all
+#           (13 examples * 11 redundant VKB compiles).
+#  Stage 3: optional [T] target builds tests/test_main.cpp + tests/*.cpp and
+#           links against build/libvck.a (R14 unit-test harness, see tests/).
 #
 #  Requirements:
 #    - glslangValidator on PATH              (ships with the Vulkan SDK)
 #    - g++ or clang++ on PATH                (C++17)
+#    - ar on PATH                            (archive helper, ships with binutils)
 #    - Vulkan loader + dev headers           (libvulkan, vulkan/vulkan.h)
 #    - GLFW 3.3+ with dev headers            (libglfw, GLFW/glfw3.h)
 #    - pkg-config on PATH                    (used to discover the above)
@@ -23,6 +34,7 @@
 #
 #  Dependency layout (same as Windows where applicable):
 #    example/
+#      build/                                 (gitignored, compiler scratch)
 #      deps/
 #        vk_mem_alloc.h                       (single-header VMA)
 # =============================================================================
@@ -63,6 +75,7 @@ need_tool() {
 
 need_tool glslangValidator "Install the Vulkan SDK / glslang-tools."
 need_tool pkg-config        "Install pkg-config."
+need_tool ar                "Install binutils (ar is needed to build libvck.a)."
 
 CXX="${CXX:-}"
 if [ -z "$CXX" ]; then
@@ -104,12 +117,106 @@ if [ "$VCK_OS" = "macos" ]; then
     LIBS="$PKG_LIBS -framework Cocoa -framework IOKit -framework QuartzCore"
 fi
 
-VKB="../layers/core/VmaImpl.cpp ../layers/core/VulkanBuffer.cpp ../layers/core/VulkanCommand.cpp \
-../layers/core/VulkanContext.cpp ../layers/core/VulkanDevice.cpp ../layers/core/VulkanImage.cpp \
-../layers/core/VulkanPipeline.cpp ../layers/core/VulkanSwapchain.cpp ../layers/core/VulkanSync.cpp \
-../layers/core/VCKCrossplatform.cpp ../layers/expansion/VCKExpansion.cpp ../layers/execution/VCKExecution.cpp"
+# Compile flags shared by lib + per-example builds.  -w matches build.bat's
+# silent-on-warnings behaviour (VMA / GLFW / vulkan_core.h are noisy on POSIX
+# toolchains and the warnings are not actionable for end users).  Real bugs
+# surface as errors via -Werror=return-type regardless.
+CXXFLAGS="-std=c++17 -O2 -w -Werror=return-type"
+
+# ── VKB sources (compiled once into libvck.a) ───────────────────────────────
+# Order does not matter: archived into a static library, linker pulls by-need.
+# VulkanMemoryManager.cpp moves from per-example optional to lib-included so
+# the archive is monolithic and examples need not split on "uses VMM" anymore.
+VKB_SRCS=(
+    "../layers/core/VmaImpl.cpp"
+    "../layers/core/VulkanBuffer.cpp"
+    "../layers/core/VulkanCommand.cpp"
+    "../layers/core/VulkanContext.cpp"
+    "../layers/core/VulkanDevice.cpp"
+    "../layers/core/VulkanImage.cpp"
+    "../layers/core/VulkanPipeline.cpp"
+    "../layers/core/VulkanSwapchain.cpp"
+    "../layers/core/VulkanSync.cpp"
+    "../layers/core/VCKCrossplatform.cpp"
+    "../layers/expansion/VCKExpansion.cpp"
+    "../layers/execution/VCKExecution.cpp"
+    "../layers/vmm/VulkanMemoryManager.cpp"
+)
+
+BUILD_DIR="build"
+LIB="$BUILD_DIR/libvck.a"
 
 # ── Build primitives ---------------------------------------------------------
+
+# Hash the lib's input list to know when to rebuild.  Tracks the compiler, the
+# include / define string, the source file list, and each source's mtime.
+# Stored in build/libvck.stamp.  When the stamp matches, the lib is up-to-date
+# and we skip the entire stage-1 compile.  Cuts repeat invocations of
+# `./build.sh A` from "compile 13 sources twice" to "link 26 small TUs".
+lib_stamp_of() {
+    {
+        echo "$CXX"
+        echo "$CXXFLAGS"
+        echo "$INCLUDES"
+        for s in "${VKB_SRCS[@]}"; do
+            printf '%s ' "$s"
+            stat -c '%Y' "$s" 2>/dev/null || stat -f '%m' "$s" 2>/dev/null || echo 0
+        done
+    } | sha1sum 2>/dev/null | awk '{print $1}' || \
+    {
+        echo "$CXX"
+        echo "$CXXFLAGS"
+        echo "$INCLUDES"
+        for s in "${VKB_SRCS[@]}"; do
+            printf '%s ' "$s"
+            stat -f '%m' "$s" 2>/dev/null || echo 0
+        done
+    } | shasum | awk '{print $1}'
+}
+
+build_lib() {
+    mkdir -p "$BUILD_DIR"
+    local want="$(lib_stamp_of)"
+    local have=""
+    [ -f "$BUILD_DIR/libvck.stamp" ] && have="$(cat "$BUILD_DIR/libvck.stamp")"
+    if [ -f "$LIB" ] && [ "$want" = "$have" ]; then
+        echo "  ${C_DIM}libvck.a   up-to-date${C_RESET}"
+        return 0
+    fi
+    step "[lib] $LIB ($(basename "$CXX"))"
+    rm -f "$LIB"
+    local objs=()
+    local src
+    local jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+    # Fan out compilation across cores.  Each TU is independent; -c writes a
+    # .o into build/.
+    local pids=() statuses=() i=0
+    for src in "${VKB_SRCS[@]}"; do
+        local stem; stem="$(basename "$src" .cpp)"
+        local obj="$BUILD_DIR/$stem.o"
+        objs+=("$obj")
+        echo "  ${C_DIM}$CXX -c $stem${C_RESET}"
+        (
+            # shellcheck disable=SC2086
+            $CXX -c "$src" -o "$obj" $CXXFLAGS $INCLUDES
+        ) &
+        pids+=("$!")
+        # Cap concurrency at $jobs.
+        if [ "${#pids[@]}" -ge "$jobs" ]; then
+            wait "${pids[0]}" || { err "C++ compile failed in libvck.a stage"; return 1; }
+            pids=("${pids[@]:1}")
+        fi
+    done
+    local pid
+    for pid in "${pids[@]}"; do
+        wait "$pid" || { err "C++ compile failed in libvck.a stage"; return 1; }
+    done
+    echo "  ${C_DIM}ar  rcs    libvck.a${C_RESET}"
+    ar rcs "$LIB" "${objs[@]}" || { err "ar failed for libvck.a"; return 1; }
+    echo "$want" > "$BUILD_DIR/libvck.stamp"
+    echo "  ${C_GRN}  OK${C_RESET}   $LIB"
+}
+
 compile_shaders() {
     # $1 = example dir      $2 = shader stem
     local ex="$1" stem="$2"
@@ -123,18 +230,15 @@ compile_shaders() {
 }
 
 compile_cpp() {
-    # $1 = example dir, $2 = extra cpp files (may be empty)
-    local ex="$1" extra="${2:-}"
+    # $1 = example dir.  Compiles only main.cpp + App.cpp and links against
+    # the prebuilt libvck.a.  No more conditional VMM compile - VMM is in
+    # the library.
+    local ex="$1"
     local out="$ex/$ex"
-    echo "  ${C_DIM}$CXX    $ex${C_RESET}"
-    # `-w` matches build.bat's silent-on-warnings behaviour: g++ + clang++
-    # are noisy by default on Linux + macOS (VMA's single-header impl, GLFW
-    # Cocoa deprecations on macOS, vulkan_core.h `-Wmissing-field-initializers`)
-    # and the warnings are not actionable for end users compiling examples.
-    # Real bugs surface as errors via `-Werror=return-type` regardless.
+    echo "  ${C_DIM}$CXX     $ex (main+App, link libvck.a)${C_RESET}"
     # shellcheck disable=SC2086
-    $CXX "$ex/main.cpp" "$ex/App.cpp" $VKB $extra \
-         -o "$out" -std=c++17 -w -Werror=return-type $INCLUDES $LIBS || {
+    $CXX "$ex/main.cpp" "$ex/App.cpp" \
+         -o "$out" $CXXFLAGS $INCLUDES "$LIB" $LIBS || {
         err "C++ compile failed: $ex"; return 1; }
     echo "  ${C_GRN}  OK${C_RESET}   $out"
 }
@@ -146,15 +250,13 @@ ok_run() {
     echo
 }
 
-# Per-example configuration (name, shader stem, needs_vmm).
-#   Matches build.bat layout exactly.
+# Per-example configuration (name, shader stem).
 build_one() {
-    local id="$1" ex stem extra=""
+    local id="$1" ex stem=""
     case "$id" in
         1)  ex=RGBTriangle                stem=triangle                 ;;
         2)  ex=MipmapExample              stem=mip                      ;;
-        3)  ex=VMMExample                 stem=vmm
-            extra="../layers/vmm/VulkanMemoryManager.cpp"                ;;
+        3)  ex=VMMExample                 stem=vmm                      ;;
         4)  ex=SecondaryCmdExample        stem=secondary                ;;
         5)  ex=DebugTimelineExample       stem=DebugTimelineExample     ;;
         6)  ex=DebugShowcaseExample       stem=                         ;;
@@ -171,7 +273,7 @@ build_one() {
     if [ -n "$stem" ]; then
         compile_shaders "$ex" "$stem" || return 1
     fi
-    compile_cpp     "$ex" "$extra" || return 1
+    compile_cpp     "$ex" || return 1
 }
 
 build_all() {
@@ -181,12 +283,38 @@ build_all() {
         "JobGraphExample" "SubmissionBatchingExample" "TimelineExample"
         "SchedulerPolicyExample" "HelloExample" "EasyCubeExample"
     )
+    build_lib || return 1
     for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
         step "[${i}/13] ${names[$((i-1))]}"
         build_one "$i" || return 1
     done
     echo
     echo "${C_GRN}  all 13 examples built.${C_RESET}"
+    echo
+}
+
+# Build the R14 unit-test harness.  Sources live under tests/ and link against
+# the prebuilt libvck.a so test-mode compile is the same lib + 1-2 small TUs.
+build_tests() {
+    if [ ! -d "../tests" ]; then
+        err "../tests/ directory not found - R14 harness not in this checkout."
+        return 1
+    fi
+    build_lib || return 1
+    step "[T] R14 unit tests"
+    local out="../tests/vck_tests"
+    local srcs
+    srcs=( ../tests/*.cpp )
+    if [ "${#srcs[@]}" -eq 0 ]; then
+        err "no .cpp files under ../tests/"; return 1
+    fi
+    echo "  ${C_DIM}$CXX     vck_tests (${#srcs[@]} TUs, link libvck.a)${C_RESET}"
+    # shellcheck disable=SC2086
+    $CXX "${srcs[@]}" -o "$out" $CXXFLAGS $INCLUDES -I../tests "$LIB" $LIBS || {
+        err "test compile failed"; return 1; }
+    echo "  ${C_GRN}  OK${C_RESET}   $out"
+    echo
+    echo "  ${C_CYN}run:${C_RESET}   $out"
     echo
 }
 
@@ -216,6 +344,7 @@ echo "   ${C_YEL}[12]${C_RESET} ${C_WHT}HelloExample${C_RESET}                mi
 echo "   ${C_YEL}[13]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath"
 echo
 echo "   ${C_CYN}[A]${C_RESET}  ${C_WHT}Build all${C_RESET}                   in order, stops on first failure"
+echo "   ${C_CYN}[T]${C_RESET}  ${C_WHT}R14 unit tests${C_RESET}              build + show run command (PR #7)"
 echo "   ${C_CYN}[0]${C_RESET}  ${C_WHT}Exit${C_RESET}"
 echo
 
@@ -228,7 +357,9 @@ fi
 case "$(echo "$CHOICE" | tr '[:upper:]' '[:lower:]')" in
     0)  exit 0 ;;
     a)  build_all || exit 1; exit 0 ;;
+    t)  build_tests || exit 1; exit 0 ;;
     1|2|3|4|5|6|7|8|9|10|11|12|13)
+        build_lib || exit 1
         build_one "$CHOICE" || exit 1
         # name lookup again for the run hint
         case "$CHOICE" in

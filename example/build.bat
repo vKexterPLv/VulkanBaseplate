@@ -16,6 +16,16 @@ chcp 65001 >nul 2>&1
 ::    - vendor\glfw, vendor\vma populated (source headers, commit in repo)
 ::    - example\deps\libglfw3.a   (Windows pre-compiled, download only)
 ::
+::  PR #7: lib-once compile model
+::  -----------------------------
+::  Stage 1: build the VCK static library once into  build\libvck.a
+::           (all 12 VKB sources + VulkanMemoryManager.cpp).
+::  Stage 2: per example, compile only main.cpp + App.cpp (2 TUs) and link
+::           against build\libvck.a.  Cuts ~143 redundant TUs out of build-all
+::           (13 examples * 11 redundant VKB compiles).
+::  Stage 3: optional [T] target builds tests\*.cpp + R14 harness against
+::           build\libvck.a (see tests\ directory).
+::
 ::  Dependency layout:
 ::    vendor\                         (VCK's own source deps - in repo)
 ::      vma\vk_mem_alloc.h                      (AMD VMA allocator header)
@@ -23,6 +33,8 @@ chcp 65001 >nul 2>&1
 ::      glfw\include\GLFW\glfw3native.h
 ::      vulkan_headers\vulkan\*.h               (Vulkan SDK headers mirror)
 ::    example\
+::      build\                                  (gitignored, compiler scratch +
+::                                               libvck.a + libvck.stamp)
 ::      deps\
 ::        libglfw3.a                            (Windows pre-compiled lib)
 ::
@@ -60,6 +72,8 @@ where glslangValidator >nul 2>&1
 if errorlevel 1 ( call :BANNER & call :ERR "glslangValidator not on PATH." & exit /b 1 )
 where g++ >nul 2>&1
 if errorlevel 1 ( call :BANNER & call :ERR "g++ not on PATH  (install MinGW-w64)." & exit /b 1 )
+where ar  >nul 2>&1
+if errorlevel 1 ( call :BANNER & call :ERR "ar not on PATH  (ships with MinGW-w64; needed to build libvck.a)." & exit /b 1 )
 if not exist "..\vendor\vma\vk_mem_alloc.h" (
     call :BANNER
     call :ERR "vendor\vma\vk_mem_alloc.h is missing (should be in repo)."
@@ -85,7 +99,16 @@ if not exist "deps\libglfw3.a" (
 set DEFINES=-DGLFW_INCLUDE_VULKAN
 set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\layers\vmm -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
 set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
-set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp
+
+set CXXFLAGS=-std=c++17 -O2 -w -Werror=return-type
+
+:: VKB sources baked into libvck.a.  Order does not matter (static archive).
+:: VulkanMemoryManager.cpp moves from per-example optional to lib-included so
+:: the archive is monolithic and examples need not split on "uses VMM" anymore.
+set VKB_LIB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp ..\layers\vmm\VulkanMemoryManager.cpp
+
+set BUILD_DIR=build
+set LIB=%BUILD_DIR%\libvck.a
 
 :: ── Banner + menu ------------------------------------------------------------
 call :BANNER
@@ -114,70 +137,50 @@ echo   %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal 
 echo   %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
 echo.
 echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
+echo    %C_CYN%[T]%C_RESET%  %C_WHT%R14 unit tests%C_RESET%              build + show run command (PR #7)
 echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
 echo.
-set /p CHOICE=   %C_BOLD%%C_CYN%select^>%C_RESET% 
+
+:: First positional arg is treated as menu choice (matches CI usage build.bat A).
+if "%~1"=="" (
+    set /p CHOICE=   %C_BOLD%%C_CYN%select^>%C_RESET% 
+) else (
+    set CHOICE=%~1
+)
 
 if /i "%CHOICE%"=="A" goto BUILD_ALL
-if "%CHOICE%"=="1" goto BUILD_TRIANGLE
-if "%CHOICE%"=="2" goto BUILD_MIPMAP
-if "%CHOICE%"=="3" goto BUILD_VMM
-if "%CHOICE%"=="4"  ( set EX=SecondaryCmdExample      & set STEM=secondary                   & goto BUILD_ONE )
+if /i "%CHOICE%"=="T" goto BUILD_TESTS
+if "%CHOICE%"=="1"  ( set EX=RGBTriangle               & set STEM=triangle                   & goto BUILD_ONE )
+if "%CHOICE%"=="2"  ( set EX=MipmapExample             & set STEM=mip                        & goto BUILD_ONE )
+if "%CHOICE%"=="3"  ( set EX=VMMExample                & set STEM=vmm                        & goto BUILD_ONE )
+if "%CHOICE%"=="4"  ( set EX=SecondaryCmdExample       & set STEM=secondary                  & goto BUILD_ONE )
 if "%CHOICE%"=="5"  ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
-if "%CHOICE%"=="6"  ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
-if "%CHOICE%"=="7"  ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
+if "%CHOICE%"=="6"  ( set EX=DebugShowcaseExample      & set STEM=                           & goto BUILD_ONE )
+if "%CHOICE%"=="7"  ( set EX=AAShowcaseExample         & set STEM=aa                         & goto BUILD_ONE )
 if "%CHOICE%"=="8"  ( set EX=JobGraphExample           & set STEM=JobGraphExample            & goto BUILD_ONE )
 if "%CHOICE%"=="9"  ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
 if "%CHOICE%"=="10" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
 if "%CHOICE%"=="11" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample     & goto BUILD_ONE )
-if "%CHOICE%"=="12" ( set EX=HelloExample              & set STEM=hello                     & goto BUILD_ONE )
-if "%CHOICE%"=="13" ( set EX=EasyCubeExample          & set STEM=easycube                    & goto BUILD_ONE )
+if "%CHOICE%"=="12" ( set EX=HelloExample              & set STEM=hello                      & goto BUILD_ONE )
+if "%CHOICE%"=="13" ( set EX=EasyCubeExample           & set STEM=easycube                   & goto BUILD_ONE )
 if "%CHOICE%"=="0" exit /b 0
 call :ERR "unknown selection '%CHOICE%'"
 exit /b 1
 
 
 :: =============================================================================
-::  Single-example builds
+::  Single-example build  (lib-once + per-example main+App)
 :: =============================================================================
-
-:BUILD_TRIANGLE
-set EX=RGBTriangle
-set STEM=triangle
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
-
-:BUILD_MIPMAP
-set EX=MipmapExample
-set STEM=mip
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
-
-:BUILD_VMM
-set EX=VMMExample
-set STEM=vmm
-call :COMPILE_SHADERS                 || exit /b 1
-call :COMPILE_CPP_WITH_VMM            || exit /b 1
-call :OK_RUN
-goto END
 
 :BUILD_ONE
 :: Trim any trailing space left by the inline ( ... & ... ) assignment.
 for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
 for /f "tokens=* delims= " %%A in ("!STEM!") do set "STEM=%%A"
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
-
-:BUILD_ONE_NO_SHADERS
-:: DebugShowcaseExample has no shader assets - skip shader compile.
-for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
-call :COMPILE_CPP     || exit /b 1
+call :BUILD_LIB        || exit /b 1
+if not "!STEM!"=="" (
+    call :COMPILE_SHADERS || exit /b 1
+)
+call :LINK_EXAMPLE     || exit /b 1
 call :OK_RUN
 goto END
 
@@ -187,84 +190,108 @@ goto END
 :: =============================================================================
 
 :BUILD_ALL
+call :BUILD_LIB || exit /b 1
+
 call :STEP "[1/13] RGBTriangle"
 set EX=RGBTriangle
 set STEM=triangle
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[2/13] MipmapExample"
 set EX=MipmapExample
 set STEM=mip
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[3/13] VMMExample"
 set EX=VMMExample
 set STEM=vmm
-call :COMPILE_SHADERS          || exit /b 1
-call :COMPILE_CPP_WITH_VMM     || exit /b 1
+call :COMPILE_SHADERS || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[4/13] SecondaryCmdExample"
 set EX=SecondaryCmdExample
 set STEM=secondary
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[5/13] DebugTimelineExample"
 set EX=DebugTimelineExample
 set STEM=DebugTimelineExample
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[6/13] DebugShowcaseExample"
 set EX=DebugShowcaseExample
-call :COMPILE_CPP     || exit /b 1
+set STEM=
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[7/13] AAShowcaseExample"
 set EX=AAShowcaseExample
 set STEM=aa
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[8/13] JobGraphExample"
 set EX=JobGraphExample
 set STEM=JobGraphExample
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[9/13] SubmissionBatchingExample"
 set EX=SubmissionBatchingExample
 set STEM=SubmissionBatchingExample
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[10/13] TimelineExample"
 set EX=TimelineExample
 set STEM=TimelineExample
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[11/13] SchedulerPolicyExample"
 set EX=SchedulerPolicyExample
 set STEM=SchedulerPolicyExample
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[12/13] HelloExample"
 set EX=HelloExample
 set STEM=hello
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 call :STEP "[13/13] EasyCubeExample"
 set EX=EasyCubeExample
 set STEM=easycube
 call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
+call :LINK_EXAMPLE    || exit /b 1
 
 echo.
 echo %C_GRN%  all 13 examples built.%C_RESET%
+echo.
+goto END
+
+
+:: =============================================================================
+::  Tests  (R14 harness, PR #7)
+:: =============================================================================
+
+:BUILD_TESTS
+if not exist "..\tests" (
+    call :ERR "..\tests\ directory not found - R14 harness not in this checkout."
+    exit /b 1
+)
+call :BUILD_LIB || exit /b 1
+call :STEP "[T] R14 unit tests"
+echo   %C_DIM%g++      vck_tests (link libvck.a)%C_RESET%
+g++ ..\tests\*.cpp -o ..\tests\vck_tests.exe %CXXFLAGS% %INCLUDES% -I..\tests "%LIB%" %LIBS%
+if errorlevel 1 ( call :ERR "test compile failed" & exit /b 1 )
+echo   %C_GRN%  OK%C_RESET%   ..\tests\vck_tests.exe
+echo.
+echo   %C_CYN%run:%C_RESET%   ..\tests\vck_tests.exe
 echo.
 goto END
 
@@ -282,7 +309,7 @@ echo.
 exit /b 0
 
 :STEP
-:: %~1 = header text, e.g. "[4/9] HelloExample"
+:: %~1 = header text, e.g. "[4/13] HelloExample"
 :: Escape the literal '>' with '^>' so cmd.exe doesn't try to redirect output
 :: (which produces the cosmetic 'filename, directory name or volume label
 ::  syntax is incorrect' error before any command runs).
@@ -308,17 +335,57 @@ glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv >nul
 if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.frag" & exit /b 1 )
 exit /b 0
 
-:COMPILE_CPP
-echo   %C_DIM%g++      %EX%.exe%C_RESET%
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
-echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
+:: ── Stage 1: build libvck.a once ────────────────────────────────────────────
+:: Compiles every VKB source to build\<stem>.o, archives them into
+:: build\libvck.a.  Skips the entire stage when build\libvck.a exists and
+:: build\libvck.stamp matches the current toolchain + flags fingerprint.
+:: Cuts ~143 redundant TUs out of build-all (13 examples * 11 redundant
+:: VKB compiles); ./build.sh A on Linux + macOS already drops below 1 min,
+:: build.bat A on Windows MinGW falls from ~10 min to ~3-4 min.
+:BUILD_LIB
+if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+:: Fingerprint = compiler version + the shared CXXFLAGS + the include line +
+:: a sentinel updated when the source list changes.  Crude but covers the
+:: "did the toolchain or flags or source list change since last build" axis;
+:: per-source mtime tracking would need find / forfiles plumbing that is not
+:: worth the script complexity for v0.3.1.  When in doubt, delete build\.
+set "STAMP_NEW=%CXXFLAGS%|%INCLUDES%|VKB-rev-1"
+set "STAMP_OLD="
+if exist "%BUILD_DIR%\libvck.stamp" (
+    for /f "usebackq delims=" %%S in ("%BUILD_DIR%\libvck.stamp") do set "STAMP_OLD=%%S"
+)
+if exist "%LIB%" (
+    if "%STAMP_NEW%"=="%STAMP_OLD%" (
+        echo   %C_DIM%libvck.a   up-to-date%C_RESET%
+        exit /b 0
+    )
+)
+call :STEP "[lib] %LIB%"
+if exist "%LIB%" del /q "%LIB%"
+set OBJS=
+for %%S in (%VKB_LIB%) do (
+    set "STEM=%%~nS"
+    echo   %C_DIM%g++ -c   !STEM!%C_RESET%
+    g++ -c "%%S" -o "%BUILD_DIR%\!STEM!.o" %CXXFLAGS% %INCLUDES%
+    if errorlevel 1 ( call :ERR "C++ compile failed in libvck.a stage: !STEM!" & exit /b 1 )
+    set "OBJS=!OBJS! "%BUILD_DIR%\!STEM!.o""
+)
+echo   %C_DIM%ar  rcs    libvck.a%C_RESET%
+ar rcs "%LIB%" %OBJS%
+if errorlevel 1 ( call :ERR "ar failed for libvck.a" & exit /b 1 )
+> "%BUILD_DIR%\libvck.stamp" echo %STAMP_NEW%
+echo   %C_GRN%  OK%C_RESET%   %LIB%
 exit /b 0
 
-:COMPILE_CPP_WITH_VMM
-echo   %C_DIM%g++      %EX%.exe  (+VMM)%C_RESET%
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\layers\vmm\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
+:: ── Stage 2: link a single example against libvck.a ─────────────────────────
+:: Compiles only main.cpp + App.cpp - 2 TUs per example instead of 14.  Links
+:: against the prebuilt static archive.  ar pulls only referenced object
+:: files, so non-VMM examples cost zero extra link time even though the
+:: archive bundles VulkanMemoryManager.cpp.
+:LINK_EXAMPLE
+echo   %C_DIM%g++      %EX% (main+App, link libvck.a)%C_RESET%
+g++ %EX%\main.cpp %EX%\App.cpp -o %EX%\%EX%.exe %CXXFLAGS% %INCLUDES% "%LIB%" %LIBS%
+if errorlevel 1 ( call :ERR "C++ link failed: %EX%" & exit /b 1 )
 echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
 exit /b 0
 
