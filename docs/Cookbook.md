@@ -47,6 +47,27 @@ Each recipe calls out:
 10. [ImGui bootstrap](#10-imgui-bootstrap)
 11. [Offscreen render + PNG readback](#11-offscreen-render--png-readback)
 
+**Compute & GPU-driven**
+12. [Compute dispatch](#12-compute-dispatch-queuesetcompute--queuecompute)
+13. [GPU particle system](#13-gpu-particle-system-compute-sim--indirect-draw)
+14. [Indirect draw](#14-indirect-draw-vkcmddrawindexedindirect)
+15. [Async compute pattern](#15-async-compute-pattern-graphics--compute-overlap)
+
+**Lighting & shading**
+16. [Shadow mapping](#16-shadow-mapping-directional-light--pcf)
+17. [Skybox / cubemap](#17-skybox--cubemap-rendering)
+18. [PBR Cook-Torrance + IBL skeleton](#18-pbr-cook-torrance--ibl-skeleton)
+19. [Deferred shading skeleton](#19-deferred-shading-skeleton-g-buffer--lighting)
+
+**Post-process FX**
+20. [HDR tonemapping](#20-hdr-tonemapping-reinhard--aces)
+21. [Bloom](#21-bloom-bright-pass--mip-blur--composite)
+
+**Dev experience & tooling**
+22. [Shader hot-reload](#22-shader-hot-reload-watch--rebuild--swap)
+23. [GPU picking](#23-gpu-picking-object-id-readback)
+24. [Frustum culling](#24-frustum-culling-cpu-plane-test-vs-aabb)
+
 ---
 
 ## 1. Image loading (`stb_image` → `VulkanImage`)
@@ -865,6 +886,761 @@ For **golden-image regression tests**, render at a fixed seed, compare the
 output against a committed reference PNG pixel-for-pixel (allowing ±1 LSB
 slack for floating-point drift). Flake-free across GPU vendors when the
 seed is deterministic.
+
+---
+
+## 12. Compute dispatch (`QueueSet::Compute()` + `QueueCompute`)
+
+**Intent.** Run a compute pass that reads/writes a storage buffer or image,
+either inline on the graphics queue or async on the dedicated compute queue
+(v0.3 dedicated-queue support — rule 18 thread-safety applies).
+
+**Rules.** R1 (you write the dispatch — VCK never auto-dispatches), R4
+(no hidden sync; staging fences only), R18 (caller serialises if multiple
+threads submit to the same `VkQueue`), R19 (zero cost when you don't use it).
+
+**Shader** (`pass.comp`):
+```glsl
+#version 450
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) buffer Data { float v[]; } data;
+layout(push_constant) uniform PC { uint count; float scale; } pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count) return;
+    data.v[i] = data.v[i] * pc.scale;
+}
+```
+
+**C++** (compile to `pass.comp.spv`, then):
+```cpp
+// One-time setup:
+VulkanPipeline computePipe;                              // compute variant
+computePipe.InitializeCompute(device, "pass.comp.spv",
+                              descriptorSetLayout, pushConstantRange);
+
+// Per dispatch:
+VkCommandBuffer cb = oneTime.Get();                      // or a frame primary
+vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, computePipe.Get());
+vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        computePipe.Layout(), 0, 1, &set, 0, nullptr);
+
+struct PC { uint32_t count; float scale; } pc{N, 0.5f};
+vkCmdPushConstants(cb, computePipe.Layout(),
+                   VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+vkCmdDispatch(cb, (N + 255) / 256, 1, 1);
+
+// If you write a storage buffer that the next graphics pass reads, insert
+// a SHADER_WRITE -> SHADER_READ memory barrier (or an ACQUIRE barrier when
+// crossing queue families — see VMM in v0.3 for the pattern).
+```
+
+**Async on the dedicated compute queue.** When the device exposes a
+compute-only family, `device.GetComputeQueue()` is a different `VkQueue`.
+Submit your compute work there with its own pool + fence (or a timeline
+value) and let the graphics queue keep rendering — rule 18, no shared lock.
+
+---
+
+## 13. GPU particle system (compute sim + indirect draw)
+
+**Intent.** N particles live in a storage buffer. A compute pass advances
+them every frame; a graphics pass draws them as instanced point sprites
+using `vkCmdDrawIndirect`. Pure GPU loop, CPU only kicks the dispatch.
+
+**Rules.** R1 (explicit barriers between sim and draw), R20 (a particle
+example would slot in here at `[14] ParticleExample` if shipped).
+
+**Shaders** — `sim.comp`:
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+struct P { vec3 pos; float life; vec3 vel; float pad; };
+layout(set=0, binding=0, std430) buffer Particles { P p[]; } P;
+layout(push_constant) uniform PC { float dt; uint count; } pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count) return;
+    P.p[i].pos  += P.p[i].vel * pc.dt;
+    P.p[i].vel  += vec3(0, -9.81, 0) * pc.dt;
+    P.p[i].life -= pc.dt;
+}
+```
+
+`particle.vert`:
+```glsl
+#version 450
+layout(set=0, binding=0, std430) readonly buffer Particles {
+    struct P { vec3 pos; float life; vec3 vel; float pad; } p[];
+} P;
+layout(push_constant) uniform PC { mat4 vp; } pc;
+void main() {
+    P.p[gl_InstanceIndex];
+    gl_Position  = pc.vp * vec4(P.p[gl_InstanceIndex].pos, 1.0);
+    gl_PointSize = 4.0;
+}
+```
+
+**C++** (skeleton):
+```cpp
+// One-time:
+VulkanBuffer particles;        // SSBO, DEVICE_LOCAL, count * sizeof(P)
+VulkanBuffer drawIndirect;     // VkDrawIndirectCommand{count,1,0,0}, DEVICE_LOCAL
+
+// Per frame:
+// 1) Sim
+vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, simPipe.Get());
+vkCmdBindDescriptorSets(cb, ..., simSet);
+vkCmdPushConstants(cb, simPipe.Layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(simPC), &simPC);
+vkCmdDispatch(cb, (count + 63) / 64, 1, 1);
+
+// 2) Barrier: SSBO write -> SSBO read
+VkBufferMemoryBarrier b{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+b.buffer        = particles.Get();
+b.size          = VK_WHOLE_SIZE;
+vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                     VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0,
+                     0, nullptr, 1, &b, 0, nullptr);
+
+// 3) Draw — indirect, GPU decides count
+vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
+vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipe.Get());
+vkCmdBindDescriptorSets(cb, ..., particleSet);
+vkCmdDrawIndirect(cb, drawIndirect.Get(), 0, 1, sizeof(VkDrawIndirectCommand));
+vkCmdEndRenderPass(cb);
+```
+
+Spawn / despawn live in a second compute pass that decrements `count` in
+`drawIndirect` atomically. CPU never touches the buffer post-init.
+
+---
+
+## 14. Indirect draw (`vkCmdDrawIndexedIndirect`)
+
+**Intent.** Build a draw list on the GPU (or once on the CPU) and submit it
+in one call. Reduces driver overhead vs N `vkCmdDrawIndexed` calls and
+unlocks GPU-driven culling.
+
+**Rules.** R1 (you author the indirect buffer), R9 (raw `VkBuffer` ok in
+the indirect-buffer slot).
+
+**C++**:
+```cpp
+struct DrawCmd {                           // matches VkDrawIndexedIndirectCommand
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    int32_t  vertexOffset;
+    uint32_t firstInstance;
+};
+
+// Build CPU-side, upload once:
+std::vector<DrawCmd> cmds;
+for (auto& mesh : scene) {
+    cmds.push_back({mesh.indexCount, 1, mesh.firstIndex, mesh.vertexOffset, 0});
+}
+VulkanBuffer indirect;
+indirect.Initialize(device, cmds.size() * sizeof(DrawCmd),
+    VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+// Upload via VMM staging — see VMM doc / recipe 1 pattern.
+
+// Per frame:
+vkCmdBindIndexBuffer(cb, sceneIBO.Get(), 0, VK_INDEX_TYPE_UINT32);
+VkBuffer vbos[] = { sceneVBO.Get() };
+VkDeviceSize off[] = { 0 };
+vkCmdBindVertexBuffers(cb, 0, 1, vbos, off);
+vkCmdDrawIndexedIndirect(cb, indirect.Get(), 0,
+                         uint32_t(cmds.size()),
+                         sizeof(DrawCmd));
+```
+
+**GPU-driven culling.** Replace the CPU build with a compute pass that
+reads bounding spheres, tests against frustum planes (push constant), and
+appends surviving `DrawCmd`s to a second buffer. Use `vkCmdDrawIndexedIndirectCount`
+(Vulkan 1.2 / `VK_KHR_draw_indirect_count`) to read the count from a buffer.
+
+---
+
+## 15. Async compute pattern (graphics + compute overlap)
+
+**Intent.** Run a long compute pass (BVH refit, particle sim, GPU culling)
+on the dedicated compute queue while the graphics queue keeps rendering
+the previous frame's output. Signals a timeline value the graphics queue
+waits on next frame.
+
+**Rules.** R4 (no hidden sync — you signal/wait timeline values explicitly),
+R18 (different `VkQueue` = different external-sync scope; safe to record
+on different threads with different pools), R19 (only kicks in when the
+device exposes a dedicated compute family).
+
+**C++**:
+```cpp
+// One-time: a TimelineSemaphore separate from the scheduler's:
+TimelineSemaphore computeTimeline;
+computeTimeline.Initialize(device);
+uint64_t computeValue = 0;
+
+// Per frame, on the compute thread:
+VkCommandBuffer cc = computeCmd.Begin();
+RecordHeavyCompute(cc);                    // dispatch(es) + barriers
+computeCmd.End();
+
+VkSubmitInfo s{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+s.commandBufferCount = 1;
+s.pCommandBuffers    = &cc;
+
+VkTimelineSemaphoreSubmitInfo ts{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+uint64_t signal = ++computeValue;
+ts.signalSemaphoreValueCount = 1;
+ts.pSignalSemaphoreValues    = &signal;
+s.pNext = &ts;
+
+VkSemaphore sig = computeTimeline.Get();
+s.signalSemaphoreCount = 1;
+s.pSignalSemaphores    = &sig;
+
+vkQueueSubmit(device.GetComputeQueue(), 1, &s, VK_NULL_HANDLE);
+
+// On the graphics submit: wait for that timeline value before reading
+// whatever the compute pass wrote (push it as an extra wait semaphore in
+// your graphics submit, or chain via DependencyToken if your code uses
+// the v0.3 FrameScheduler's timeline).
+```
+
+When the device only exposes one queue family (Intel iGPUs often), the
+fallback is graphics-queue serial — VCK logs `[Device] Compute queue:
+aliased to graphics` once at init, and your code keeps working.
+
+---
+
+## 16. Shadow mapping (directional light + PCF)
+
+**Intent.** One off-screen depth-only pass from the light's POV writes a
+shadow map. The main pass projects fragment world-pos into light space,
+samples the shadow map with PCF, and modulates direct lighting.
+
+**Rules.** R1 (two render passes, both yours), R22 (shadow map is just a
+`VulkanImage` you own).
+
+**Shaders** — `shadow.vert` (depth-only, no fragment):
+```glsl
+#version 450
+layout(location = 0) in vec3 inPos;
+layout(push_constant) uniform PC { mat4 lightVP; mat4 model; } pc;
+void main() { gl_Position = pc.lightVP * pc.model * vec4(inPos, 1.0); }
+```
+
+`lit.frag` (PCF sample of `uShadow`):
+```glsl
+#version 450
+layout(set=0, binding=0) uniform sampler2DShadow uShadow;
+layout(location = 0) in  vec4 vLightPos;   // post-perspective, [-1,1]
+layout(location = 1) in  vec3 vNormal;
+layout(location = 0) out vec4 outColor;
+
+float SamplePCF(vec3 p) {
+    vec2 texel = 1.0 / vec2(textureSize(uShadow, 0));
+    float sum  = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    for (int x = -1; x <= 1; ++x)
+        sum += texture(uShadow, vec3(p.xy + vec2(x,y) * texel, p.z));
+    return sum / 9.0;
+}
+
+void main() {
+    vec3 p = vLightPos.xyz / vLightPos.w;
+    p.xy = p.xy * 0.5 + 0.5;                    // NDC -> UV
+    if (p.z > 1.0) { outColor = vec4(1); return; }   // out of frustum: lit
+    float vis = SamplePCF(p);
+    float ndl = max(dot(normalize(vNormal), normalize(vec3(1,1,1))), 0.0);
+    outColor  = vec4(vec3(0.1 + 0.9 * vis * ndl), 1.0);
+}
+```
+
+**C++** (skeleton):
+```cpp
+// One-time: 2048x2048 D32 SFLOAT, sampled, no color attachment.
+VulkanImage shadowMap;
+shadowMap.Initialize(device, 2048, 2048, VK_FORMAT_D32_SFLOAT,
+    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+// Build a render pass with one depth attachment, one subpass.
+// Build a shadow pipeline using shadow.vert + (no frag) + a depth-only blend state.
+
+// Per frame:
+mat4 lightVP = Ortho(-10,10,-10,10, 0.1f, 100.0f) * LookAt(lightPos, vec3(0), vec3(0,1,0));
+vkCmdBeginRenderPass(cb, &shadowRP, VK_SUBPASS_CONTENTS_INLINE);
+vkCmdBindPipeline(cb, ..., shadowPipe.Get());
+vkCmdPushConstants(cb, shadowPipe.Layout(), VK_SHADER_STAGE_VERTEX_BIT,
+                   0, sizeof(mat4), &lightVP);
+DrawScene(cb);                                    // share VBO/IBO with main pass
+vkCmdEndRenderPass(cb);
+
+// Transition shadowMap: DEPTH_STENCIL_ATTACHMENT_OPTIMAL -> DEPTH_READ_ONLY_OPTIMAL.
+// Bind in main pass: pass `lightVP` to vert (writes vLightPos), shadowMap in frag.
+```
+
+**Tip.** A depth-bias of `+0.005` slope-scaled fixes Peter Pan acne. Use
+`VkPipelineRasterizationStateCreateInfo::depthBiasEnable = VK_TRUE`.
+
+---
+
+## 17. Skybox / cubemap rendering
+
+**Intent.** Sample a cubemap with the view direction, draw it behind
+everything else with depth-test = LEQUAL and depth-write off.
+
+**Rules.** R9 (raw `VkImageView` cubemap if you bring your own loader),
+R22 (you own the cubemap image).
+
+**Shaders** — `sky.vert`:
+```glsl
+#version 450
+layout(location = 0) in vec3 inPos;
+layout(location = 0) out vec3 vDir;
+layout(push_constant) uniform PC { mat4 vp; } pc;
+void main() {
+    vDir = inPos;                                 // unit cube positions = directions
+    vec4 p = pc.vp * vec4(inPos, 1.0);
+    gl_Position = p.xyww;                          // force z = w -> always at far plane
+}
+```
+
+`sky.frag`:
+```glsl
+#version 450
+layout(set=0, binding=0) uniform samplerCube uSky;
+layout(location = 0) in  vec3 vDir;
+layout(location = 0) out vec4 outColor;
+void main() { outColor = texture(uSky, normalize(vDir)); }
+```
+
+**C++**:
+- Build a unit cube VBO (recipe 3 / `Primitives::Cube`).
+- Pipeline state: `depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL`,
+  `depthWriteEnable = VK_FALSE`, `cullMode = VK_CULL_MODE_FRONT_BIT`
+  (we're inside the cube).
+- Pass `view-without-translation` in the VP matrix:
+  `mat4 vt = mat4(mat3(view)); pc.vp = proj * vt;`.
+- Draw the skybox **first** so the depth buffer fills with everything else
+  on top. (Drawing last with LEQUAL also works.)
+
+**Loading the cubemap.** Six 2D images stacked into a `VK_IMAGE_VIEW_TYPE_CUBE`
+view with `arrayLayers = 6`. Order: +X, -X, +Y, -Y, +Z, -Z. For `.hdr`
+equirectangular sources, write a one-time compute pass that samples the
+2D HDR and writes 6 face slices.
+
+---
+
+## 18. PBR Cook-Torrance + IBL skeleton
+
+**Intent.** Direct lighting via Cook-Torrance BRDF (GGX + Smith + Fresnel),
+plus image-based ambient via pre-filtered specular cubemap + irradiance
+cubemap + BRDF LUT (split-sum approximation).
+
+**Rules.** R16 (VCK doesn't ship a material system; this is your shader).
+
+**Shader** — `pbr.frag` (excerpt):
+```glsl
+#version 450
+layout(set=0, binding=0) uniform samplerCube uIrradiance;
+layout(set=0, binding=1) uniform samplerCube uPrefilter;
+layout(set=0, binding=2) uniform sampler2D    uBrdfLUT;
+
+layout(location=0) in vec3 vWPos;
+layout(location=1) in vec3 vN;
+layout(location=2) in vec2 vUV;
+
+layout(push_constant) uniform PC {
+    vec4 cam;        // xyz = camera world pos
+    vec4 albedoRM;   // xyz = albedo, w = packed roughness*256+metallic
+    vec4 light;      // xyz = direction, w = intensity
+} pc;
+
+const float PI = 3.14159265359;
+
+float D_GGX(float NoH, float a) { float a2 = a*a; float d = (NoH*NoH)*(a2-1.0)+1.0; return a2/(PI*d*d); }
+float V_SmithGGX(float NoV, float NoL, float a) {
+    float a2 = a*a;
+    float gv = NoL * sqrt(NoV*NoV*(1.0-a2) + a2);
+    float gl = NoV * sqrt(NoL*NoL*(1.0-a2) + a2);
+    return 0.5 / max(gv + gl, 1e-5);
+}
+vec3 F_Schlick(float u, vec3 f0) { return f0 + (1.0 - f0) * pow(1.0 - u, 5.0); }
+
+void main() {
+    float roughness = floor(pc.albedoRM.w) / 256.0;
+    float metallic  = pc.albedoRM.w - floor(pc.albedoRM.w);
+    vec3  albedo    = pc.albedoRM.rgb;
+
+    vec3 N = normalize(vN);
+    vec3 V = normalize(pc.cam.xyz - vWPos);
+    vec3 L = normalize(-pc.light.xyz);
+    vec3 H = normalize(V + L);
+    float NoV = max(dot(N, V), 1e-4);
+    float NoL = max(dot(N, L), 0.0);
+    float NoH = max(dot(N, H), 0.0);
+    float VoH = max(dot(V, H), 0.0);
+
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    float D = D_GGX(NoH, roughness * roughness);
+    float Vt= V_SmithGGX(NoV, NoL, roughness * roughness);
+    vec3  F = F_Schlick(VoH, f0);
+    vec3  spec = D * Vt * F;
+    vec3  diff = (1.0 - F) * (1.0 - metallic) * albedo / PI;
+    vec3  direct = (diff + spec) * pc.light.w * NoL;
+
+    // IBL split-sum:
+    vec3 R    = reflect(-V, N);
+    vec3 irr  = texture(uIrradiance, N).rgb * albedo * (1.0 - metallic);
+    float lod = roughness * 4.0;                       // 5 mips, log2(256)=8 etc.
+    vec3 prf  = textureLod(uPrefilter, R, lod).rgb;
+    vec2 brdf = texture(uBrdfLUT, vec2(NoV, roughness)).rg;
+    vec3 ibl  = irr + prf * (f0 * brdf.x + brdf.y);
+
+    gl_FragData[0] = vec4(direct + ibl, 1.0);
+}
+```
+
+**Pre-pass tooling (offline once).** Generate the BRDF LUT (Hammersley +
+GGX importance sample → 512x512 RG16F), the irradiance cubemap (cosine-weighted
+hemisphere convolution of the environment), and the pre-filtered specular
+cubemap (5 mips, GGX importance sample at increasing roughness). All three
+are compute passes you write once, save next to the asset, and load like
+any other image (recipe 1 + cubemap from recipe 17).
+
+---
+
+## 19. Deferred shading skeleton (G-buffer + lighting)
+
+**Intent.** Geometry pass writes albedo / normal / position / material to
+multiple render targets; lighting pass is a full-screen quad that samples
+all of them and does the shading. Cheap with many lights; pricey on
+bandwidth and incompatible with MSAA without resolves.
+
+**Rules.** R1 (two passes, both yours), R22 (you own all G-buffer images).
+
+**G-buffer layout** (typical):
+```
+RT0  R8G8B8A8_SRGB        albedo.rgb, AO in .a
+RT1  R16G16B16A16_SFLOAT  normal.xyz (world), roughness in .w
+RT2  R16G16B16A16_SFLOAT  worldPos.xyz, metallic in .w
+DST  D32_SFLOAT           depth
+```
+
+**Shaders** — `gbuffer.frag`:
+```glsl
+#version 450
+layout(location=0) out vec4 outAlbedo;
+layout(location=1) out vec4 outNormal;
+layout(location=2) out vec4 outPosMat;
+layout(location=0) in vec3 vN;
+layout(location=1) in vec3 vWPos;
+layout(location=2) in vec2 vUV;
+layout(push_constant) uniform PC { vec4 albedoMR; } pc;
+void main() {
+    outAlbedo = vec4(pc.albedoMR.rgb, 1.0);
+    outNormal = vec4(normalize(vN) * 0.5 + 0.5, 0.5 /*roughness*/);
+    outPosMat = vec4(vWPos, 0.0 /*metallic*/);
+}
+```
+
+`light.frag` (full-screen quad):
+```glsl
+#version 450
+layout(set=0, binding=0) uniform sampler2D uAlbedo;
+layout(set=0, binding=1) uniform sampler2D uNormal;
+layout(set=0, binding=2) uniform sampler2D uPosMat;
+layout(location=0) in  vec2 vUV;
+layout(location=0) out vec4 outColor;
+layout(push_constant) uniform PC { vec4 cam; vec4 light; } pc;
+void main() {
+    vec3 albedo = texture(uAlbedo, vUV).rgb;
+    vec3 N      = texture(uNormal, vUV).rgb * 2.0 - 1.0;
+    vec3 P      = texture(uPosMat, vUV).rgb;
+    vec3 L      = normalize(-pc.light.xyz);
+    float ndl   = max(dot(N, L), 0.0);
+    outColor    = vec4(albedo * ndl * pc.light.w, 1.0);
+}
+```
+
+**C++ pipeline.** Two render passes, two pipelines. The G-buffer pass
+sets `colorAttachmentCount = 3`, each with its own `VkAttachmentDescription`
+and clear value. Between passes, transition the three RTs from
+`COLOR_ATTACHMENT_OPTIMAL` → `SHADER_READ_ONLY_OPTIMAL`. The lighting
+pass binds them as `combined image samplers` and draws a full-screen
+triangle (vertex shader emits NDC from `gl_VertexIndex`).
+
+---
+
+## 20. HDR tonemapping (Reinhard / ACES)
+
+**Intent.** Render scene into a 16-bit float color target so HDR can
+exceed 1.0, then collapse to LDR for display via a tonemapper. ACES is the
+modern default; Reinhard is the 5-line baseline.
+
+**Rules.** R4 (no hidden sync; one extra pass), R19 (skip the pass and you
+get the original behaviour).
+
+**Shader** — `tone.frag`:
+```glsl
+#version 450
+layout(set=0, binding=0) uniform sampler2D uHDR;
+layout(location=0) in  vec2 vUV;
+layout(location=0) out vec4 outColor;
+layout(push_constant) uniform PC { float exposure; uint mode; } pc;
+
+vec3 Reinhard(vec3 c) { return c / (c + 1.0); }
+
+vec3 ACESFitted(vec3 c) {                // Krzysztof Narkowicz' fit
+    const float a = 2.51, b = 0.03, c2 = 2.43, d = 0.59, e = 0.14;
+    return clamp((c * (a * c + b)) / (c * (c2 * c + d) + e), 0.0, 1.0);
+}
+
+void main() {
+    vec3 hdr = texture(uHDR, vUV).rgb * pc.exposure;
+    vec3 ldr = (pc.mode == 1u) ? ACESFitted(hdr) : Reinhard(hdr);
+    outColor = vec4(pow(ldr, vec3(1.0 / 2.2)), 1.0);   // gamma encode
+}
+```
+
+**C++ pipeline.** One offscreen RT (`R16G16B16A16_SFLOAT`), one full-screen
+quad pass that writes the swapchain image. Skip the gamma if the swapchain
+is already `_SRGB` (you'd be encoding twice).
+
+**Auto-exposure.** Compute pass over the HDR target → log-luminance histogram
+→ EV value used as `exposure` next frame. ~150 lines of compute + a one-tap
+EMA for stability.
+
+---
+
+## 21. Bloom (bright-pass + mip blur + composite)
+
+**Intent.** Detect bright pixels, blur them at progressively lower
+resolutions, add the blurred result back. The "halo around bright lights"
+effect. Cheap when done at half-res with mip chains, expensive otherwise.
+
+**Rules.** R4 (one bright-pass + N downsample/upsample passes; all yours).
+
+**Algorithm**:
+```
+HDR --(bright-pass: keep px where luma > 1.0)--> bloom mip 0
+bloom mip 0 -> downsample bilinear -> bloom mip 1
+bloom mip 1 -> downsample            -> bloom mip 2
+... (5-7 mips)
+upsample mip N + tent-filter blur + add to mip N-1
+... walk back to mip 0
+HDR + bloom mip 0 * intensity -> output
+```
+
+**Shader** — `bright.frag`:
+```glsl
+#version 450
+layout(set=0, binding=0) uniform sampler2D uHDR;
+layout(location=0) in  vec2 vUV;
+layout(location=0) out vec4 outColor;
+void main() {
+    vec3 c = texture(uHDR, vUV).rgb;
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    outColor = vec4(c * smoothstep(0.9, 1.4, l), 1.0);
+}
+```
+
+**Upsample** is a 13-tap tent filter (the "Call of Duty: Advanced Warfare"
+preset, well-documented). Each mip pass is ~30 lines of GLSL. 5-7 mip
+levels for a 1080p output.
+
+**Tip.** Build the bloom RT chain via `vkCreateImage` with `mipLevels = 7`;
+you get a single allocation + N image views, each at half the previous
+mip's size.
+
+---
+
+## 22. Shader hot-reload (watch + rebuild + swap)
+
+**Intent.** Edit a `.vert` / `.frag` file, save, see the change next
+frame. CPU watches files, recompiles to SPIR-V via `glslc`, re-creates
+the `VulkanPipeline`, atomically swaps. A 50ms hitch beats a 30s rebuild
++ relaunch.
+
+**Rules.** R1 (you own the watcher), R4 (recreate on a frame boundary —
+between `EndFrame` and the next `BeginFrame` — to avoid in-flight uses),
+R19 (off in release builds = zero cost).
+
+**C++** (skeleton, debug-only):
+```cpp
+struct ShaderWatch {
+    std::filesystem::path        path;
+    std::filesystem::file_time_type lastWrite;
+};
+std::vector<ShaderWatch> watches;
+VulkanPipeline           current;
+VulkanPipeline           pendingDelete;     // freed once GPU is done with it
+
+void Tick(VulkanDevice& device, FrameScheduler& sch) {
+    bool dirty = false;
+    for (auto& w : watches) {
+        auto t = std::filesystem::last_write_time(w.path);
+        if (t != w.lastWrite) { w.lastWrite = t; dirty = true; }
+    }
+    if (!dirty) return;
+
+    // Compile to SPIR-V (system call to glslc, or shaderc in-process).
+    if (std::system("glslc shader.frag -o shader.frag.spv") != 0) {
+        VCKLog::Warn("HotReload", "glslc failed, keeping old pipeline");
+        return;
+    }
+
+    // Drain GPU before recreating — same pattern as scheduler-aware resize.
+    sch.DrainInFlight();
+
+    VulkanPipeline next;
+    if (!next.Initialize(device, "shader.vert.spv", "shader.frag.spv", /*...*/)) {
+        VCKLog::Warn("HotReload", "Pipeline init failed; keeping old");
+        return;
+    }
+    pendingDelete = std::move(current);              // RAII teardown next frame
+    current       = std::move(next);
+    VCKLog::Info("HotReload", "Pipeline reloaded");
+}
+```
+
+**Production wrinkle.** A real watcher uses OS-specific APIs
+(`ReadDirectoryChangesW` on Windows, `inotify` on Linux) instead of
+polling timestamps every frame. The polling version above is fine for
+dev builds.
+
+---
+
+## 23. GPU picking (object ID readback)
+
+**Intent.** Click on a pixel, find which scene object it belongs to.
+Render an extra `R32_UINT` target during the main pass where each draw
+writes its object ID, copy that one pixel to a host-visible buffer,
+read on the CPU.
+
+**Rules.** R4 (one fence wait per pick — only on click, not every frame),
+R14 (fail loud if the readback copy fails).
+
+**Shader** — append to your main `frag`:
+```glsl
+layout(location = 1) out uint outID;
+layout(push_constant) uniform PC { /*...*/ uint objectId; } pc;
+// at the end of main():
+outID = pc.objectId;
+```
+
+**Pipeline.** Add a second color attachment with `VK_FORMAT_R32_UINT`
+(blend disabled, write mask = R only).
+
+**C++** (only on mouse click):
+```cpp
+uint32_t Pick(VulkanDevice& device, VulkanCommand& cmd,
+              VulkanImage& idTarget, int px, int py)
+{
+    VulkanBuffer host;
+    host.Initialize(device, sizeof(uint32_t),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    VulkanOneTimeCommand one(device, cmd.GetPool());
+    idTarget.TransitionLayout(one.Get(),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VkBufferImageCopy r{};
+    r.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    r.imageOffset      = { px, py, 0 };
+    r.imageExtent      = { 1, 1, 1 };
+    vkCmdCopyImageToBuffer(one.Get(), idTarget.Get(),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, host.Get(), 1, &r);
+
+    idTarget.TransitionLayout(one.Get(),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    one.End();                                        // per-fence wait inside
+
+    uint32_t id = 0;
+    host.Download(&id, sizeof(id));
+    return id;                                        // 0 = miss, else object id
+}
+```
+
+**Cost.** ~1 ms per pick on a discrete GPU, dominated by the `OneTime`
+fence wait. Don't pick every frame; pick on click only.
+
+---
+
+## 24. Frustum culling (CPU plane-test vs AABB)
+
+**Intent.** Skip queueing draws whose AABB is entirely outside the camera
+frustum. Halves to quarters the draw count for typical scenes; sub-millisecond
+on tens of thousands of objects.
+
+**Rules.** R1 (you author the test; VCK draws what you queue),
+R20 (would land as `[N] CullingExample` if shipped).
+
+**Math** — extract 6 planes from `proj * view`:
+```cpp
+struct Plane { VCK::Vec3 n; float d; };               // n.x*x + n.y*y + n.z*z + d = 0
+
+void ExtractFrustum(const VCK::Mat4& vp, Plane out[6]) {
+    // Gribb-Hartmann (row-major, vp.m[r*4+c]):
+    auto row = [&](int r){ return VCK::Vec4{vp.m[r*4+0], vp.m[r*4+1], vp.m[r*4+2], vp.m[r*4+3]}; };
+    VCK::Vec4 R0 = row(0), R1 = row(1), R2 = row(2), R3 = row(3);
+    auto plane = [](VCK::Vec4 p){
+        float l = std::sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+        return Plane{ {p.x/l, p.y/l, p.z/l}, p.w/l };
+    };
+    out[0] = plane({R3.x+R0.x, R3.y+R0.y, R3.z+R0.z, R3.w+R0.w});  // left
+    out[1] = plane({R3.x-R0.x, R3.y-R0.y, R3.z-R0.z, R3.w-R0.w});  // right
+    out[2] = plane({R3.x+R1.x, R3.y+R1.y, R3.z+R1.z, R3.w+R1.w});  // bottom
+    out[3] = plane({R3.x-R1.x, R3.y-R1.y, R3.z-R1.z, R3.w-R1.w});  // top
+    out[4] = plane({R3.x+R2.x, R3.y+R2.y, R3.z+R2.z, R3.w+R2.w});  // near
+    out[5] = plane({R3.x-R2.x, R3.y-R2.y, R3.z-R2.z, R3.w-R2.w});  // far
+}
+```
+
+**Test** (positive vertex / negative vertex trick):
+```cpp
+struct AABB { VCK::Vec3 min, max; };
+
+bool AabbInsideFrustum(const Plane fr[6], const AABB& box) {
+    for (int i = 0; i < 6; ++i) {
+        const VCK::Vec3& n = fr[i].n;
+        VCK::Vec3 p {                                  // positive vertex
+            (n.x >= 0 ? box.max.x : box.min.x),
+            (n.y >= 0 ? box.max.y : box.min.y),
+            (n.z >= 0 ? box.max.z : box.min.z),
+        };
+        if (n.x*p.x + n.y*p.y + n.z*p.z + fr[i].d < 0) return false;
+    }
+    return true;
+}
+```
+
+**Use**:
+```cpp
+Plane fr[6]; ExtractFrustum(proj * view, fr);
+for (auto& obj : scene)
+    if (AabbInsideFrustum(fr, obj.aabb))
+        Queue(obj);
+```
+
+**Tighter culling.** Add a sphere-then-AABB hierarchy (fast reject most
+objects with the cheaper sphere test). For static scenes, build a BVH
+once and traverse top-down with frustum-vs-node tests; skip whole subtrees
+on miss.
+
+**GPU culling** (advanced). Move the plane test into a compute pass that
+writes survivors to an indirect buffer (recipe 14). Same math, runs on
+thousands of cores instead of one CPU thread.
 
 ---
 
