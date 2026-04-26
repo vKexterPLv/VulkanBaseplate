@@ -1,6 +1,7 @@
 #include "VulkanContext.h"
 #include "VulkanHelpers.h"   // VK_CHECK, LogVk
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -313,7 +314,12 @@ namespace VCK {
         else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) prefix = "[VULKAN WARNING] ";
         else                                                                          prefix = "[VULKAN INFO]    ";
 
-        OutputDebugStringA((prefix + pCallbackData->pMessage + "\n").c_str());
+        const std::string line = prefix + pCallbackData->pMessage + "\n";
+#ifdef _WIN32
+        OutputDebugStringA(line.c_str());
+#else
+        std::fputs(line.c_str(), stderr);
+#endif
 
         return VK_FALSE;
     }

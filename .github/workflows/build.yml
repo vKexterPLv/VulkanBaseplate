@@ -147,6 +147,26 @@ jobs:
             libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
             pkg-config g++
 
+      # --- Restore vk_video/*.h into the vendored Vulkan-Headers tree.
+      # The repo vendors vendor/vulkan_headers/vulkan/ but ships it without
+      # vk_video/, while vulkan_core.h hard-includes a dozen vk_video/*.h
+      # files.  On Windows the SDK installer / SDK-bundled headers cover this;
+      # on Linux/macOS we sparse-checkout the directory from KhronosGroup at
+      # a known-good SDK tag and drop it next to the vendored core headers.
+      - name: Restore vk_video/*.h headers (vendored)
+        run: |
+          set -e
+          dst="$GITHUB_WORKSPACE/vendor/vulkan_headers/vulkan/vk_video"
+          tag="vulkan-sdk-1.4.321.0"
+          tmp="$RUNNER_TEMP/Vulkan-Headers"
+          rm -rf "$tmp"
+          git clone --depth 1 --filter=blob:none --sparse \
+            --branch "$tag" https://github.com/KhronosGroup/Vulkan-Headers.git "$tmp"
+          git -C "$tmp" sparse-checkout set include/vk_video
+          mkdir -p "$dst"
+          cp -v "$tmp"/include/vk_video/* "$dst"/
+          ls -la "$dst"
+
       - name: Verify toolchain
         run: |
           which g++
@@ -190,6 +210,24 @@ jobs:
         run: |
           brew update
           brew install vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config
+
+      # --- Restore vk_video/*.h (same reason as the Linux job).  On macOS
+      # the brew vulkan-headers package does ship vk_video, but build.sh adds
+      # `-I../vendor/vulkan_headers` which makes the vendored copy win the
+      # include search; mirror the headers into vendor/ to match.
+      - name: Restore vk_video/*.h headers (vendored)
+        run: |
+          set -e
+          dst="$GITHUB_WORKSPACE/vendor/vulkan_headers/vulkan/vk_video"
+          tag="vulkan-sdk-1.4.321.0"
+          tmp="$RUNNER_TEMP/Vulkan-Headers"
+          rm -rf "$tmp"
+          git clone --depth 1 --filter=blob:none --sparse \
+            --branch "$tag" https://github.com/KhronosGroup/Vulkan-Headers.git "$tmp"
+          git -C "$tmp" sparse-checkout set include/vk_video
+          mkdir -p "$dst"
+          cp -v "$tmp"/include/vk_video/* "$dst"/
+          ls -la "$dst"
 
       - name: Export Vulkan SDK env
         run: |
