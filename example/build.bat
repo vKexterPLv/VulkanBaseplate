@@ -2,29 +2,44 @@
 setlocal enabledelayedexpansion
 
 :: Switch the console to UTF-8 so em-dashes, box-drawing chars, and other
-:: non-ASCII printed by glslang / g++ / our own echo lines don't render as
-:: cp850 mojibake (e.g. "ÔÇö" in place of "-").
+:: non-ASCII printed by glslang / cl / g++ / our own echo lines don't render
+:: as cp850 mojibake (e.g. "ÔÇö" in place of "-").
 chcp 65001 >nul 2>&1
 
 :: =============================================================================
-::  VCK example builder
+::  VCK example builder (Windows)
 :: =============================================================================
-::  Run from the repo's example\ folder.  Requires:
+::  Run from the repo's example\ folder.  Two toolchains supported:
+::
+::    --toolchain=cl    Microsoft Visual C++  (cl.exe + lib.exe + link.exe).
+::                      Faster: /MP parallelises TU compile across cores.
+::                      Auto-detected via vswhere.exe when running from a
+::                      regular cmd.exe; if cl is already on PATH (you ran
+::                      from a Developer Command Prompt) we just use it.
+::                      Requires example\deps\glfw3.lib (MSVC pre-compiled
+::                      from https://www.glfw.org -> lib-vc2022\glfw3.lib).
+::
+::    --toolchain=gcc   MinGW-w64 g++ + ar  (canonical reference toolchain
+::                      through v0.3).  Requires g++ on PATH and
+::                      example\deps\libglfw3.a (MinGW pre-compiled,
+::                      lib-mingw-w64\libglfw3.a).
+::
+::    --toolchain=auto  default; prefer cl when available, else gcc.
+::
+::  Common requirements:
 ::    - VULKAN_SDK env var pointing at your Vulkan SDK root
 ::    - glslangValidator on PATH  (ships with the SDK)
-::    - g++ on PATH               (MinGW-w64)
 ::    - vendor\glfw, vendor\vma populated (source headers, commit in repo)
-::    - example\deps\libglfw3.a   (Windows pre-compiled, download only)
 ::
 ::  PR #7: lib-once compile model
 ::  -----------------------------
-::  Stage 1: build the VCK static library once into  build\libvck.a
-::           (all 12 VKB sources + VulkanMemoryManager.cpp).
+::  Stage 1: build the VCK static library once into  build\libvck.a (gcc)
+::           or build\vck.lib (cl).  All 12 VKB sources + VulkanMemoryManager.
 ::  Stage 2: per example, compile only main.cpp + App.cpp (2 TUs) and link
-::           against build\libvck.a.  Cuts ~143 redundant TUs out of build-all
-::           (13 examples * 11 redundant VKB compiles).
+::           against the prebuilt library.  Cuts ~143 redundant TUs out of
+::           build-all (13 examples * 11 redundant VKB compiles).
 ::  Stage 3: optional [T] target builds tests\*.cpp + R14 harness against
-::           build\libvck.a (see tests\ directory).
+::           the same library (see tests\ directory).
 ::
 ::  Dependency layout:
 ::    vendor\                         (VCK's own source deps - in repo)
@@ -34,13 +49,10 @@ chcp 65001 >nul 2>&1
 ::      vulkan_headers\vulkan\*.h               (Vulkan SDK headers mirror)
 ::    example\
 ::      build\                                  (gitignored, compiler scratch +
-::                                               libvck.a + libvck.stamp)
+::                                               libvck.a / vck.lib + stamp)
 ::      deps\
-::        libglfw3.a                            (Windows pre-compiled lib)
-::
-::  GLFW lib: download the "Windows pre-compiled binaries" from
-::        https://www.glfw.org and copy
-::        lib-mingw-w64\libglfw3.a → example\deps\libglfw3.a
+::        libglfw3.a                            (MinGW pre-compiled, gcc path)
+::        glfw3.lib                             (MSVC pre-compiled, cl path)
 ::
 ::  Linux / macOS: use example\build.sh instead - it pulls GLFW/Vulkan
 ::        via pkg-config, no vendor\glfw or example\deps needed.
@@ -62,7 +74,24 @@ set "C_MAG=%ESC%[95m"
 set "C_CYN=%ESC%[96m"
 set "C_WHT=%ESC%[97m"
 
-:: ── Precondition checks ------------------------------------------------------
+:: ── Argument parsing --------------------------------------------------------
+:: Supports any order: build.bat A --toolchain=cl  /  build.bat --toolchain=cl A
+set "TOOLCHAIN=auto"
+set "CHOICE="
+:PARSE_ARGS
+if "%~1"=="" goto PARSE_DONE
+set "ARG=%~1"
+if /i "!ARG:~0,12!"=="--toolchain=" (
+    set "TOOLCHAIN=!ARG:~12!"
+    shift
+    goto PARSE_ARGS
+)
+if "!CHOICE!"=="" set "CHOICE=!ARG!"
+shift
+goto PARSE_ARGS
+:PARSE_DONE
+
+:: ── Common preconditions ---------------------------------------------------
 if "%VULKAN_SDK%"=="" (
     call :BANNER
     call :ERR "VULKAN_SDK is not set.  Install the Vulkan SDK and set VULKAN_SDK."
@@ -70,10 +99,6 @@ if "%VULKAN_SDK%"=="" (
 )
 where glslangValidator >nul 2>&1
 if errorlevel 1 ( call :BANNER & call :ERR "glslangValidator not on PATH." & exit /b 1 )
-where g++ >nul 2>&1
-if errorlevel 1 ( call :BANNER & call :ERR "g++ not on PATH  (install MinGW-w64)." & exit /b 1 )
-where ar  >nul 2>&1
-if errorlevel 1 ( call :BANNER & call :ERR "ar not on PATH  (ships with MinGW-w64; needed to build libvck.a)." & exit /b 1 )
 if not exist "..\vendor\vma\vk_mem_alloc.h" (
     call :BANNER
     call :ERR "vendor\vma\vk_mem_alloc.h is missing (should be in repo)."
@@ -84,34 +109,98 @@ if not exist "..\vendor\glfw\include\GLFW\glfw3.h" (
     call :ERR "vendor\glfw\include\GLFW\glfw3.h is missing (should be in repo)."
     exit /b 1
 )
-if not exist "deps\libglfw3.a" (
+
+:: ── Toolchain resolution ---------------------------------------------------
+:: 'auto' : prefer cl when reachable (already on PATH OR vswhere finds it),
+::          else fall back to g++.  When the user passes --toolchain=cl
+::          explicitly we must report a clear error if cl can't be set up
+::          rather than silently using g++.
+if /i "%TOOLCHAIN%"=="auto" (
+    where cl >nul 2>&1
+    if !errorlevel!==0 (
+        set "TOOLCHAIN=cl"
+    ) else (
+        call :TRY_VCVARS
+        where cl >nul 2>&1
+        if !errorlevel!==0 (
+            set "TOOLCHAIN=cl"
+        ) else (
+            where g++ >nul 2>&1
+            if !errorlevel!==0 ( set "TOOLCHAIN=gcc" ) else (
+                call :BANNER
+                call :ERR "neither cl nor g++ is reachable; install MinGW-w64 OR run from a Developer Command Prompt."
+                exit /b 1
+            )
+        )
+    )
+) else if /i "%TOOLCHAIN%"=="cl" (
+    where cl >nul 2>&1
+    if not !errorlevel!==0 (
+        call :TRY_VCVARS
+        where cl >nul 2>&1
+        if not !errorlevel!==0 (
+            call :BANNER
+            call :ERR "--toolchain=cl requested but cl.exe not found.  Run from a Developer Command Prompt or install Visual Studio 2019/2022."
+            exit /b 1
+        )
+    )
+) else if /i "%TOOLCHAIN%"=="gcc" (
+    where g++ >nul 2>&1
+    if not !errorlevel!==0 (
+        call :BANNER
+        call :ERR "--toolchain=gcc requested but g++ not on PATH.  Install MinGW-w64."
+        exit /b 1
+    )
+) else (
     call :BANNER
-    call :ERR "example\deps\libglfw3.a is missing."
-    echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
-    echo        and copy lib-mingw-w64\libglfw3.a into example\deps\libglfw3.a
+    call :ERR "unknown --toolchain='%TOOLCHAIN%'.  Use cl, gcc, or auto."
     exit /b 1
 )
 
-:: ── Shared flags -------------------------------------------------------------
-:: -DGLFW_INCLUDE_VULKAN makes every TU's first GLFW include pull vulkan.h, so
-:: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
-:: user code includes <GLFW/glfw3.h> before "VCK.h" / "VCKCrossplatform.h".
-set DEFINES=-DGLFW_INCLUDE_VULKAN
-set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\layers\vmm -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
-set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
+:: ── Per-toolchain flags + GLFW lib precondition ----------------------------
+set "BUILD_DIR=build"
 
-set CXXFLAGS=-std=c++17 -O2 -w -Werror=return-type
+if /i "%TOOLCHAIN%"=="cl" (
+    if not exist "deps\glfw3.lib" (
+        call :BANNER
+        call :ERR "example\deps\glfw3.lib is missing (cl toolchain)."
+        echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
+        echo        and copy lib-vc2022\glfw3.lib into example\deps\glfw3.lib
+        exit /b 1
+    )
+    set "LIB=!BUILD_DIR!\vck.lib"
+    set "DEFINES=/DGLFW_INCLUDE_VULKAN /D_CRT_SECURE_NO_WARNINGS"
+    :: /W0 silences MSVC warnings (matches gcc -w / build.sh -w).  /MD picks
+    :: the dynamically-linked CRT to keep .exes small and match typical
+    :: Windows convention.  /Zc:__cplusplus + /permissive- match modern MSVC.
+    set "CXXFLAGS=/std:c++17 /EHsc /O2 /MD /nologo /W0 /Zc:__cplusplus /permissive-"
+    set "INCLUDES=/I..\vendor\vma /I..\vendor\glfw\include /Ideps /I.. /I..\layers\core /I..\layers\expansion /I..\layers\execution /I..\layers\vmm /I..\vendor\vulkan_headers /I"%VULKAN_SDK%\Include" !DEFINES!"
+    set "LIBS=/LIBPATH:deps /LIBPATH:"%VULKAN_SDK%\Lib" vulkan-1.lib glfw3.lib gdi32.lib user32.lib shell32.lib"
+) else (
+    if not exist "deps\libglfw3.a" (
+        call :BANNER
+        call :ERR "example\deps\libglfw3.a is missing (gcc toolchain)."
+        echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
+        echo        and copy lib-mingw-w64\libglfw3.a into example\deps\libglfw3.a
+        exit /b 1
+    )
+    where ar  >nul 2>&1
+    if errorlevel 1 ( call :BANNER & call :ERR "ar not on PATH (ships with MinGW-w64; needed for libvck.a)." & exit /b 1 )
+    set "LIB=!BUILD_DIR!\libvck.a"
+    set "DEFINES=-DGLFW_INCLUDE_VULKAN"
+    set "CXXFLAGS=-std=c++17 -O2 -w -Werror=return-type"
+    set "INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\layers\vmm -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" !DEFINES!"
+    set "LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32"
+)
 
-:: VKB sources baked into libvck.a.  Order does not matter (static archive).
-:: VulkanMemoryManager.cpp moves from per-example optional to lib-included so
-:: the archive is monolithic and examples need not split on "uses VMM" anymore.
+:: VKB sources baked into the static library.  Order does not matter.
 set VKB_LIB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp ..\layers\vmm\VulkanMemoryManager.cpp
 
-set BUILD_DIR=build
-set LIB=%BUILD_DIR%\libvck.a
-
-:: ── Banner + menu ------------------------------------------------------------
+:: ── Banner + menu ----------------------------------------------------------
 call :BANNER
+
+echo  %C_DIM%toolchain: %TOOLCHAIN%   lib: %LIB%%C_RESET%
+echo.
 
 echo  %C_BOLD%%C_WHT%Raw core%C_RESET%                %C_DIM%(VulkanSync / VulkanCommand path, you write everything)%C_RESET%
 echo    %C_YEL%[1]%C_RESET%  %C_WHT%RGBTriangle%C_RESET%                 coloured triangle, live resize
@@ -141,11 +230,8 @@ echo    %C_CYN%[T]%C_RESET%  %C_WHT%R14 unit tests%C_RESET%              build +
 echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
 echo.
 
-:: First positional arg is treated as menu choice (matches CI usage build.bat A).
-if "%~1"=="" (
+if "!CHOICE!"=="" (
     set /p CHOICE=   %C_BOLD%%C_CYN%select^>%C_RESET% 
-) else (
-    set CHOICE=%~1
 )
 
 if /i "%CHOICE%"=="A" goto BUILD_ALL
@@ -270,7 +356,7 @@ call :COMPILE_SHADERS || exit /b 1
 call :LINK_EXAMPLE    || exit /b 1
 
 echo.
-echo %C_GRN%  all 13 examples built.%C_RESET%
+echo %C_GRN%  all 13 examples built.%C_RESET%   %C_DIM%(toolchain: %TOOLCHAIN%)%C_RESET%
 echo.
 goto END
 
@@ -286,8 +372,13 @@ if not exist "..\tests" (
 )
 call :BUILD_LIB || exit /b 1
 call :STEP "[T] R14 unit tests"
-echo   %C_DIM%g++      vck_tests (link libvck.a)%C_RESET%
-g++ ..\tests\*.cpp -o ..\tests\vck_tests.exe %CXXFLAGS% %INCLUDES% -I..\tests "%LIB%" %LIBS%
+if /i "%TOOLCHAIN%"=="cl" (
+    echo   %C_DIM%cl       vck_tests.exe (link vck.lib)%C_RESET%
+    cl %CXXFLAGS% %INCLUDES% /I..\tests ..\tests\*.cpp /Fe:..\tests\vck_tests.exe /Fobuild\tests\ /link "%LIB%" %LIBS%
+) else (
+    echo   %C_DIM%g++      vck_tests (link libvck.a)%C_RESET%
+    g++ ..\tests\*.cpp -o ..\tests\vck_tests.exe %CXXFLAGS% %INCLUDES% -I..\tests "%LIB%" %LIBS%
+)
 if errorlevel 1 ( call :ERR "test compile failed" & exit /b 1 )
 echo   %C_GRN%  OK%C_RESET%   ..\tests\vck_tests.exe
 echo.
@@ -335,40 +426,75 @@ glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv >nul
 if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.frag" & exit /b 1 )
 exit /b 0
 
-:: ── Stage 1: build libvck.a once ────────────────────────────────────────────
-:: Compiles every VKB source to build\<stem>.o, archives them into
-:: build\libvck.a.  Skips the entire stage when build\libvck.a exists and
-:: build\libvck.stamp matches the current toolchain + flags fingerprint.
-:: Cuts ~143 redundant TUs out of build-all (13 examples * 11 redundant
-:: VKB compiles); ./build.sh A on Linux + macOS already drops below 1 min,
-:: build.bat A on Windows MinGW falls from ~10 min to ~3-4 min.
+:: ── vswhere.exe Visual Studio detection -----------------------------------
+:: Microsoft ships vswhere.exe with VS Installer at a stable path.  When it
+:: finds an install with the C++ x64 build tools, we call vcvars64.bat in
+:: the current process so cl / lib / link resolve.  Silent on failure -
+:: callers re-check `where cl` afterwards and surface their own error.
+:TRY_VCVARS
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "!VSWHERE!" (
+    set "VSWHERE=%ProgramFiles%\Microsoft Visual Studio\Installer\vswhere.exe"
+)
+if not exist "!VSWHERE!" exit /b 0
+for /f "usebackq tokens=*" %%I in (`"!VSWHERE!" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2^>nul`) do set "VSINSTALL=%%I"
+if not defined VSINSTALL exit /b 0
+if not exist "!VSINSTALL!\VC\Auxiliary\Build\vcvars64.bat" exit /b 0
+echo   %C_DIM%vswhere: !VSINSTALL!%C_RESET%
+echo   %C_DIM%vcvars64.bat ...%C_RESET%
+call "!VSINSTALL!\VC\Auxiliary\Build\vcvars64.bat" >nul
+exit /b 0
+
+:: ── Stage 1: build vck.lib / libvck.a once --------------------------------
+:: Compiles every VKB source and archives them into the static library.
+:: Skips the entire stage when the stamp matches the current toolchain +
+:: flags fingerprint.  Cuts ~143 redundant TUs out of build-all.
+::
+:: cl path uses /MP so all VKB TUs compile in parallel inside one cl
+:: invocation, which is the headline Windows speedup over MinGW.
+:: gcc path is sequential (one g++ -c per source) - same correctness,
+:: ~3-4x slower wall-clock.
 :BUILD_LIB
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
-:: Fingerprint = compiler version + the shared CXXFLAGS + the include line +
-:: a sentinel updated when the source list changes.  Crude but covers the
-:: "did the toolchain or flags or source list change since last build" axis;
-:: per-source mtime tracking would need find / forfiles plumbing that is not
-:: worth the script complexity for v0.3.1.  When in doubt, delete build\.
-set "STAMP_NEW=%CXXFLAGS%|%INCLUDES%|VKB-rev-1"
+set "STAMP_NEW=%TOOLCHAIN%|%CXXFLAGS%|%INCLUDES%|VKB-rev-1"
 set "STAMP_OLD="
 if exist "%BUILD_DIR%\libvck.stamp" (
     for /f "usebackq delims=" %%S in ("%BUILD_DIR%\libvck.stamp") do set "STAMP_OLD=%%S"
 )
 if exist "%LIB%" (
     if "%STAMP_NEW%"=="%STAMP_OLD%" (
-        echo   %C_DIM%libvck.a   up-to-date%C_RESET%
+        echo   %C_DIM%%LIB%   up-to-date%C_RESET%
         exit /b 0
     )
 )
-call :STEP "[lib] %LIB%"
+call :STEP "[lib] %LIB%   (toolchain: %TOOLCHAIN%)"
 if exist "%LIB%" del /q "%LIB%"
+if /i "%TOOLCHAIN%"=="cl" goto BUILD_LIB_CL
+goto BUILD_LIB_GCC
+
+:BUILD_LIB_CL
+:: One cl /MP /c invocation compiles every VKB source in parallel.  /Fo with
+:: a trailing path emits each .obj into build\.  /Fdbuild\vck.pdb keeps
+:: debug info next to the lib (irrelevant for /O2 release builds but the
+:: warning is pacified).
+echo   %C_DIM%cl /MP /c %%VKB%% -^> build\*.obj%C_RESET%
+cl %CXXFLAGS% /c /MP %INCLUDES% /Fo%BUILD_DIR%\ /Fdbuild\vck.pdb %VKB_LIB%
+if errorlevel 1 ( call :ERR "cl /MP failed in libvck stage" & exit /b 1 )
+echo   %C_DIM%lib /OUT:%LIB%%C_RESET%
+lib /nologo /OUT:"%LIB%" %BUILD_DIR%\VmaImpl.obj %BUILD_DIR%\VulkanBuffer.obj %BUILD_DIR%\VulkanCommand.obj %BUILD_DIR%\VulkanContext.obj %BUILD_DIR%\VulkanDevice.obj %BUILD_DIR%\VulkanImage.obj %BUILD_DIR%\VulkanPipeline.obj %BUILD_DIR%\VulkanSwapchain.obj %BUILD_DIR%\VulkanSync.obj %BUILD_DIR%\VCKCrossplatform.obj %BUILD_DIR%\VCKExpansion.obj %BUILD_DIR%\VCKExecution.obj %BUILD_DIR%\VulkanMemoryManager.obj
+if errorlevel 1 ( call :ERR "lib failed for vck.lib" & exit /b 1 )
+> "%BUILD_DIR%\libvck.stamp" echo %STAMP_NEW%
+echo   %C_GRN%  OK%C_RESET%   %LIB%
+exit /b 0
+
+:BUILD_LIB_GCC
 set OBJS=
 for %%S in (%VKB_LIB%) do (
-    set "STEM=%%~nS"
-    echo   %C_DIM%g++ -c   !STEM!%C_RESET%
-    g++ -c "%%S" -o "%BUILD_DIR%\!STEM!.o" %CXXFLAGS% %INCLUDES%
-    if errorlevel 1 ( call :ERR "C++ compile failed in libvck.a stage: !STEM!" & exit /b 1 )
-    set "OBJS=!OBJS! "%BUILD_DIR%\!STEM!.o""
+    set "STEM_GCC=%%~nS"
+    echo   %C_DIM%g++ -c   !STEM_GCC!%C_RESET%
+    g++ -c "%%S" -o "%BUILD_DIR%\!STEM_GCC!.o" %CXXFLAGS% %INCLUDES%
+    if errorlevel 1 ( call :ERR "C++ compile failed in libvck.a stage: !STEM_GCC!" & exit /b 1 )
+    set "OBJS=!OBJS! "%BUILD_DIR%\!STEM_GCC!.o""
 )
 echo   %C_DIM%ar  rcs    libvck.a%C_RESET%
 ar rcs "%LIB%" %OBJS%
@@ -377,12 +503,24 @@ if errorlevel 1 ( call :ERR "ar failed for libvck.a" & exit /b 1 )
 echo   %C_GRN%  OK%C_RESET%   %LIB%
 exit /b 0
 
-:: ── Stage 2: link a single example against libvck.a ─────────────────────────
-:: Compiles only main.cpp + App.cpp - 2 TUs per example instead of 14.  Links
-:: against the prebuilt static archive.  ar pulls only referenced object
-:: files, so non-VMM examples cost zero extra link time even though the
-:: archive bundles VulkanMemoryManager.cpp.
+:: ── Stage 2: link a single example against the static lib -----------------
+:: Compiles only main.cpp + App.cpp (2 TUs) and links against the prebuilt
+:: archive.  The archiver pulls only referenced object files, so non-VMM
+:: examples cost zero extra link time even though the archive bundles
+:: VulkanMemoryManager.cpp.
 :LINK_EXAMPLE
+if /i "%TOOLCHAIN%"=="cl" goto LINK_EXAMPLE_CL
+goto LINK_EXAMPLE_GCC
+
+:LINK_EXAMPLE_CL
+echo   %C_DIM%cl       %EX% (main+App, link vck.lib)%C_RESET%
+if not exist "%BUILD_DIR%\%EX%" mkdir "%BUILD_DIR%\%EX%"
+cl %CXXFLAGS% %INCLUDES% %EX%\main.cpp %EX%\App.cpp /Fo%BUILD_DIR%\%EX%\ /Fe%EX%\%EX%.exe /link "%LIB%" %LIBS%
+if errorlevel 1 ( call :ERR "cl link failed: %EX%" & exit /b 1 )
+echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
+exit /b 0
+
+:LINK_EXAMPLE_GCC
 echo   %C_DIM%g++      %EX% (main+App, link libvck.a)%C_RESET%
 g++ %EX%\main.cpp %EX%\App.cpp -o %EX%\%EX%.exe %CXXFLAGS% %INCLUDES% "%LIB%" %LIBS%
 if errorlevel 1 ( call :ERR "C++ link failed: %EX%" & exit /b 1 )
