@@ -125,7 +125,117 @@ jobs:
       - name: Build all examples
         working-directory: example
         run: |
-          echo A| build.bat
+          echo A| build.bat --toolchain=gcc
+
+      # --- R14 unit-test harness (PR #7).  Builds tests/*.cpp against the
+      # libvck.a archive that build.bat just produced, then runs the binary.
+      # Failed assertions exit non-zero -> CI red.
+      - name: Build + run R14 tests
+        working-directory: example
+        run: |
+          echo T| build.bat --toolchain=gcc
+          ..\tests\vck_tests.exe
+
+  # ---------------------------------------------------------------------------
+  #  Windows (MSVC cl + LunarG SDK).
+  #  Same lib-once compile model as the MinGW job, but using cl /MP (parallel
+  #  TU compile in one cl invocation).  Validates the --toolchain=cl path
+  #  end-to-end including vswhere auto-detect (microsoft/setup-msbuild puts
+  #  vswhere on PATH; ilammy/msvc-dev-cmd preloads vcvars64 so cl resolves
+  #  immediately and our vswhere fallback is exercised on a fresh shell only
+  #  if you remove the msvc-dev-cmd action).
+  # ---------------------------------------------------------------------------
+  windows-msvc:
+    name: build.bat --toolchain=cl [A]  (Windows / MSVC)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC env (cl, lib, link on PATH)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.290.0
+          optional_components: com.lunarg.vulkan.vma
+          install_runtime: true
+          cache: false
+          stripdown: false
+
+      - name: Restore vk_video/*.h headers
+        shell: pwsh
+        run: |
+          $dst    = Join-Path $env:VULKAN_SDK 'Include\vk_video'
+          $tag    = 'vulkan-sdk-1.4.321.0'
+          $tmp    = Join-Path $env:RUNNER_TEMP 'Vulkan-Headers'
+
+          if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+          git clone --depth 1 --filter=blob:none --sparse `
+            --branch $tag https://github.com/KhronosGroup/Vulkan-Headers.git $tmp
+          git -C $tmp sparse-checkout set include/vk_video
+
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item (Join-Path $tmp 'include\vk_video\*') $dst -Force
+
+      - name: Verify toolchain
+        run: |
+          where cl
+          where lib
+          where link
+          where glslangValidator
+          cl 2>&1 | findstr /R /C:"Microsoft.*Compiler"
+          glslangValidator --version
+
+      # VMA header (same as MinGW job).
+      - name: Fetch VMA header
+        shell: pwsh
+        run: |
+          $dst = 'example\deps\vk_mem_alloc.h'
+          New-Item -ItemType Directory -Force -Path 'example\deps' | Out-Null
+          $sdk = $env:VULKAN_SDK
+          if ($sdk -and (Test-Path "$sdk\Include\vma\vk_mem_alloc.h")) {
+            Copy-Item "$sdk\Include\vma\vk_mem_alloc.h" $dst
+          } else {
+            Invoke-WebRequest 'https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/master/include/vk_mem_alloc.h' -OutFile $dst
+          }
+
+      # GLFW pre-compiled binaries shipped two flavours: lib-mingw-w64\libglfw3.a
+      # (used by the MinGW job above) AND lib-vc2022\glfw3.lib (used here).  Stage
+      # the MSVC archive at example\deps\glfw3.lib so build.bat --toolchain=cl
+      # finds it via -LIBPATH:deps.
+      - name: Fetch GLFW (Windows MSVC pre-built)
+        shell: pwsh
+        run: |
+          $ver = '3.4'
+          $zip = "glfw-$ver.bin.WIN64.zip"
+          $url = "https://github.com/glfw/glfw/releases/download/$ver/$zip"
+          Invoke-WebRequest $url -OutFile $zip
+          Expand-Archive $zip -DestinationPath .
+          New-Item -ItemType Directory -Force -Path 'example\deps\glfw\include\GLFW' | Out-Null
+          Copy-Item "glfw-$ver.bin.WIN64\include\GLFW\glfw3.h"       'example\deps\glfw\include\GLFW\glfw3.h'
+          Copy-Item "glfw-$ver.bin.WIN64\include\GLFW\glfw3native.h" 'example\deps\glfw\include\GLFW\glfw3native.h'
+          Copy-Item "glfw-$ver.bin.WIN64\lib-vc2022\glfw3.lib"       'example\deps\glfw3.lib'
+          Get-ChildItem example\deps -Recurse
+
+      - name: Build all examples (cl /MP)
+        working-directory: example
+        run: |
+          echo A| build.bat --toolchain=cl
+
+      - name: Build + run R14 tests (cl)
+        working-directory: example
+        run: |
+          echo T| build.bat --toolchain=cl
+          ..\tests\vck_tests.exe
 
   # ---------------------------------------------------------------------------
   #  Linux (Ubuntu + apt Vulkan SDK + GLFW).
@@ -194,6 +304,12 @@ jobs:
         working-directory: example
         run: |
           ./build.sh A
+
+      - name: Build + run R14 tests
+        working-directory: example
+        run: |
+          ./build.sh T
+          ../tests/vck_tests
 
   # ---------------------------------------------------------------------------
   #  macOS (Homebrew Vulkan headers + loader + GLFW + MoltenVK + glslang).
@@ -268,3 +384,11 @@ jobs:
           CXX: clang++
         run: |
           ./build.sh A
+
+      - name: Build + run R14 tests
+        working-directory: example
+        env:
+          CXX: clang++
+        run: |
+          ./build.sh T
+          ../tests/vck_tests
