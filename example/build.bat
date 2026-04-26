@@ -76,17 +76,19 @@ set "C_WHT=%ESC%[97m"
 
 :: ── Argument parsing --------------------------------------------------------
 :: Supports any order: build.bat A --toolchain=cl  /  build.bat --toolchain=cl A
+:: Match the four valid --toolchain= forms literally.  Avoid delayed-expansion
+:: substring tricks: cmd.exe's IF gets unreliable when the expanded value
+:: itself contains '=' (we shipped exactly that bug on PR #7's first push;
+:: the cl runner reported "unknown selection '--toolchain'", the MinGW runner
+:: silently fell into the auto branch because TOOLCHAIN never got set to gcc).
 set "TOOLCHAIN=auto"
 set "CHOICE="
 :PARSE_ARGS
 if "%~1"=="" goto PARSE_DONE
-set "ARG=%~1"
-if /i "!ARG:~0,12!"=="--toolchain=" (
-    set "TOOLCHAIN=!ARG:~12!"
-    shift
-    goto PARSE_ARGS
-)
-if "!CHOICE!"=="" set "CHOICE=!ARG!"
+if /i "%~1"=="--toolchain=cl"   ( set "TOOLCHAIN=cl"   & shift & goto PARSE_ARGS )
+if /i "%~1"=="--toolchain=gcc"  ( set "TOOLCHAIN=gcc"  & shift & goto PARSE_ARGS )
+if /i "%~1"=="--toolchain=auto" ( set "TOOLCHAIN=auto" & shift & goto PARSE_ARGS )
+if "%CHOICE%"=="" set "CHOICE=%~1"
 shift
 goto PARSE_ARGS
 :PARSE_DONE

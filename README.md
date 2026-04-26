@@ -192,7 +192,7 @@ layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
 cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
 from 720p to 4K is handled in-library). Build with:
 
-- Windows: `example/build.bat` (MinGW g++)
+- Windows: `example/build.bat` (auto-detects MSVC `cl` via `vswhere`, falls back to MinGW g++; `--toolchain={auto|cl|gcc}` to override)
 - Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
 
 | #  | Example                     | Demonstrates |
@@ -215,11 +215,14 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
 ## Build
 
-Windows (MinGW-w64 + Vulkan SDK + `example/deps/libglfw3.a`):
+Windows — auto-detects MSVC `cl` via `vswhere` and falls back to MinGW
+g++; `--toolchain={auto|cl|gcc}` overrides:
 
 ```
 cd example
-build.bat
+build.bat                    :: auto (prefer cl)
+build.bat --toolchain=gcc    :: force MinGW (Vulkan SDK + example\deps\libglfw3.a)
+build.bat --toolchain=cl A   :: force cl + build all (Vulkan SDK + example\deps\glfw3.lib)
 ```
 
 Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
@@ -229,9 +232,16 @@ cd example
 ./build.sh
 ```
 
-Both scripts share the same `[1]-[13] / [A] / [0]` menu and print a
-diagnostic if tools or dependencies are missing. Full step-by-step:
-[`docs/Build.md`](docs/Build.md).
+Both scripts share the same `[1]-[13] / [A] / [T] / [0]` menu and print a
+diagnostic if tools or dependencies are missing. `[T]` builds and links
+the R14 unit-test harness against the lib-once `vck.lib` / `libvck.a` and
+runs it. Full step-by-step: [`docs/Build.md`](docs/Build.md).
+
+Both scripts use a **lib-once compile model** (PR #7): the VCK static
+library compiles once into `build/vck.lib` (cl) or `build/libvck.a`
+(gcc/clang) and every example links against it (`main.cpp` + `App.cpp`
+only). Build-all wall-clock on a modern 8-core machine: ~30-40 s on
+Linux/macOS, ~2-3 min on Windows MSVC `/MP`, ~3-4 min on MinGW.
 
 ## Documentation
 
