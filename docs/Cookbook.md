@@ -987,7 +987,9 @@ void main() {
 ```cpp
 // One-time:
 VulkanBuffer particles;        // SSBO, DEVICE_LOCAL, count * sizeof(P)
-VulkanBuffer drawIndirect;     // VkDrawIndirectCommand{count,1,0,0}, DEVICE_LOCAL
+VulkanBuffer drawIndirect;     // VkDrawIndirectCommand{1,count,0,0} -- 1 vertex per
+                               // point sprite, `count` instances; gl_InstanceIndex
+                               // walks the SSBO. DEVICE_LOCAL.
 
 // Per frame:
 // 1) Sim
@@ -1545,9 +1547,12 @@ uint32_t Pick(VulkanDevice& device, VulkanCommand& cmd,
               VulkanImage& idTarget, int px, int py)
 {
     VulkanBuffer host;
-    host.Initialize(device, sizeof(uint32_t),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!host.Initialize(device, sizeof(uint32_t),
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+        VCKLog::Error("Pick", "readback buffer alloc failed");
+        return 0;
+    }
 
     VulkanOneTimeCommand one(device, cmd.GetPool());
     idTarget.TransitionLayout(one.Get(),
