@@ -66,7 +66,15 @@ void VulkanOneTimeCommand::End()
 {
     if (!m_Cmd) return;
 
-    VK_CHECK(vkEndCommandBuffer(m_Cmd));
+    if (!VK_CHECK(vkEndCommandBuffer(m_Cmd)))
+    {
+        // Same reasoning as VMM::SubmitStagingCmd: a malformed cmd buffer
+        // must not reach vkQueueSubmit (VUID violation).  Skip the submit,
+        // free the cmd, fall through to the cleanup at the bottom.
+        vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
+        m_Cmd = VK_NULL_HANDLE;
+        return;
+    }
 
     VkSubmitInfo si{};
     si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
