@@ -1,205 +1,281 @@
-# VCK — Vulkan Core Kit
+<div align="center">
 
-Minimal, modular Vulkan helper library designed as a clean foundation for building a custom renderer from scratch.
+# V C K
 
-This project provides a controlled Vulkan environment with **explicit lifetimes**, **predictable initialization order**, and a **layered architecture** separating low-level setup from higher-level rendering systems.
+**Vulkan Core Kit.** One header. You write the renderer. VCK shuts up about everything else.
 
----
+<sub>not an engine · no scene graph · no material system · you own the frame</sub>
 
-## CORE IDEA
+[![Windows build](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml/badge.svg?branch=VCK)](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](docs/Build.md)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](CONTRIBUTING.md)
+[![Vulkan](https://img.shields.io/badge/Vulkan-1.3-red)](https://www.vulkan.org/)
+[![Docs](https://img.shields.io/badge/docs-wiki-blue)](https://github.com/vKexterPLv/VCK/wiki)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-keep%20a%20changelog-orange)](CHANGELOG.md)
 
-This is **not an engine**.
-
-This is a **kit** you can drop into a project and immediately start building a renderer on top of — without fighting Vulkan boilerplate.
-
----
-
-## ARCHITECTURE
-
-```
-Core (VulkanModule)
-    ↓
-Expansion Layer
-    ↓
-Your Renderer / Systems
-```
-
-* **Core**: low-level Vulkan setup and ownership
-* **Expansion**: reusable GPU abstractions
-* **Top**: your actual rendering logic
+</div>
 
 ---
-
-## DESIGN RULES
-
-### 1. Explicit > Magic
-
-* No hidden ownership
-* No implicit lifetimes
-* No side effects
-
-Everything is controlled and predictable.
-
----
-
-### 2. No Ownership in Expansion Layer
-
-All expansion classes:
-
-* receive references or raw pointers to core objects
-* do NOT create them
-* do NOT destroy them
-
-This guarantees:
-
-* stable lifetimes
-* no circular dependencies
-* no hidden behavior
-
----
-
-### 3. Strict Lifecycle Order
-
-**Initialization**
-
-```
-Context → Device → Swapchain → Pipeline → Command → Sync
-```
-
-**Shutdown**
-
-```
-Sync → Command → Pipeline → Swapchain → Device → Context
-```
-
-Expansion objects must be destroyed **BEFORE** base objects.
-
----
-
-## WHAT YOU GET
-
-### Core Vulkan layer
-
-* Instance + surface
-* Physical & logical device selection
-* Swapchain creation & recreation
-* Graphics pipeline setup
-* Command buffers per frame
-* Synchronization (double buffering)
-* VMA allocator integration
-
----
-
-### Expansion Layer
-
-* **VulkanOneTimeCommand**
-  One-shot GPU commands (staging, layout transitions)
-
-* **VulkanFramebufferSet**
-  Per-swapchain framebuffer management
-
-* **VulkanDepthBuffer**
-  Depth/stencil attachment with automatic format selection
-
-* **VulkanSampler**
-  Simple sampler abstraction (nearest / linear)
-
-* **VulkanTexture**
-  Full CPU → GPU upload (staging + transitions hidden)
-
-* **VulkanMesh**
-  Vertex/index buffers with built-in draw recording
-
-* **VulkanDescriptorLayoutBuilder**
-  Fluent descriptor set layout creation
-
-* **VulkanDescriptorPool**
-  Per-frame descriptor allocation (double buffered)
-
-* **VulkanUniformSet<T>**
-  Typed per-frame uniform buffers with direct `Write()`
-
-* **VulkanDescriptorAllocator**
-  Mixed-type descriptor pool with per-set `Allocate()`
-
-* **VulkanModelPipeline**
-  Full model pipeline (UBOs, push constants, set layouts)
-
-* **VulkanMipmapGenerator**
-  Blit-based mip chain generation for any `VkImage`
-
----
-
-## EXAMPLE USAGE
 
 ```cpp
-VulkanMesh mesh;
-mesh.Upload(device, command,
-            vertices.data(), sizeof(vertices),
-            indices.data(), indices.size());
-
-mesh.RecordDraw(cmd);
+#include "VCK.h"   // pulls expansion + execution
 ```
 
-```cpp
-VulkanTexture texture;
-texture.CreateFromPixels(device, command, pixels, width, height);
+Gets you the core Vulkan objects, expansion (textures, meshes, descriptors,
+mipmaps, AA), an optional memory manager (VMM), and an optional frame
+scheduler with a CPU job graph + GPU submission batcher.
+
+**v0.3 highlights:**
+
+- **Cross-platform** — `VCK::Window` + `VCK_PLATFORM_*` on Windows / Linux / macOS. No raw GLFW or Win32 in user code.
+- **Live resize is one call** — `VCK::HandleLiveResize(window, ...)` handles 720p → 4K. The scheduler-aware overload drains via `FrameScheduler::DrainInFlight()` instead of `vkDeviceWaitIdle`.
+- **Timeline semaphores** — `FrameScheduler` signals a monotonic per-slot value, `BeginFrame` waits with one `vkWaitSemaphores`. Fence fallback when the timeline ext is absent.
+- **Dedicated compute / transfer queues** — picked when the vendor exposes them. VMM staging runs on transfer with release/acquire ownership barriers back to graphics (spec §7.7.4).
+- **Secondary command buffers** — `Allocate/Begin/End/ExecuteSecondaries` for record-then-execute.
+- **Ergonomic shaders** — `VCKMath`, `VertexLayout`, `PushConstants`, `Primitives::Cube/Plane/Sphere/Quad/Line`. Cube setup: ~40 lines → one call.
+- **AA decision tree** — `cfg.aa.technique = Auto` picks at `Swapchain::Initialize` (VRAM tier → forward path → motion vectors). MSAA / A2C / SampleRate ship; FXAA / SMAA / TAA / TAAU names are returned to the renderer (the cookbook has the shaders).
+- **Structured logging** — `VCKLog::{Info,Notice,Warn,Error}` with console-spam dedup. `VK_CHECK` routes failures to `Error`.
+- **24 design rules** — fail loud, frame is the unit of truth, `VCK.h` is the surface, every public class has an example, etc. See [`docs/Design.md`](docs/Design.md).
+- **[Cookbook](docs/Cookbook.md)** — recipes for the things VCK refuses to ship (image / OBJ loading, ImGui, FXAA/SMAA/TAA, compute particles, shadows, PBR/IBL, deferred, bloom, hot-reload, picking).
+
+## Layers
+
+```
+ layers/core/            VCKCrossplatform + Vulkan*.{h,cpp}
+    ↓                    window, instance, device, swapchain, pipeline, command, sync
+ layers/expansion/       VCKExpansion.{h,cpp}
+    ↓                    textures, meshes, samplers, descriptors, mipmaps
+                         + HandleLiveResize (base + depth)
+ layers/execution/       VCKExecution.{h,cpp}
+    ↓                    FrameScheduler, JobGraph, TimelineSemaphore,
+                         DebugTimeline, QueueSet, GpuSubmissionBatcher,
+                         + timeline-aware HandleLiveResize
+ layers/vmm/             VulkanMemoryManager.{h,cpp}  (optional)
+    ↓                    staging ring, transient pool, persistent registry
+ Your renderer
 ```
 
-```cpp
-ubo.Write(frameIndex, data);
-vkCmdBindDescriptorSets(cmd, ...);
-```
+Everything lives in `namespace VCK`. `LogVk` and `VK_CHECK` are at global
+scope so any TU can use them without a `using` declaration. The **single
+source of truth** for the API surface is the doc block at the top of
+[`VCK.h`](VCK.h) — layer files carry only a one-line "what am I" comment.
+
+## One-hour tour
+
+1. **Build one example.** `cd example && build.bat` → pick `[1]` (RGBTriangle). That's `main.cpp` + `App.h` + `App.cpp` + `assets/` — the whole onboarding surface. Full build steps: [`docs/Build.md`](docs/Build.md).
+2. **Read `Hello VCK` below.** ~50 lines, one TU, no hidden state. Walks the entire init chain → frame loop → shutdown.
+3. **Skim [`VCK.h`](VCK.h)** top-to-bottom. Big ASCII banners split it into CLASSES / IMPLS. Every class has a doc block explaining what it owns, who calls it, and the init/shutdown order.
+4. **Decide what you want next**:
+   - *Render something textured / indexed:* [`docs/Examples.md`](docs/Examples.md) — RGBTriangle, MipmapExample.
+   - *Let VCK drive the frame loop:* [`docs/Execution-Layer.md`](docs/Execution-Layer.md) — FrameScheduler / JobGraph.
+   - *Stop writing VMA boilerplate:* [`docs/VMM.md`](docs/VMM.md) — three-layer memory manager.
+5. **Tune with `VCK::Config`** (below) when you need a different present mode, MSAA, or more frames in flight.
+
+Total surface: **one header**, everything in `namespace VCK`, no opaque ownership. When in doubt, the raw-handle overload (`dev.Initialize(VkInstance, VkSurfaceKHR)`, etc.) is always still there for full manual control.
+
+## Hello VCK
+
+Minimal program that stands up a window, the core stack, and clears the
+swapchain to a colour every frame through `FrameScheduler`. The full
+three-file version lives in [`example/HelloExample/`](example/HelloExample/).
 
 ```cpp
-// Mip chain generation (mip-aware VkImage required — see VulkanMipmapGenerator docs)
-uint32_t mips = VulkanMipmapGenerator::MipLevels(width, height);
-if (VulkanMipmapGenerator::IsFormatSupported(device, VK_FORMAT_R8G8B8A8_SRGB))
+#include "VCK.h"      // pulls in VCK::Window, the core, expansion, everything
+
+int main()
 {
-    VulkanMipmapGenerator gen;
-    gen.Generate(device, command, rawImage, width, height, mips);
+    // window (cross-platform facade - no raw GLFW/HWND in user code)
+    VCK::Window            win;
+    VCK::WindowCreateInfo  wci;
+    wci.width = 800; wci.height = 600; wci.title = "Hello VCK";
+    wci.resizable = true;
+    win.Create(wci);
+
+    // core
+    VCK::VulkanContext   ctx;
+    VCK::VulkanDevice    dev;
+    VCK::VulkanSwapchain sc;
+    VCK::VulkanCommand   cmd;
+    VCK::VulkanSync      sync;
+
+    ctx.Initialize (win, "hello");
+    dev.Initialize (ctx);
+    sc .Initialize (dev, ctx, win.GetWidth(), win.GetHeight());
+    cmd.Initialize (dev);
+    sync.Initialize(dev);
+
+    // execution layer (optional)
+    VCK::FrameScheduler sched;
+    VCK::FrameScheduler::Config cfg;
+    cfg.policy = VCK::FramePolicy::Pipelined;
+    sched.Initialize(dev, cmd, sync, cfg);
+
+    while (!win.ShouldClose())
+    {
+        win.PollEvents();
+        VCK::Frame& f = sched.BeginFrame();
+
+        uint32_t imageIndex = 0;
+        vkAcquireNextImageKHR(dev.GetDevice(), sc.GetSwapchain(),
+                              UINT64_MAX, f.ImageAvailable(),
+                              VK_NULL_HANDLE, &imageIndex);
+
+        // ... begin render pass, clear, end render pass on f.PrimaryCmd() ...
+
+        // One-liner — wires ImageAvailable / RenderFinished on the frame's
+        // own semaphores and submits f.PrimaryCmd() on the graphics queue.
+        f.QueueGraphics();
+
+        sched.EndFrame();
+
+        VkSemaphore     renderDone = f.RenderFinished();
+        VkSwapchainKHR  sw         = sc.GetSwapchain();
+        VkPresentInfoKHR p{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+        p.waitSemaphoreCount = 1;
+        p.pWaitSemaphores    = &renderDone;
+        p.swapchainCount     = 1;
+        p.pSwapchains        = &sw;
+        p.pImageIndices      = &imageIndex;
+        vkQueuePresentKHR(dev.GetGraphicsQueue(), &p);
+    }
+
+    sched.Shutdown();
+    sync.Shutdown(); cmd.Shutdown(); sc.Shutdown(); dev.Shutdown(); ctx.Shutdown();
+    win.Destroy();
 }
 ```
 
----
+## Optional `VCK::Config`
 
-## NOTES
+Every `Initialize(...)` in the core has a zero-arg form *and* an overload that
+takes a `const VCK::Config&` — one struct, nested by class. Pass only the
+knobs you care about; everything else uses sensible defaults matching the
+zero-arg behaviour.
 
-* `VulkanOneTimeCommand` uses `vkQueueWaitIdle`
-  → intended for setup / upload, not per-frame usage
+```cpp
+VCK::Config cfg;
+cfg.context.appName        = "Hello VCK";
+cfg.context.enableValidation = true;                             // debug only
+cfg.device.preferDiscreteGpu = true;
+cfg.swapchain.presentMode  = VCK::PresentMode::Mailbox;          // Auto | Fifo | Mailbox | Immediate
+cfg.swapchain.imageCount   = 3;                                  // 0 = minImageCount + 1
+cfg.swapchain.msaaSamples  = VCK::MSAA_AUTO;                     // 0 = pick from device; or VK_SAMPLE_COUNT_{1,2,4,8}_BIT
+cfg.aa.technique           = VCK::AATechnique::Auto;             // Auto | Off | MSAA | MSAA_A2C | SampleRate | FXAA | ...
+cfg.aa.forwardRenderer     = true;                               // detector input
+cfg.aa.supportsMotionVectors = false;                            // detector input
+cfg.debug                  = false;                              // true = VCKLog Info lines visible
+cfg.sync.framesInFlight    = 3;                                  // clamped to MAX_FRAMES_IN_FLIGHT
 
-* `VulkanMipmapGenerator` requires the image to be created with
-  `VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT`.
-  Call `IsFormatSupported()` before `Generate()` — fall back to a single
-  mip level if the device doesn't support linear blitting for the format.
+ctx.Initialize (window, cfg);
+dev.Initialize (ctx,    cfg);
+sc .Initialize (dev, ctx, window.GetWidth(), window.GetHeight(), cfg);
+sync.Initialize(dev,  cfg);
+cmd.Initialize (dev,  cfg);
+pipe.Initialize(dev, sc, shaders, vi);    // pulls msaaSamples from the swapchain
+```
 
-* Descriptor system is designed for future extension
+Mailbox requests fall back to FIFO if the driver doesn't expose it, and
+`framesInFlight` is clamped to the compile-time upper bound
+`VCK::MAX_FRAMES_IN_FLIGHT` (= 8). v0.3 enables `VK_KHR_timeline_semaphore`
+at device-create time when the adapter supports it (functionally every
+modern GPU); `FrameScheduler` uses it by default.
 
----
+## Examples
 
-## FUTURE DIRECTION
+Thirteen runnable examples in `example/`. All follow a 3-file + `assets/`
+layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
+cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
+from 720p to 4K is handled in-library). Build with:
 
-* Staging allocator / upload batching
-* Material system
-* Render graph / frame graph
-* Bindless resources
-* Multi-threaded command recording
+- Windows: `example/build.bat` (CMake + Ninja under the hood; cl from a Developer Cmd Prompt or MinGW g++ on `PATH`)
+- Linux / macOS: `example/build.sh` (CMake + Ninja under the hood; g++ / clang++ from `PATH`)
+- Anywhere: `cmake -S example -B build -G Ninja && cmake --build build -j` (the canonical command - `build.bat` / `build.sh` are thin wrappers around it)
 
----
+| #  | Example                     | Demonstrates |
+|----|-----------------------------|--------------|
+|  1 | `RGBTriangle`               | coloured triangle, live resize — raw core |
+|  2 | `MipmapExample`             | texture upload + mip generation + sampling — raw core |
+|  3 | `VMMExample`                | VMM persistent / transient / staging — raw core + VMM |
+|  4 | `SecondaryCmdExample`       | secondary command buffers + scheduler-aware resize (v0.3) |
+|  5 | `DebugTimelineExample`      | span recorder + `Dump` every 120 frames — debug tooling |
+|  6 | `DebugShowcaseExample`      | every `VCKLog` level, dedup, `VK_CHECK` path |
+|  7 | `AAShowcaseExample`         | `DetectRecommendedAA` matrix + live auto-pick — expansion |
+|  8 | `JobGraphExample`           | CPU task graph with dependencies — execution layer |
+|  9 | `SubmissionBatchingExample` | 2 cmd buffers → 1 `vkQueueSubmit` |
+| 10 | `TimelineExample`           | `TimelineSemaphore` + `DependencyToken` |
+| 11 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
+| 12 | `HelloExample`              | smallest `FrameScheduler` program — mostly VCK |
+| 13 | `EasyCubeExample`           | `Primitives::Cube` + `VertexLayout` + `PushConstants` + `VCKMath` — peak ergonomic |
 
-## WHY THIS EXISTS
+Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
-Most Vulkan examples are either:
+## Build
 
-* too low-level (triangle demos)
-* too abstract (engine-level frameworks)
+Windows — CMake + Ninja picks whichever C++ compiler is on `PATH`.  Run
+from a Developer Cmd Prompt and `cl` is used; otherwise MinGW-w64 `g++`
+(MSYS2's `C:\msys64\mingw64\bin`) is picked up automatically:
 
-This project sits in between:
+```
+cd example
+build.bat                    :: interactive menu, picks compiler from PATH
+build.bat A                  :: build all 13 examples
+build.bat T                  :: build + run the R14 unit-test harness
+:: or skip the wrapper entirely:
+cmake -S . -B build -G Ninja
+cmake --build build -j --target examples
+```
 
-**full control + usable structure**
+Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
 
----
+```
+cd example
+./build.sh
+```
 
-## LICENSE
+Both scripts share the same `[1]-[13] / [A] / [T] / [0]` menu and print a
+diagnostic if tools or dependencies are missing. `[T]` builds and links
+the R14 unit-test harness against the lib-once `vck.lib` / `libvck.a` and
+runs it. Full step-by-step: [`docs/Build.md`](docs/Build.md).
 
-MIT
+Both scripts use a **lib-once compile model** (PR #7): the VCK static
+library compiles once into `build/vck.lib` (cl) or `build/libvck.a`
+(gcc/clang) and every example links against it (`main.cpp` + `App.cpp`
+only). Build-all wall-clock on a modern 8-core machine: ~30-40 s on
+Linux/macOS, ~2-3 min on Windows MSVC `/MP`, ~3-4 min on MinGW.
+
+## Documentation
+
+The README is deliberately short. Everything else lives under
+[`docs/`](docs/) — these files mirror the GitHub Wiki layout, so the
+maintainer can push them to the `*.wiki.git` repo at any time.
+
+| Page | Covers |
+|------|--------|
+| [`docs/Home.md`](docs/Home.md)                     | index + layer map |
+| [`docs/Overview.md`](docs/Overview.md)             | **one-page tour**: what VCK is / gives / never takes, modern v0.3 optimisations, why it's fresh |
+| [`docs/Core-API.md`](docs/Core-API.md)             | `VCK.h` — Context / Device / Swapchain / Pipeline / Command / Sync / Buffer / Image |
+| [`docs/Expansion-API.md`](docs/Expansion-API.md)   | `VCKExpansion.h` — framebuffers, depth, samplers, textures, meshes, descriptors, mipmaps |
+| [`docs/Execution-Layer.md`](docs/Execution-Layer.md) | `FrameScheduler`, `JobGraph`, `GpuSubmissionBatcher`, `BackpressureGovernor`, `TimelineSemaphore`, `QueueSet`, `DebugTimeline` |
+| [`docs/VMM.md`](docs/VMM.md)                       | `VulkanMemoryManager` — lifetimes, strategies, staging |
+| [`docs/Examples.md`](docs/Examples.md)             | per-example walkthrough |
+| [`docs/Build.md`](docs/Build.md)                   | Windows / Linux / macOS: Vulkan SDK + GLFW + `build.bat` / `build.sh` |
+| [`docs/Design.md`](docs/Design.md)                 | design rules, status, caveats, roadmap |
+
+## Contributing
+
+PRs welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the 22-rule
+architectural contract, commit style, and branching workflow. Small,
+focused diffs preferred; new public API goes in [`VCK.h`](VCK.h) (the
+single source of truth).
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the per-version list of added,
+changed, and removed items. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
+
+## License
+
+[MIT](LICENSE) — vendored third-party sources in `vendor/` keep their own
+licenses (Apache 2.0 for Vulkan-Headers, MIT for VMA, zlib/libpng for
+GLFW). See the [`LICENSE`](LICENSE) file for the full list.

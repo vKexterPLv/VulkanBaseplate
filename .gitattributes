@@ -1,0 +1,31 @@
+# Auto-detect text files; normalise LF in the repo.
+* text=auto eol=lf
+
+# Windows shell scripts must keep CRLF or CMD fragments every comment
+# line into unrecognised tokens (cmd.exe does not tolerate bare LF).
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# POSIX shell scripts must stay LF or bash spawns mysterious \r errors.
+*.sh     text eol=lf
+
+# GLSL / HLSL / SPIR-V sources stay LF across platforms.
+*.vert   text eol=lf
+*.frag   text eol=lf
+*.comp   text eol=lf
+*.geom   text eol=lf
+*.tesc   text eol=lf
+*.tese   text eol=lf
+
+# Treat pre-compiled libs and compiled SPIR-V as binary so git never
+# attempts line-ending conversion on them.
+*.a      binary
+*.lib    binary
+*.dll    binary
+*.exe    binary
+*.so     binary
+*.dylib  binary
+*.spv    binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary

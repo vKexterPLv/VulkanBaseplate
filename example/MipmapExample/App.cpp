@@ -1,5 +1,5 @@
 #include "App.h"
-#include "VulkanModule.h"
+#include "VCK.h"
 #include <string>
 #include <vector>
 #include <fstream>
@@ -15,7 +15,7 @@
 //  The texture is intentionally created with raw Vulkan calls rather than
 //  VulkanTexture, because VulkanTexture wraps a single mip level and doesn't
 //  expose the mipLevels field.  This is the correct pattern for mip-aware
-//  textures — VulkanMipmapGenerator is designed to pair with this workflow:
+//  textures - VulkanMipmapGenerator is designed to pair with this workflow:
 //
 //    1. Calculate mip count:   VulkanMipmapGenerator::MipLevels(w, h)
 //    2. Create VkImage manually with that mipLevels value and
@@ -24,7 +24,7 @@
 //    4. Create VkImageView spanning all mip levels.
 //    5. Upload base level pixels via staging + VulkanOneTimeCommand,
 //       leaving the image in TRANSFER_DST_OPTIMAL.
-//    6. Call VulkanMipmapGenerator::Generate() — blits each level from the
+//    6. Call VulkanMipmapGenerator::Generate() - blits each level from the
 //       previous, then transitions the whole chain to SHADER_READ_ONLY_OPTIMAL.
 //    7. Create a VkSampler with LINEAR filter and a non-zero maxLod so the
 //       GPU actually selects between mip levels.
@@ -34,21 +34,17 @@
 //  small to observe coarser mip levels averaging the checkerboard to grey.
 // =============================================================================
 
-namespace VulkanBaseplate::MipmapExample {
+namespace VCK::MipmapExample {
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Window state
     // ─────────────────────────────────────────────────────────────────────────
     std::string title         = "MipmapExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool g_Resized   = false;
-    bool g_Minimized = false;
-
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex — position + UV
+    //  Vertex - position + UV
     // ─────────────────────────────────────────────────────────────────────────
     struct Vertex {
         float position[3];   // location 0
@@ -60,11 +56,11 @@ namespace VulkanBaseplate::MipmapExample {
     // ─────────────────────────────────────────────────────────────────────────
     static constexpr uint32_t  kTexW   = 512;
     static constexpr uint32_t  kTexH   = 512;
-    static constexpr uint32_t  kTile   = 128;    // small tiles — more pattern, sharper mip transitions
+    static constexpr uint32_t  kTile   = 128;    // small tiles - more pattern, sharper mip transitions
     static constexpr VkFormat  kFmt    = VK_FORMAT_R8G8B8A8_UNORM;  // no gamma softening
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vulkan objects — core
+    //  Vulkan objects - core
     // ─────────────────────────────────────────────────────────────────────────
     VulkanContext        context;
     VulkanDevice         device;
@@ -74,7 +70,7 @@ namespace VulkanBaseplate::MipmapExample {
     VulkanSync           sync;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vulkan objects — expansion
+    //  Vulkan objects - expansion
     // ─────────────────────────────────────────────────────────────────────────
     VulkanModelPipeline       modelPipeline;
     VulkanFramebufferSet      framebuffers;
@@ -90,7 +86,7 @@ namespace VulkanBaseplate::MipmapExample {
     VulkanPipeline::VertexInputInfo vertexInput;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Mip-aware texture — owned manually (raw Vulkan + VMA)
+    //  Mip-aware texture - owned manually (raw Vulkan + VMA)
     // ─────────────────────────────────────────────────────────────────────────
     VkImage       g_TexImage     = VK_NULL_HANDLE;
     VkImageView   g_TexView      = VK_NULL_HANDLE;
@@ -99,7 +95,7 @@ namespace VulkanBaseplate::MipmapExample {
     uint32_t      g_MipLevels    = 1;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Per-frame UBO — just a dummy mat4 identity; the quad shader ignores it
+    //  Per-frame UBO - just a dummy mat4 identity; the quad shader ignores it
     //  but VulkanModelPipeline::GetSet0Layout() always has binding 0.
     // ─────────────────────────────────────────────────────────────────────────
     struct alignas(16) DummyUBO { float m[16]; };
@@ -116,23 +112,6 @@ namespace VulkanBaseplate::MipmapExample {
         file.seekg(0);
         file.read(reinterpret_cast<char*>(buf.data()), size);
         return buf;
-    }
-
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width  = w;
-        window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -165,13 +144,13 @@ namespace VulkanBaseplate::MipmapExample {
         // ── 2. Create VkImage with full mip chain ─────────────────────────────
         if (!VulkanMipmapGenerator::IsFormatSupported(device, kFmt))
         {
-            LogVk("MipmapExample: linear blitting not supported — mip levels will be 1");
+            VCKLog::Warn("MipmapExample", "linear blitting not supported - mip levels will be 1");
             g_MipLevels = 1;
         }
         else
         {
             g_MipLevels = VulkanMipmapGenerator::MipLevels(kTexW, kTexH);
-            LogVk("MipmapExample: creating " + std::to_string(g_MipLevels) +
+            VCKLog::Info("MipmapExample", "creating " + std::to_string(g_MipLevels) +
                   "-level mip chain for " + std::to_string(kTexW) +
                   "x" + std::to_string(kTexH) + " checkerboard");
         }
@@ -253,7 +232,7 @@ namespace VulkanBaseplate::MipmapExample {
         }
         else
         {
-            // Single-level fallback — just transition to SHADER_READ_ONLY
+            // Single-level fallback - just transition to SHADER_READ_ONLY
             VulkanOneTimeCommand otc2;
             otc2.Begin(device, command);
             {
@@ -295,7 +274,7 @@ namespace VulkanBaseplate::MipmapExample {
         // ── 6. Sampler with LINEAR filter + full mip range ────────────────────
         //  minLod = 0, maxLod = g_MipLevels lets the GPU freely choose any level.
         //  Without this (e.g. maxLod = 0) the GPU always uses level 0 regardless
-        //  of how small the texture appears on screen — mip generation would be
+        //  of how small the texture appears on screen - mip generation would be
         //  wasted work.
         VkSamplerCreateInfo sci{};
         sci.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -326,15 +305,11 @@ namespace VulkanBaseplate::MipmapExample {
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
+        if (window.IsMinimized()) return;
 
-        if (g_Resized)
-        {
-            g_Resized = false;
-            HandleResize();
-            if (window_width == 0 || window_height == 0) return;
-        }
-
+        // Live resize: swapchain + framebuffers auto-rebuild when the
+        // OS fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         uint32_t frame = sync.GetCurrentFrameIndex();
 
         // Upload dummy UBO
@@ -351,9 +326,8 @@ namespace VulkanBaseplate::MipmapExample {
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                               UINT64_MAX, imageReady, VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR)          g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         vkResetFences(device.GetDevice(), 1, &fence);
 
         // ── Record ────────────────────────────────────────────────────────────
@@ -426,34 +400,27 @@ namespace VulkanBaseplate::MipmapExample {
         present.pImageIndices      = &imageIndex;
 
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &present);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // OUT_OF_DATE handled by HandleLiveResize next frame
         sync.AdvanceFrame();
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     // =========================================================================
     //  Init
     // =========================================================================
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        HWND hwnd = glfwGetWin32Window(window);
-
-        context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
+        context.Initialize(window, title);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         // Shaders: position (loc 0) + uv (loc 1) → texture sample
         shaders.VertexSpirv   = LoadSpv("./assets/mip.vert.spv");
@@ -469,11 +436,17 @@ namespace VulkanBaseplate::MipmapExample {
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,    .offset = offsetof(Vertex, uv)       },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        // IMPORTANT: the pipeline's render pass was auto-configured with MSAA
+        // (see cfg.aa / swapchain.GetMSAASamples()).  VulkanModelPipeline's
+        // default overload hardcodes 1x samples; if we use it with an MSAA
+        // render pass Vulkan rasterises to a sub-region of the attachment.
+        // Always forward swapchain.GetMSAASamples() explicitly.
+        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput,
+                                 swapchain.GetMSAASamples());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
         // ── Descriptor pool: 1 UBO/frame + 1 sampler ─────────────────────────
         descAllocator.Initialize(device,
@@ -528,14 +501,14 @@ namespace VulkanBaseplate::MipmapExample {
         //  Viewed from the front (camera looking -Z), CCW means:
         //    tri 0: TL(0) → BL(3) → TR(1)
         //    tri 1: BL(3) → BR(2) → TR(1)
-        //  UVs go to 4.0 so the checkerboard tiles 4x across — this makes
+        //  UVs go to 4.0 so the checkerboard tiles 4x across - this makes
         //  the mip level selection visible: large tiles at full size, the
         //  pattern averaging toward grey as the window shrinks.
         const std::vector<Vertex> verts = {
-            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // 0 — top-left
-            {{ 1.f, -1.f, 0.f}, {4.f, 0.f}},   // 1 — top-right
-            {{ 1.f,  1.f, 0.f}, {4.f, 4.f}},   // 2 — bottom-right
-            {{-1.f,  1.f, 0.f}, {0.f, 4.f}},   // 3 — bottom-left
+            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},   // 0 - top-left
+            {{ 1.f, -1.f, 0.f}, {4.f, 0.f}},   // 1 - top-right
+            {{ 1.f,  1.f, 0.f}, {4.f, 4.f}},   // 2 - bottom-right
+            {{-1.f,  1.f, 0.f}, {0.f, 4.f}},   // 3 - bottom-left
         };
         const std::vector<uint32_t> indices = { 0,3,1, 3,2,1 };
 
@@ -566,8 +539,7 @@ namespace VulkanBaseplate::MipmapExample {
         device.Shutdown();
         context.Shutdown();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     // =========================================================================
@@ -576,13 +548,13 @@ namespace VulkanBaseplate::MipmapExample {
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();
     }
 
-} // namespace VulkanBaseplate::MipmapExample
+} // namespace VCK::MipmapExample

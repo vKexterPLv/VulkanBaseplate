@@ -1,6 +1,6 @@
 #include "App.h"
-#include "VulkanModule.h"
-#include "VMM/VulkanMemoryManager.h"
+#include "VCK.h"
+#include "VulkanMemoryManager.h"
 #include <string>
 #include <vector>
 #include <array>
@@ -13,43 +13,40 @@
 //
 //  Three things draw simultaneously, each exercising a different VMM path:
 //
-//  [1] Static triangle  — Persistent GPU buffer + staging ring upload
+//  [1] Static triangle  - Persistent GPU buffer + staging ring upload
 //      Allocated once during Init(), never touched again.
 //      vmm.AllocPersistent → vmm.StageToBuffer → vmm.FlushStaging
 //
-//  [2] Animated quad — TransientPool, rebuilt every frame
+//  [2] Animated quad - TransientPool, rebuilt every frame
 //      Vertex data is written directly into the mapped transient block.
 //      vmm.AllocTransient → VmmBuffer::Upload (zero-copy into mapped memory)
-//      The VkBuffer is shared — no vmaCreateBuffer every frame.
+//      The VkBuffer is shared - no vmaCreateBuffer every frame.
 //
-//  [3] Checkerboard texture — Persistent image + staging ring image upload
+//  [3] Checkerboard texture - Persistent image + staging ring image upload
 //      vmm.AllocPersistentImage → vmm.StageToImage → vmm.FlushStaging
 //      Bound as a combined image/sampler; quad samples it so it's visible.
 //
 //  Frame boundary:
-//      vmm.BeginFrame(frameIndex, absoluteFrame)  — resets transient slot
-//      vmm.EndFrame(frameIndex)                   — submits batched staging
+//      vmm.BeginFrame(frameIndex, absoluteFrame)  - resets transient slot
+//      vmm.EndFrame(frameIndex)                   - submits batched staging
 //
 //  Every 120 frames:
 //      vmm.LogStats()  →  VS Output window shows registry state + ring usage
 // =============================================================================
 
-namespace VulkanBaseplate::VMMExample {
+namespace VCK::VMMExample {
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Window
     // ─────────────────────────────────────────────────────────────────────────
     std::string title         = "VMMExample";
-    GLFWwindow* window        = nullptr;
-    int         window_width  = 1280;
-    int         window_height = 720;
-
-    bool     g_Resized      = false;
-    bool     g_Minimized    = false;
+    VCK::Window window;
+    int g_InitW = 1280;
+    int g_InitH = 720;
     uint32_t g_AbsoluteFrame = 0;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Vertex layout — position + uv + color
+    //  Vertex layout - position + uv + color
     //  All three drawn objects share this layout.  The triangle ignores uv;
     //  the quad uses uv for texture sampling and ignores color.
     // ─────────────────────────────────────────────────────────────────────────
@@ -60,7 +57,7 @@ namespace VulkanBaseplate::VMMExample {
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Per-frame UBO — identity matrices; the shaders don't transform
+    //  Per-frame UBO - identity matrices; the shaders don't transform
     // ─────────────────────────────────────────────────────────────────────────
     struct alignas(16) FrameUBO { float m[16]; };
 
@@ -84,7 +81,7 @@ namespace VulkanBaseplate::VMMExample {
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> set0Sets{};
     VkDescriptorSet                                   set1Set = VK_NULL_HANDLE;
 
-    // Per-frame UBO buffers — allocated through VMM as FrameBuffered resources
+    // Per-frame UBO buffers - allocated through VMM as FrameBuffered resources
     std::array<VmmBuffer, MAX_FRAMES_IN_FLIGHT> uboBuffers{};
 
     VulkanPipeline::ShaderInfo      shaders;
@@ -95,18 +92,18 @@ namespace VulkanBaseplate::VMMExample {
     // ─────────────────────────────────────────────────────────────────────────
     VulkanMemoryManager vmm;
 
-    // ── [1] Persistent triangle — uploaded once, never touched again ──────────
+    // ── [1] Persistent triangle - uploaded once, never touched again ──────────
     VmmBuffer g_TriangleVBO;          // GPU-only vertex buffer
     VmmBuffer g_TriangleIBO;          // GPU-only index buffer
     uint32_t  g_TriangleIndexCount = 0;
 
-    // ── [2] Animated quad — transient, rebuilt every frame ────────────────────
-    //  These are VmmBuffer views into the transient block — NOT independent allocs.
+    // ── [2] Animated quad - transient, rebuilt every frame ────────────────────
+    //  These are VmmBuffer views into the transient block - NOT independent allocs.
     VmmBuffer g_QuadVBO;              // valid for current frame only
     VmmBuffer g_QuadIBO;              // valid for current frame only
     uint32_t  g_QuadIndexCount = 0;
 
-    // ── [3] Persistent texture — VmmImage uploaded via staging ring ───────────
+    // ── [3] Persistent texture - VmmImage uploaded via staging ring ───────────
     VmmImage  g_Texture;
     VkSampler g_Sampler = VK_NULL_HANDLE;
 
@@ -124,28 +121,11 @@ namespace VulkanBaseplate::VMMExample {
         return buf;
     }
 
-    void HandleResize()
-    {
-        if (window_width == 0 || window_height == 0) return;
-        vkDeviceWaitIdle(device.GetDevice());
-        swapchain.Recreate(window_width, window_height);
-        framebuffers.Recreate(pipeline.GetRenderPass());
-    }
-
-    void OnFramebufferResize(GLFWwindow*, int w, int h)
-    {
-        window_width  = w;
-        window_height = h;
-        if (w == 0 || h == 0) { g_Minimized = true; return; }
-        g_Minimized = false;
-        g_Resized   = true;
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     //  BuildTransientQuad
     //
     //  Called every frame.  Writes new vertex data directly into the transient
-    //  block — no map/unmap, no allocation.  The quad corners oscillate on the
+    //  block - no map/unmap, no allocation.  The quad corners oscillate on the
     //  Y axis so the animation is visible.
     // ─────────────────────────────────────────────────────────────────────────
     void BuildTransientQuad(uint32_t frameIndex)
@@ -164,7 +144,7 @@ namespace VulkanBaseplate::VMMExample {
         const uint32_t indices[6] = { 0,1,2, 0,2,3 };
         g_QuadIndexCount = 6;
 
-        // ── VMM Layer 3 — AllocTransient ──────────────────────────────────────
+        // ── VMM Layer 3 - AllocTransient ──────────────────────────────────────
         //  Returns a view into the pre-allocated transient block for this slot.
         //  No VMA call, no allocation.  The cursor advances by sizeof(verts).
         g_QuadVBO = vmm.AllocTransient(frameIndex, "quad_vbo",
@@ -175,8 +155,8 @@ namespace VulkanBaseplate::VMMExample {
                                         sizeof(indices),
                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
-        // ── VmmBuffer::Upload — direct memcpy into mapped transient memory ─────
-        //  mapped ptr is (block base + claimed offset) — computed at Claim() time.
+        // ── VmmBuffer::Upload - direct memcpy into mapped transient memory ─────
+        //  mapped ptr is (block base + claimed offset) - computed at Claim() time.
         g_QuadVBO.Upload(verts,   sizeof(verts));
         g_QuadIBO.Upload(indices, sizeof(indices));
     }
@@ -186,20 +166,25 @@ namespace VulkanBaseplate::VMMExample {
     // ─────────────────────────────────────────────────────────────────────────
     void DrawFrame()
     {
-        if (g_Minimized || window_width == 0 || window_height == 0) return;
+        if (window.IsMinimized()) return;
 
-        if (g_Resized)
-        {
-            g_Resized = false;
-            HandleResize();
-            if (window_width == 0 || window_height == 0) return;
-        }
-
+        // Live resize: swapchain + framebuffers auto-rebuild when the
+        // OS fires a framebuffer-size change (720p -> 4K / DPI / drag).
+        VCK::HandleLiveResize(window, device, swapchain, framebuffers, pipeline);
         uint32_t frame = sync.GetCurrentFrameIndex();
+
+        // ── Wait for the previous cycle of this frame slot to finish ──────────
+        //  This MUST happen before we touch any per-slot resources:
+        //    • the transient block for this slot (reset by vmm.BeginFrame)
+        //    • per-frame UBO backing memory (written below)
+        //    • any overflow TransientFrame allocations from last cycle
+        //  Otherwise we would modify memory the GPU is still reading.
+        VkFence     fence      = sync.GetInFlightFence(frame);
+        VkSemaphore imageReady = sync.GetImageAvailableSemaphore(frame);
+        vkWaitForFences(device.GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX);
 
         // ── VMM frame start ───────────────────────────────────────────────────
         //  Resets the transient block for this slot (cursor → 0).
-        //  Retires ring space from the previous cycle of this slot.
         //  Frees any overflow TransientFrame registry entries from last cycle.
         vmm.BeginFrame(frame, g_AbsoluteFrame);
 
@@ -207,23 +192,18 @@ namespace VulkanBaseplate::VMMExample {
         BuildTransientQuad(frame);
 
         // ── Upload per-frame UBO ──────────────────────────────────────────────
-        //  uboBuffers are CPU_TO_GPU with persistent map — direct memcpy.
+        //  uboBuffers are CPU_TO_GPU with persistent map - direct memcpy.
         static const float kI[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
         FrameUBO ubo{};
         std::memcpy(ubo.m, kI, sizeof(kI));
         uboBuffers[frame].Upload(&ubo, sizeof(ubo));
 
         // ── Acquire swapchain image ───────────────────────────────────────────
-        VkFence     fence      = sync.GetInFlightFence(frame);
-        VkSemaphore imageReady = sync.GetImageAvailableSemaphore(frame);
-        vkWaitForFences(device.GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX);
-
         uint32_t imageIndex = 0;
         VkResult acq = vkAcquireNextImageKHR(device.GetDevice(), swapchain.GetSwapchain(),
                                               UINT64_MAX, imageReady, VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { HandleResize(); return; }
-        if (acq == VK_SUBOPTIMAL_KHR)          g_Resized = true;
-
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { return; }
+        (void)acq; // SUBOPTIMAL handled by HandleLiveResize next frame
         vkResetFences(device.GetDevice(), 1, &fence);
 
         // ── Record ────────────────────────────────────────────────────────────
@@ -260,12 +240,12 @@ namespace VulkanBaseplate::VMMExample {
             modelPipeline.GetPipelineLayout(), 0,
             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
-        // kI already declared above — reuse it for push constants
+        // kI already declared above - reuse it for push constants
         vkCmdPushConstants(cmd, modelPipeline.GetPipelineLayout(),
             VK_SHADER_STAGE_VERTEX_BIT, 0, 64, kI);
 
         // ── [2] Draw animated quad (transient VmmBuffers) ─────────────────────
-        //  g_QuadVBO.buffer is a raw VkBuffer — same API as any other buffer.
+        //  g_QuadVBO.buffer is a raw VkBuffer - same API as any other buffer.
         {
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &g_QuadVBO.buffer, &offset);
@@ -274,7 +254,7 @@ namespace VulkanBaseplate::VMMExample {
         }
 
         // ── [1] Draw static triangle (persistent VmmBuffer) ───────────────────
-        //  Same draw call pattern — VMM is transparent at the draw level.
+        //  Same draw call pattern - VMM is transparent at the draw level.
         {
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &g_TriangleVBO.buffer, &offset);
@@ -313,9 +293,7 @@ namespace VulkanBaseplate::VMMExample {
         present.pImageIndices      = &imageIndex;
 
         VkResult pres = vkQueuePresentKHR(device.GetPresentQueue(), &present);
-        if (pres == VK_ERROR_OUT_OF_DATE_KHR) HandleResize();
-        else if (pres == VK_SUBOPTIMAL_KHR)   g_Resized = true;
-
+        (void)pres; // live-resize picks up OUT_OF_DATE / SUBOPTIMAL next frame
         // ── VMM frame end ─────────────────────────────────────────────────────
         //  Submits any staging commands recorded this frame (none here since
         //  the static resources were uploaded and flushed during Init).
@@ -330,29 +308,25 @@ namespace VulkanBaseplate::VMMExample {
             vmm.LogStats();
     }
 
-    void OnWindowRefresh(GLFWwindow*) { DrawFrame(); }
+    void OnWindowRefresh() { DrawFrame(); }
 
     // =========================================================================
     //  Init
     // =========================================================================
     void Init()
     {
-        if (!glfwInit()) return;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
-
-        window = glfwCreateWindow(window_width, window_height, title.c_str(), nullptr, nullptr);
-        if (!window) { glfwTerminate(); return; }
-
-        glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-        glfwSetWindowRefreshCallback(window,   OnWindowRefresh);
-
-        HWND hwnd = glfwGetWin32Window(window);
+        VCK::WindowCreateInfo wci;
+        wci.width     = g_InitW;
+        wci.height    = g_InitH;
+        wci.title     = title;
+        wci.resizable = true;
+        if (!window.Create(wci)) return;
+        window.SetWindowRefreshCallback(OnWindowRefresh);
 
         // ── Core init (unchanged from any other example) ───────────────────────
-        context.Initialize(hwnd, title);
-        device.Initialize(context.GetInstance(), context.GetSurface());
-        swapchain.Initialize(device, context.GetSurface(), window_width, window_height);
+        context.Initialize(window, title);
+        device.Initialize(context);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
 
         shaders.VertexSpirv   = LoadSpv("./assets/vmm.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/vmm.frag.spv");
@@ -369,14 +343,20 @@ namespace VulkanBaseplate::VMMExample {
             { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, color)    },
         };
 
-        pipeline.Initialize(device, swapchain.GetImageFormat(), shaders, vertexInput);
+        pipeline.Initialize(device, swapchain, shaders, vertexInput);
         command.Initialize(device);
         sync.Initialize(device);
-        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput);
-        framebuffers.Initialize(device, swapchain, pipeline.GetRenderPass());
+        // IMPORTANT: the pipeline's render pass was auto-configured with MSAA
+        // (see cfg.aa / swapchain.GetMSAASamples()).  VulkanModelPipeline's
+        // default overload hardcodes 1x samples; if we use it with an MSAA
+        // render pass Vulkan rasterises to a sub-region of the attachment.
+        // Always forward swapchain.GetMSAASamples() explicitly.
+        modelPipeline.Initialize(device, pipeline.GetRenderPass(), shaders, vertexInput,
+                                 swapchain.GetMSAASamples());
+        framebuffers.Initialize(device, swapchain, pipeline);
 
-        // ── VMM LAYER 3 — Initialize ──────────────────────────────────────────
-        //  16 MB staging ring (smaller than default — fine for this example).
+        // ── VMM LAYER 3 - Initialize ──────────────────────────────────────────
+        //  16 MB staging ring (smaller than default - fine for this example).
         //  4 MB transient blocks per frame slot.
         VulkanMemoryManager::Config vmmCfg;
         vmmCfg.stagingRingSize    = 16 * 1024 * 1024;
@@ -391,17 +371,17 @@ namespace VulkanBaseplate::VMMExample {
                 { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1                    },
             });
 
-        // ── VMM LAYER 3 — AllocPersistent (UBO buffers via VMM raw path) ──────
+        // ── VMM LAYER 3 - AllocPersistent (UBO buffers via VMM raw path) ──────
         //  These are per-frame UBOs.  We use VmmRawAlloc directly here to show
-        //  Layer 1 explicitly — the VMM doesn't have a dedicated FrameBuffered
+        //  Layer 1 explicitly - the VMM doesn't have a dedicated FrameBuffered
         //  allocator path yet, so raw alloc + manual lifetime is the right choice.
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            // VMM LAYER 1 — VmmRawAlloc::CreateUniform
-            // CPU_TO_GPU + persistently mapped — no map/unmap per frame.
+            // VMM LAYER 1 - VmmRawAlloc::CreateUniform
+            // CPU_TO_GPU + persistently mapped - no map/unmap per frame.
             uboBuffers[i] = VmmRawAlloc::CreateUniform(device, sizeof(FrameUBO));
 
-            // VMM LAYER 2 — Register with Manual lifetime
+            // VMM LAYER 2 - Register with Manual lifetime
             // Registry knows it exists; caller is responsible for freeing.
             ResourceInfo info{ Lifetime::Manual, 0, i, "frame_ubo" };
             vmm.Registry().Register(uboBuffers[i], info);
@@ -423,15 +403,15 @@ namespace VulkanBaseplate::VMMExample {
             vkUpdateDescriptorSets(device.GetDevice(), 1, &w, 0, nullptr);
         }
 
-        // ── VMM LAYER 3 — AllocPersistent + StageToBuffer ────────────────────
+        // ── VMM LAYER 3 - AllocPersistent + StageToBuffer ────────────────────
         //  Static triangle: vertices and indices live on the GPU forever.
-        //  Data is pushed through the staging ring — one ring claim, one
+        //  Data is pushed through the staging ring - one ring claim, one
         //  batched vkCmdCopyBuffer, submitted via FlushStaging().
         {
             const Vertex triVerts[3] = {
-                {{  0.0f, -0.85f, 0.f }, { 0.5f, 0.f }, { 1.f, 0.2f, 0.2f, 1.f }},  // top    — red
-                {{ -0.4f, -0.35f, 0.f }, { 0.f,  1.f }, { 0.2f, 0.2f, 1.f, 1.f }},  // left   — blue
-                {{  0.4f, -0.35f, 0.f }, { 1.f,  1.f }, { 0.2f, 1.f, 0.2f, 1.f }},  // right  — green
+                {{  0.0f, -0.85f, 0.f }, { 0.5f, 0.f }, { 1.f, 0.2f, 0.2f, 1.f }},  // top    - red
+                {{ -0.4f, -0.35f, 0.f }, { 0.f,  1.f }, { 0.2f, 0.2f, 1.f, 1.f }},  // left   - blue
+                {{  0.4f, -0.35f, 0.f }, { 1.f,  1.f }, { 0.2f, 1.f, 0.2f, 1.f }},  // right  - green
             };
             const uint32_t triIdx[3] = { 0, 1, 2 };
             g_TriangleIndexCount = 3;
@@ -445,13 +425,13 @@ namespace VulkanBaseplate::VMMExample {
                 sizeof(triIdx),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-            // Stage data — copies into the ring, records vkCmdCopyBuffer,
+            // Stage data - copies into the ring, records vkCmdCopyBuffer,
             // defers submission until FlushStaging / EndFrame.
             vmm.StageToBuffer(g_TriangleVBO, triVerts, sizeof(triVerts));
             vmm.StageToBuffer(g_TriangleIBO, triIdx,   sizeof(triIdx));
         }
 
-        // ── VMM LAYER 3 — AllocPersistentImage + StageToImage ────────────────
+        // ── VMM LAYER 3 - AllocPersistentImage + StageToImage ────────────────
         //  Procedural 128x128 checkerboard texture uploaded through the ring.
         {
             constexpr uint32_t kW = 128, kH = 128, kTile = 8;
@@ -474,11 +454,11 @@ namespace VulkanBaseplate::VMMExample {
                 VK_IMAGE_ASPECT_COLOR_BIT);
 
             // StageToImage: transitions, copies from ring, transitions to
-            // SHADER_READ_ONLY_OPTIMAL — all recorded into the staging cmd.
+            // SHADER_READ_ONLY_OPTIMAL - all recorded into the staging cmd.
             vmm.StageToImage(g_Texture, pixels.data(),
                              static_cast<VkDeviceSize>(pixels.size()), kW, kH);
 
-            // Linear sampler — no mipmapping in this example
+            // Linear sampler - no mipmapping in this example
             VkSamplerCreateInfo sci{};
             sci.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
             sci.magFilter    = VK_FILTER_LINEAR;
@@ -491,14 +471,14 @@ namespace VulkanBaseplate::VMMExample {
             vkCreateSampler(device.GetDevice(), &sci, nullptr, &g_Sampler);
         }
 
-        // ── VMM LAYER 3 — FlushStaging ────────────────────────────────────────
+        // ── VMM LAYER 3 - FlushStaging ────────────────────────────────────────
         //  All StageToBuffer / StageToImage calls above are batched into one
         //  command buffer.  FlushStaging() ends it, submits it, and blocks until
-        //  the GPU is done — safe to use at init time before the render loop.
+        //  the GPU is done - safe to use at init time before the render loop.
         //  After this point the persistent buffers and texture are GPU-resident
         //  and the staging ring space is fully retired.
         vmm.FlushStaging();
-        LogVk("VMMExample: FlushStaging complete — persistent resources on GPU");
+        VCKLog::Info("VMMExample", "FlushStaging complete - persistent resources on GPU");
 
         // Wire texture into set 1
         set1Set = descAllocator.Allocate(modelPipeline.GetSet1Layout());
@@ -517,28 +497,28 @@ namespace VulkanBaseplate::VMMExample {
         imgWrite.pImageInfo      = &imgInfo;
         vkUpdateDescriptorSets(device.GetDevice(), 1, &imgWrite, 0, nullptr);
 
-        // Log initial registry state — shows 2 buffers (triangle vbo/ibo),
+        // Log initial registry state - shows 2 buffers (triangle vbo/ibo),
         // 1 image (checker_texture), and 2 Manual UBOs.
         vmm.LogStats();
     }
 
     // =========================================================================
-    //  Shutdown  —  VMM before command/device
+    //  Shutdown  -  VMM before command/device
     // =========================================================================
     void Shutdown()
     {
         vkDeviceWaitIdle(device.GetDevice());
 
-        // ── VMM LAYER 1 — manually free the UBOs (registered as Manual) ───────
+        // ── VMM LAYER 1 - manually free the UBOs (registered as Manual) ───────
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
             VmmRawAlloc::FreeBuffer(device, uboBuffers[i]);
 
-        // ── VMM LAYER 3 — Shutdown frees all Persistent registry entries ───────
+        // ── VMM LAYER 3 - Shutdown frees all Persistent registry entries ───────
         //  This frees g_TriangleVBO, g_TriangleIBO, g_Texture (via registry),
         //  and the staging ring and transient blocks directly.
         vmm.Shutdown();
 
-        // Sampler is not VMM-managed (it's not a buffer or image) — free manually
+        // Sampler is not VMM-managed (it's not a buffer or image) - free manually
         if (g_Sampler) vkDestroySampler(device.GetDevice(), g_Sampler, nullptr);
 
         descAllocator.Shutdown();
@@ -552,8 +532,7 @@ namespace VulkanBaseplate::VMMExample {
         device.Shutdown();
         context.Shutdown();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window.Destroy();
     }
 
     // =========================================================================
@@ -562,13 +541,13 @@ namespace VulkanBaseplate::VMMExample {
     void Run()
     {
         Init();
-        while (!glfwWindowShouldClose(window))
+        while (!window.ShouldClose())
         {
-            if (g_Minimized) { glfwWaitEvents(); continue; }
-            glfwPollEvents();
+            if (window.IsMinimized()) { window.WaitEvents(); continue; }
+            window.PollEvents();
             DrawFrame();
         }
         Shutdown();
     }
 
-} // namespace VulkanBaseplate::VMMExample
+} // namespace VCK::VMMExample

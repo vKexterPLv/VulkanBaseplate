@@ -1,0 +1,207 @@
+name: Build (Windows + Linux + macOS)
+
+on:
+  push:
+    branches: [main, base, VCK]
+  pull_request:
+    branches: [main, base, VCK]
+  workflow_dispatch:
+
+# Cancel stale runs when a branch gets a new push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# All jobs use the same flow: install Vulkan SDK + Ninja + a C++ compiler,
+# then `cmake -S example -B build -G Ninja && cmake --build build -j`.
+# example/CMakeLists.txt is the single source of truth for what gets built;
+# GLFW is fetched via CMake's FetchContent on Windows and from the system
+# package on Linux + macOS.  vendor/vma/ ships the VMA header in-repo.
+# Vulkan-Headers (vulkan-sdk-1.4.321.0) is fetched by CMake too, so the
+# vk_video/* sparse-checkout dance from the previous workflow is gone.
+
+jobs:
+  # ---------------------------------------------------------------------------
+  #  Windows / MinGW (g++ + Ninja).  windows-latest ships MSYS2; we just
+  #  prepend the mingw64 bin directory to PATH so cmake picks g++.
+  # ---------------------------------------------------------------------------
+  windows-mingw:
+    name: cmake + ninja (Windows / MinGW g++)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.290.0
+          install_runtime: true
+          cache: false
+          stripdown: false
+
+      - name: Add MinGW-w64 g++ to PATH
+        run: echo C:\msys64\mingw64\bin>>%GITHUB_PATH%
+
+      - name: Verify toolchain
+        run: |
+          where g++
+          where cmake
+          where ninja || choco install ninja -y --no-progress
+          where ninja
+          where glslangValidator
+          g++ --version
+          cmake --version
+          ninja --version
+
+      - name: Configure
+        run: >
+          cmake -S example -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc
+          -DCMAKE_CXX_COMPILER=g++
+
+      - name: Build all examples + R14 tests
+        run: cmake --build build -j --target examples vck_tests
+
+      - name: Run R14 tests
+        run: ctest --test-dir build --output-on-failure -j
+
+  # ---------------------------------------------------------------------------
+  #  Windows / MSVC (cl + Ninja).  ilammy/msvc-dev-cmd loads vcvars64 so
+  #  cmake -G Ninja autodetects cl + lib + link.
+  # ---------------------------------------------------------------------------
+  windows-msvc:
+    name: cmake + ninja (Windows / MSVC cl)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC env (cl, lib, link on PATH)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.290.0
+          install_runtime: true
+          cache: false
+          stripdown: false
+
+      - name: Verify toolchain
+        run: |
+          where cl
+          where lib
+          where link
+          where cmake
+          where ninja || choco install ninja -y --no-progress
+          where ninja
+          where glslangValidator
+          cl 2>&1 | findstr /R /C:"Microsoft.*Compiler"
+          cmake --version
+          ninja --version
+
+      - name: Configure
+        run: cmake -S example -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build all examples + R14 tests
+        run: cmake --build build -j --target examples vck_tests
+
+      - name: Run R14 tests
+        run: ctest --test-dir build --output-on-failure -j
+
+  # ---------------------------------------------------------------------------
+  #  Linux / Ubuntu (g++ + Ninja).  apt covers everything; libvulkan-dev's
+  #  vk_video gap is bypassed because example/CMakeLists.txt fetches the
+  #  matching Vulkan-Headers tag itself.
+  # ---------------------------------------------------------------------------
+  linux:
+    name: cmake + ninja (Linux / Ubuntu g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Vulkan, GLFW, glslang, cmake, ninja, g++)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
+            pkg-config g++ cmake ninja-build
+
+      - name: Verify toolchain
+        run: |
+          which g++ cmake ninja glslangValidator
+          g++ --version
+          cmake --version
+          ninja --version
+          pkg-config --modversion vulkan
+          pkg-config --modversion glfw3
+
+      - name: Configure
+        run: cmake -S example -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build all examples + R14 tests
+        run: cmake --build build -j --target examples vck_tests
+
+      - name: Run R14 tests
+        run: ctest --test-dir build --output-on-failure -j
+
+  # ---------------------------------------------------------------------------
+  #  macOS (clang++ + MoltenVK + Ninja).  Homebrew covers everything; the
+  #  CMake build links against vulkan-loader (Vulkan::Vulkan) which on macOS
+  #  resolves to libvulkan.dylib that wraps MoltenVK at runtime.  CI does
+  #  not run the GUI examples - they would need a Metal-capable display -
+  #  but compile + link succeeds and the headless R14 harness exits 0.
+  # ---------------------------------------------------------------------------
+  macos:
+    name: cmake + ninja (macOS / clang++ + MoltenVK)
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Vulkan, GLFW, glslang, MoltenVK, cmake, ninja)
+        run: |
+          brew install -q vulkan-headers vulkan-loader glfw glslang molten-vk \
+                          pkg-config cmake ninja
+
+      - name: Export Vulkan SDK env
+        run: |
+          PFX="$(brew --prefix)"
+          {
+            echo "PKG_CONFIG_PATH=$PFX/opt/vulkan-headers/share/pkgconfig:$PFX/opt/vulkan-loader/lib/pkgconfig:$PFX/opt/glfw/lib/pkgconfig:$PFX/opt/glslang/lib/pkgconfig:$PFX/lib/pkgconfig"
+            echo "VK_ICD_FILENAMES=$(brew --prefix molten-vk)/share/vulkan/icd.d/MoltenVK_icd.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify toolchain
+        run: |
+          which clang++ cmake ninja
+          which glslangValidator || which glslang || true
+          clang++ --version
+          cmake --version
+          ninja --version
+          pkg-config --modversion vulkan || pkg-config --modversion vulkan-headers
+          pkg-config --modversion glfw3
+
+      - name: Configure
+        env:
+          CC:  clang
+          CXX: clang++
+        run: cmake -S example -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build all examples + R14 tests
+        run: cmake --build build -j --target examples vck_tests
+
+      - name: Run R14 tests
+        run: ctest --test-dir build --output-on-failure -j
