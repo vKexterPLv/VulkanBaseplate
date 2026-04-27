@@ -26,9 +26,9 @@ setlocal EnableExtensions EnableDelayedExpansion
 ::
 ::  Menu / non-interactive forms:
 ::    build.bat            - interactive menu
-::    build.bat A          - build all 13 examples
+::    build.bat A          - build all 14 examples
 ::    build.bat T          - build + run the R14 unit-test harness
-::    build.bat 1..13      - build a single example by number
+::    build.bat 1..14      - build a single example by number
 ::    build.bat 0          - exit
 :: =============================================================================
 
@@ -87,6 +87,7 @@ echo.
 echo  %C_BOLD%%C_WHT%Mostly VCK%C_RESET%              %C_DIM%(ergonomic API does the work)%C_RESET%
 echo    %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
 echo    %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
+echo    %C_YEL%[14]%C_RESET% %C_WHT%ShaderToolingExample%C_RESET%        ShaderLoader / Watcher / SpecConstants / Stage / Interface
 echo.
 echo    %C_YEL%[A]%C_RESET%  %C_BOLD%Build all%C_RESET%
 echo    %C_YEL%[T]%C_RESET%  %C_BOLD%R14 unit-test harness (build + run)%C_RESET%
@@ -123,9 +124,10 @@ if "%CHOICE%"=="10" set "TARGET=TimelineExample"
 if "%CHOICE%"=="11" set "TARGET=SchedulerPolicyExample"
 if "%CHOICE%"=="12" set "TARGET=HelloExample"
 if "%CHOICE%"=="13" set "TARGET=EasyCubeExample"
+if "%CHOICE%"=="14" set "TARGET=ShaderToolingExample"
 
 if "%TARGET%"=="" (
-    call :ERR "unknown selection '%CHOICE%'.  Pick 1-13, A, T, or 0."
+    call :ERR "unknown selection '%CHOICE%'.  Pick 1-14, A, T, or 0."
     exit /b 1
 )
 

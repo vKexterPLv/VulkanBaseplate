@@ -246,6 +246,7 @@ add_example(TimelineExample            TimelineExample              TimelineExam
 add_example(SchedulerPolicyExample     SchedulerPolicyExample       SchedulerPolicyExample)
 add_example(HelloExample               HelloExample                 hello)
 add_example(EasyCubeExample            EasyCubeExample              easycube)
+add_example(ShaderToolingExample       ShaderToolingExample         shadertool)
 
 # ---------------------------------------------------------------------------
 #  R14 unit-test harness  (tests/*.cpp - links against vck)
@@ -280,5 +281,6 @@ add_custom_target(examples
         SchedulerPolicyExample
         HelloExample
         EasyCubeExample
-    COMMENT "Build all 13 VCK examples"
+        ShaderToolingExample
+    COMMENT "Build all 14 VCK examples"
 )

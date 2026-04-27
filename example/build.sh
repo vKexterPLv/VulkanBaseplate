@@ -21,9 +21,9 @@
 #
 #  Menu / non-interactive forms:
 #    ./build.sh            - interactive menu
-#    ./build.sh A          - build all 13 examples
+#    ./build.sh A          - build all 14 examples
 #    ./build.sh T          - build + run the R14 unit-test harness
-#    ./build.sh 1..13      - build a single example by number
+#    ./build.sh 1..14      - build a single example by number
 #    ./build.sh 0          - exit
 # =============================================================================
 
@@ -78,7 +78,8 @@ if [ -z "${CHOICE}" ]; then
     printf "   ${C_YEL}[11]${C_RESET} ${C_WHT}SchedulerPolicyExample${C_RESET}      Pipelined / AsyncMax policies\n\n"
     printf " ${C_BOLD}${C_WHT}Mostly VCK${C_RESET}              ${C_DIM}(ergonomic API does the work)${C_RESET}\n"
     printf "   ${C_YEL}[12]${C_RESET} ${C_WHT}HelloExample${C_RESET}                minimal FrameScheduler + triangle\n"
-    printf "   ${C_YEL}[13]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath\n\n"
+    printf "   ${C_YEL}[13]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath\n"
+    printf "   ${C_YEL}[14]${C_RESET} ${C_WHT}ShaderToolingExample${C_RESET}        ShaderLoader / Watcher / SpecConstants / Stage / Interface\n\n"
     printf "   ${C_YEL}[A]${C_RESET}  ${C_BOLD}Build all${C_RESET}\n"
     printf "   ${C_YEL}[T]${C_RESET}  ${C_BOLD}R14 unit-test harness (build + run)${C_RESET}\n"
     printf "   ${C_YEL}[0]${C_RESET}  ${C_DIM}Exit${C_RESET}\n\n"
@@ -104,5 +105,6 @@ case "${CHOICE}" in
     11)       configure_once; cmake --build "${BUILD_DIR}" -j --target SchedulerPolicyExample ;;
     12)       configure_once; cmake --build "${BUILD_DIR}" -j --target HelloExample ;;
     13)       configure_once; cmake --build "${BUILD_DIR}" -j --target EasyCubeExample ;;
-    *)        err "unknown selection '${CHOICE}'.  Pick 1-13, A, T, or 0." ;;
+    14)       configure_once; cmake --build "${BUILD_DIR}" -j --target ShaderToolingExample ;;
+    *)        err "unknown selection '${CHOICE}'.  Pick 1-14, A, T, or 0." ;;
 esac
