@@ -13,9 +13,12 @@
 #pragma once
 // Note: VCK.h is already included before this file.
 
+#include <filesystem>
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace VCK {
 
@@ -762,6 +765,11 @@ class PushConstants
 public:
     PushConstants& Declare(const char* name, PushConstType t);
 
+    // Array overload.  Reserves count * sizeof(type) bytes at the next
+    // offset.  Use SetRaw() to update array elements - the typed Set()
+    // overloads target single-element slots only.
+    PushConstants& Declare(const char* name, PushConstType t, uint32_t count);
+
     PushConstants& Set(const char* name, float v);
     PushConstants& Set(const char* name, const Vec2& v);
     PushConstants& Set(const char* name, const Vec3& v);
@@ -769,6 +777,11 @@ public:
     PushConstants& Set(const char* name, const Mat4& v);
     PushConstants& Set(const char* name, int32_t v);
     PushConstants& Set(const char* name, uint32_t v);
+
+    // Raw escape hatch.  `size` must match the declared slot's byte size
+    // exactly.  Returns false + VCKLog::Error on unknown name or size
+    // mismatch.  Use for arrays or types the typed Set() overloads don't cover.
+    bool SetRaw(const char* name, const void* data, uint32_t size);
 
     // Total size of the declared block, in bytes.
     uint32_t Size() const { return static_cast<uint32_t>(m_Buffer.size()); }
@@ -825,6 +838,220 @@ namespace Primitives
     Mesh Quad  ();
     Mesh Line  (const Vec3& a, const Vec3& b);
 } // namespace Primitives
+
+
+// =============================================================================
+// [26] ShaderLoader
+//
+//  Owns SPIR-V loading so users never write their own file reader.  Produces
+//  a VulkanPipeline::ShaderInfo directly.  No GPU state - safe to default
+//  construct, costs zero until LoadFromFile / LoadFromGLSL is called (R19).
+// =============================================================================
+class ShaderLoader
+{
+public:
+    // Load pre-compiled SPIR-V from a .spv file.
+    // Returns false + VCKLog::Error on file open failure.
+    // Stage must be VK_SHADER_STAGE_VERTEX_BIT or _FRAGMENT_BIT.
+    bool LoadFromFile(const std::string& path, VkShaderStageFlagBits stage);
+
+    // Compile GLSL at runtime via glslangValidator on PATH.  Debug-only
+    // helper - never call in shipping builds.  Returns false + VCKLog::Error
+    // when glslangValidator is missing or compilation fails.
+    bool LoadFromGLSL(const std::string& glslPath, VkShaderStageFlagBits stage);
+
+    // Returns a ShaderInfo ready to pass to VulkanPipeline::Initialize.
+    // Both vert + frag must be loaded; pipeline init validates that.
+    VulkanPipeline::ShaderInfo GetShaderInfo() const;
+
+    // Escape hatch - raw SPIR-V words for a specific stage (R9).
+    const std::vector<uint32_t>& GetSpirv(VkShaderStageFlagBits stage) const;
+
+    void Clear();
+
+private:
+    std::vector<uint32_t> m_VertSpirv;
+    std::vector<uint32_t> m_FragSpirv;
+};
+
+
+// =============================================================================
+// [27] ShaderWatcher
+//
+//  Polls .spv timestamps each frame.  Zero cost when nothing changed - just
+//  a timestamp compare per file (R19).  Conceptually debug-only; the user
+//  is expected to instantiate it only when cfg.debug == true.  No GPU state.
+// =============================================================================
+class ShaderWatcher
+{
+public:
+    // Register a .spv file to watch; stores stage + baseline last_write_time.
+    // Returns false + VCKLog::Error if the file does not exist.
+    bool Watch(const std::string& path, VkShaderStageFlagBits stage);
+
+    // Compare last_write_time for every watched file.  Sets the changed
+    // flag when any file is newer.  Filesystem errors log VCKLog::Warn
+    // and return false (never throws).  Cheap branch when nothing moved.
+    bool HasChanged();
+
+    // Reload all watched files into internal SPIR-V storage.  Call after
+    // HasChanged() returned true.  Returns false + VCKLog::Error if any
+    // file fails to read.
+    bool Reload();
+
+    // Reset the internal "changed" flag after the pipeline rebuilt.
+    void ResetChanged();
+
+    // ShaderInfo built from the last successful Reload().
+    VulkanPipeline::ShaderInfo GetShaderInfo() const;
+
+    // Escape hatch - raw SPIR-V words for a stage (R9).
+    const std::vector<uint32_t>& GetSpirv(VkShaderStageFlagBits stage) const;
+
+    void Shutdown();
+
+private:
+    struct WatchedFile
+    {
+        std::string                     path;
+        VkShaderStageFlagBits           stage;
+        std::filesystem::file_time_type lastWriteTime;
+        std::vector<uint32_t>           spirv;
+    };
+    std::vector<WatchedFile> m_Files;
+    bool                     m_Changed = false;
+};
+
+
+// =============================================================================
+// [28] SpecConstants
+//
+//  Builder around VkSpecializationInfo + VkSpecializationMapEntry arrays so
+//  the user never touches them.  Pass GetInfo() to a VulkanPipeline::Config
+//  field (vertSpecialization / fragSpecialization) or directly to
+//  VkPipelineShaderStageCreateInfo::pSpecializationInfo.
+// =============================================================================
+class SpecConstants
+{
+public:
+    // Setting the same constantID twice overwrites the previous value.
+    // Stored types: uint32_t / int32_t / float; bool is stored as 0/1 uint32.
+    SpecConstants& Set(uint32_t constantID, uint32_t value);
+    SpecConstants& Set(uint32_t constantID, int32_t  value);
+    SpecConstants& Set(uint32_t constantID, float    value);
+    SpecConstants& Set(uint32_t constantID, bool     value);
+
+    // Returns a VkSpecializationInfo pointing into internal storage.
+    // Valid until the next Set() / Clear() / destruction.  Returns nullptr
+    // when no constants have been set.
+    const VkSpecializationInfo* GetInfo() const;
+
+    bool HasConstants() const { return !m_Entries.empty(); }
+
+    void Clear();
+
+private:
+    void Rebuild() const;
+
+    std::vector<VkSpecializationMapEntry> m_Entries;
+    std::vector<uint8_t>                  m_Data;
+    mutable VkSpecializationInfo          m_Info{};
+};
+
+
+// =============================================================================
+// [29] ShaderStage
+//
+//  Per-stage declaration: vertex inputs (vertex stage only), push constants
+//  (shared across all stages of a ShaderInterface), and descriptor binding
+//  declarations.  Pure data - no Vulkan objects.
+// =============================================================================
+class ShaderStage
+{
+public:
+    explicit ShaderStage(VkShaderStageFlagBits stage);
+
+    // Vertex input attributes.  Only meaningful for VK_SHADER_STAGE_VERTEX_BIT;
+    // calling on other stages is harmless (the layout is just ignored).
+    VertexLayout&  Vertex();
+
+    // Push constant declarations.  Vulkan requires push constants to be
+    // identical across stages within a pipeline; ShaderInterface merges
+    // these into a single shared block.
+    PushConstants& Push();
+
+    ShaderStage& Uniform(uint32_t set, uint32_t binding);
+    ShaderStage& Sampler(uint32_t set, uint32_t binding);
+    ShaderStage& Storage(uint32_t set, uint32_t binding);
+
+    VkShaderStageFlagBits Stage()     const { return m_Stage; }
+    const VertexLayout&   GetVertex() const { return m_Vertex; }
+    const PushConstants&  GetPush()   const { return m_Push;   }
+
+    struct BindingDecl
+    {
+        uint32_t              set;
+        uint32_t              binding;
+        VkDescriptorType      type;
+        VkShaderStageFlagBits stage;
+    };
+    const std::vector<BindingDecl>& GetBindings() const { return m_Bindings; }
+
+private:
+    VkShaderStageFlagBits    m_Stage;
+    VertexLayout             m_Vertex;
+    PushConstants            m_Push;
+    std::vector<BindingDecl> m_Bindings;
+};
+
+
+// =============================================================================
+// [30] ShaderInterface
+//
+//  Combines multiple ShaderStage objects into a unified interface that drives
+//  pipeline creation, descriptor layout building, and push constant
+//  application from one declaration.  No GPU objects except the ones
+//  BuildSetLayout creates and hands back to the caller (R10).
+// =============================================================================
+class ShaderInterface
+{
+public:
+    explicit ShaderInterface(std::initializer_list<ShaderStage> stages);
+    explicit ShaderInterface(std::vector<ShaderStage>           stages);
+
+    // Pulls Bindings[0] / Attributes[0] from the vertex stage's VertexLayout.
+    VulkanPipeline::VertexInputInfo VertexInput() const;
+
+    // Pre-fills pushConstantRanges from the merged push block.  Caller adds
+    // cullMode, blend, descriptor set layouts, etc.
+    VulkanPipeline::Config PipelineConfig() const;
+
+    // Builds a VkDescriptorSetLayout for `setIndex` from every stage's
+    // BindingDecl matching that set.  Caller owns the returned layout -
+    // destroy with vkDestroyDescriptorSetLayout at shutdown.
+    // Returns VK_NULL_HANDLE + VCKLog::Error on failure.
+    VkDescriptorSetLayout BuildSetLayout(VulkanDevice& device,
+                                          uint32_t      setIndex) const;
+
+    // Shared push constants - same object every call, populated by merging
+    // each stage's Push() during construction.
+    PushConstants& Push();
+
+    const std::vector<ShaderStage>& Stages() const { return m_Stages; }
+
+private:
+    std::vector<ShaderStage> m_Stages;
+    PushConstants            m_SharedPush;
+};
+
+
+// Convenience: applies one SpecConstants to both vertex and fragment stages.
+inline void ApplyToConfig(const SpecConstants& spec,
+                          VulkanPipeline::Config& cfg)
+{
+    cfg.vertSpecialization = spec.GetInfo();
+    cfg.fragSpecialization = spec.GetInfo();
+}
 
 
 // =============================================================================

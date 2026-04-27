@@ -432,7 +432,7 @@
 //  Header         : VCKExpansion.h
 //  Implementation : VCKExpansion.cpp
 //
-//  CLASSES  (15)
+//  CLASSES  (20)
 //  ─────────────
 //  [1]  VulkanOneTimeCommand          - one-shot GPU command using the existing pool
 //  [2]  VulkanFramebufferSet          - per-swapchain-image VkFramebuffers
@@ -449,6 +449,11 @@
 //  [23] VertexLayout                  - named vertex-input builder (VkVertex* structs)
 //  [24] PushConstants                 - named push-constant block (Declare / Set / Apply)
 //  [25] Primitives                    - Cube / Plane / Sphere / Quad / Line mesh builders
+//  [26] ShaderLoader                  - loads SPIR-V from .spv files, optional GLSL via glslangValidator
+//  [27] ShaderWatcher                 - polls .spv timestamps for hot reload (debug-only)
+//  [28] SpecConstants                 - VkSpecializationInfo builder (specialization constants)
+//  [29] ShaderStage                   - per-stage VertexLayout / PushConstants / binding declaration
+//  [30] ShaderInterface               - merges ShaderStages into pipeline cfg + descriptor layouts
 //
 //  (Numbers [13]-[22] are used by the execution layer - see below.)
 //
