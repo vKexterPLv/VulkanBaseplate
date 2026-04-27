@@ -28,7 +28,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(vck_examples
-    VERSION     0.3.1
+    VERSION     0.4.0
     LANGUAGES   CXX
     DESCRIPTION "VCK Vulkan Core Kit - examples + R14 test harness"
 )
