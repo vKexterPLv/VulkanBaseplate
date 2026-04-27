@@ -61,3 +61,6 @@ VCK.wiki/
 
 # Local configs
 *.local
+
+# glslangValidator outputs - regenerated on every build, version-dependent
+example/*/assets/*.spv
