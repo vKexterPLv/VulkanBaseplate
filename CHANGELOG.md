@@ -15,7 +15,7 @@ All notable changes to VCK are documented here. Format: [Keep a Changelog](https
 
 v0.3.3 is a test-harness fix release on top of v0.3.2 — no library code changed, no behaviour change. If your tree was on v0.3.2 with green CI on PR #8, you don't need to take this; it only matters for the maintainer's `a9f3e92` "Moar tests" commit that landed post-merge.
 
-## [0.3.2] - 2026-04-22
+## [0.3.2] - 2026-04-27
 
 ### Fixed
 
@@ -35,7 +35,7 @@ v0.3.3 is a test-harness fix release on top of v0.3.2 — no library code change
 - CHANGELOG, VCK.h header block, and `docs/*.md` resynced to v0.3.2 state.
 - Wiki tarball rebuilt: `VCK.wiki.v0.3.2.tar.gz`.
 
-## [0.3.1] - 2026-04-22
+## [0.3.1] - 2026-04-27
 
 ### Build (cmake migration, PR #7)
 - **CMake + Ninja replaces `build.bat` / `build.sh` as the canonical build path.** `example/CMakeLists.txt` is now the single source of truth for all 4 platforms (Windows MinGW, Windows MSVC, Linux, macOS). Auto-detects `cl` from a Developer Cmd Prompt or `g++` / `clang++` from `PATH` — no `--toolchain` flag.
@@ -59,7 +59,7 @@ v0.3.3 is a test-harness fix release on top of v0.3.2 — no library code change
 - **Cookbook expanded to 24 recipes** — added recipes 12-24 covering compute dispatch, GPU particles, indirect draw, async compute, shadow mapping, skybox / cubemap, PBR Cook-Torrance + IBL, deferred shading, HDR + tonemapping, bloom, shader hot-reload, GPU picking, and frustum culling. Cookbook now covers most rule-16 gaps (things VCK explicitly refuses to ship but every renderer ends up needing). Doc-only.
 - **Linux + macOS build noise silenced** — `example/build.sh` now compiles with `-w -Werror=return-type` (matching `build.bat`'s silent-on-warnings behaviour); VMA single-header impl, GLFW Cocoa deprecations on macOS, and `vulkan_core.h` `-Wmissing-field-initializers` no longer surface as user-visible warnings. CI Linux + macOS jobs gain `apt-get -qq` / `brew install -q` flags so the workflow log isn't dominated by `Get:` / `Setting up:` / `Suggested:` lines from package install.
 
-## [0.3.0] - 2026-04-24
+## [0.3.0] - 2026-04-26
 
 v0.3 is a synchronisation-layer release. The runtime no longer calls
 `vkDeviceWaitIdle` outside `Shutdown`; frame retirement is consolidated on
@@ -92,7 +92,7 @@ is scheduler-aware; and secondary command buffers are supported.
 - **VMM fallback path missing `VK_CHECK`** — fence-creation-failed branch submitted without the standard `VK_CHECK` wrapper, silently dropping `VK_ERROR_OUT_OF_DEVICE_MEMORY` / friends (rule 14).
 - **Stale acquire barriers on failed transfer submit** — if the transfer submit failed the CPU-side acquire barrier list would still run on the graphics queue with `oldLayout = TRANSFER_DST_OPTIMAL` on images actually still `UNDEFINED`. The acquire list is now cleared when the release submit fails.
 
-## [0.2.1] - 2026-04-23
+## [0.2.1] - 2026-04-24
 
 ### Added
 - **Rules 18-22** in `docs/Design.md`:
@@ -239,7 +239,7 @@ cross-platform support lands in v0.2.0.
 - **`HelloExample`** — quad winding flipped so the embedded "Hello,
   World" text isn't back-face culled.
 
-## [0.0.x] - 2026-04 (pre-rebrand prehistory)
+## [0.0.x] - 2026-04-05 → 2026-04-21 (pre-rebrand prehistory)
 
 The original project was named **VVCS** (Vulkan-VCS). These commits are
 preserved in git history but never shipped under the VCK name; they're
