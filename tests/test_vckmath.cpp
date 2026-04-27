@@ -125,7 +125,7 @@ TEST(VCKMath_Mat4, identity_times_identity_is_identity)
     VCK::Mat4 R = I * I;
     for (int col = 0; col < 4; ++col)
         for (int row = 0; row < 4; ++row)
-            ASSERT_TRUE(Near(R.m[col][row], (col == row) ? 1.f : 0.f));
+            ASSERT_TRUE(Near(R.At(row, col), (col == row) ? 1.f : 0.f));
 }
 
 TEST(VCKMath_Mat4, translate_moves_point)
@@ -159,7 +159,7 @@ TEST(VCKMath_Mat4, transpose_of_identity_is_identity)
     VCK::Mat4 T = VCK::Transpose(I);
     for (int col = 0; col < 4; ++col)
         for (int row = 0; row < 4; ++row)
-            ASSERT_TRUE(Near(T.m[col][row], (col == row) ? 1.f : 0.f));
+            ASSERT_TRUE(Near(T.At(row, col), (col == row) ? 1.f : 0.f));
 }
 
 TEST(VCKMath_Mat4, rotate_90_around_y_maps_x_to_neg_z)
@@ -187,12 +187,13 @@ TEST(VCKMath_Mat4, perspective_w_component_from_z)
 
 TEST(VCKMath_Mat4, lookat_z_axis_points_to_target)
 {
-    // LookAt: camera at origin looking at (0,0,-1). Forward in view space = +Z.
+    // VCK is right-handed: camera looks down -Z (matches Perspective which
+    // negates z into w).  Target one unit ahead at world (0,0,-1) lands in
+    // view space at z = -1.
     VCK::Mat4 V = VCK::LookAt({0,0,0}, {0,0,-1}, {0,1,0});
     VCK::Vec4 target{0, 0, -1, 1};
     VCK::Vec4 r = V * target;
-    // In view space the target should be at positive Z (in front)
-    ASSERT_TRUE(r.z > 0.f);
+    ASSERT_TRUE(Near(r.z, -1.f, 1e-4f));
 }
 
 // ---------------------------------------------------------------------------
