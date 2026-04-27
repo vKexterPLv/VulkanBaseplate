@@ -1,44 +1,40 @@
 @echo off
-setlocal enabledelayedexpansion
-
-:: Switch the console to UTF-8 so em-dashes, box-drawing chars, and other
-:: non-ASCII printed by glslang / g++ / our own echo lines don't render as
-:: cp850 mojibake (e.g. "ÔÇö" in place of "-").
-chcp 65001 >nul 2>&1
+setlocal EnableExtensions EnableDelayedExpansion
 
 :: =============================================================================
-::  VCK example builder
+::  VCK example builder (Windows)
 :: =============================================================================
-::  Run from the repo's example\ folder.  Requires:
-::    - VULKAN_SDK env var pointing at your Vulkan SDK root
-::    - glslangValidator on PATH  (ships with the SDK)
-::    - g++ on PATH               (MinGW-w64)
-::    - vendor\glfw, vendor\vma populated (source headers, commit in repo)
-::    - example\deps\libglfw3.a   (Windows pre-compiled, download only)
+::  Run from the repo's example\ folder.  This script is a thin wrapper around
+::  CMake + Ninja - the heavy lifting (lib-once compile model, MSVC vs MinGW
+::  detection, GLFW + Vulkan-Headers fetch, GLSL -> SPIR-V) lives in
+::  example\CMakeLists.txt.  We only do two things here:
 ::
-::  Dependency layout:
-::    vendor\                         (VCK's own source deps - in repo)
-::      vma\vk_mem_alloc.h                      (AMD VMA allocator header)
-::      glfw\include\GLFW\glfw3.h               (GLFW C API)
-::      glfw\include\GLFW\glfw3native.h
-::      vulkan_headers\vulkan\*.h               (Vulkan SDK headers mirror)
-::    example\
-::      deps\
-::        libglfw3.a                            (Windows pre-compiled lib)
+::    1. Configure once     -> cmake -S . -B build -G Ninja
+::    2. Build by menu pick -> cmake --build build -j --target <Name>
 ::
-::  GLFW lib: download the "Windows pre-compiled binaries" from
-::        https://www.glfw.org and copy
-::        lib-mingw-w64\libglfw3.a → example\deps\libglfw3.a
+::  Toolchain selection is automatic: Ninja picks whichever C++ compiler is on
+::  PATH.  Run from a Developer Command Prompt (cl + lib + link on PATH) and
+::  Ninja uses MSVC; otherwise MinGW-w64's g++ is picked up from MSYS2's
+::  C:\msys64\mingw64\bin or from PATH.  No more --toolchain flag, no more
+::  cmd-batch arg-parsing quirks.
 ::
-::  Linux / macOS: use example\build.sh instead - it pulls GLFW/Vulkan
-::        via pkg-config, no vendor\glfw or example\deps needed.
+::  Requirements:
+::    - VULKAN_SDK env var pointing at the Vulkan SDK root
+::    - cmake 3.20+ + ninja on PATH
+::    - either MSVC cl on PATH (Developer Cmd Prompt) or MinGW g++ on PATH
+::    - glslangValidator on PATH (ships with the Vulkan SDK)
+::
+::  Menu / non-interactive forms:
+::    build.bat            - interactive menu
+::    build.bat A          - build all 13 examples
+::    build.bat T          - build + run the R14 unit-test harness
+::    build.bat 1..13      - build a single example by number
+::    build.bat 0          - exit
 :: =============================================================================
 
-:: ── ANSI colour setup --------------------------------------------------------
-:: Capture a literal ESC byte into %ESC% so we can emit ANSI escape sequences.
-:: Works on Windows 10 1511+ conhost / Terminal.  Older shells print raw codes,
-:: which is ugly but not broken.
-for /f %%E in ('"prompt $E & for %%a in (1) do rem"') do set "ESC=%%E"
+:: Colour codes (best-effort - falls back to plain text on consoles that
+:: don't honour ANSI).
+for /f %%a in ('"prompt $E$ & for %%b in (1) do rem"') do set "ESC=%%a"
 set "C_RESET=%ESC%[0m"
 set "C_BOLD=%ESC%[1m"
 set "C_DIM=%ESC%[2m"
@@ -50,283 +46,109 @@ set "C_MAG=%ESC%[95m"
 set "C_CYN=%ESC%[96m"
 set "C_WHT=%ESC%[97m"
 
-:: ── Precondition checks ------------------------------------------------------
+set "CHOICE=%~1"
+
 if "%VULKAN_SDK%"=="" (
     call :BANNER
-    call :ERR "VULKAN_SDK is not set.  Install the Vulkan SDK and set VULKAN_SDK."
-    exit /b 1
-)
-where glslangValidator >nul 2>&1
-if errorlevel 1 ( call :BANNER & call :ERR "glslangValidator not on PATH." & exit /b 1 )
-where g++ >nul 2>&1
-if errorlevel 1 ( call :BANNER & call :ERR "g++ not on PATH  (install MinGW-w64)." & exit /b 1 )
-if not exist "..\vendor\vma\vk_mem_alloc.h" (
-    call :BANNER
-    call :ERR "vendor\vma\vk_mem_alloc.h is missing (should be in repo)."
-    exit /b 1
-)
-if not exist "..\vendor\glfw\include\GLFW\glfw3.h" (
-    call :BANNER
-    call :ERR "vendor\glfw\include\GLFW\glfw3.h is missing (should be in repo)."
-    exit /b 1
-)
-if not exist "deps\libglfw3.a" (
-    call :BANNER
-    call :ERR "example\deps\libglfw3.a is missing."
-    echo        Grab the GLFW Windows pre-compiled from https://www.glfw.org
-    echo        and copy lib-mingw-w64\libglfw3.a into example\deps\libglfw3.a
+    call :ERR "VULKAN_SDK environment variable is not set."
+    echo Install the LunarG Vulkan SDK and re-open cmd, or run vcvarsall.bat.
     exit /b 1
 )
 
-:: ── Shared flags -------------------------------------------------------------
-:: -DGLFW_INCLUDE_VULKAN makes every TU's first GLFW include pull vulkan.h, so
-:: glfwCreateWindowSurface (gated on VK_VERSION_1_0) is always declared even if
-:: user code includes <GLFW/glfw3.h> before "VCK.h" / "VCKCrossplatform.h".
-set DEFINES=-DGLFW_INCLUDE_VULKAN
-set INCLUDES=-I..\vendor\vma -I..\vendor\glfw\include -Ideps -I.. -I..\layers\core -I..\layers\expansion -I..\layers\execution -I..\layers\vmm -I..\vendor\vulkan_headers -I"%VULKAN_SDK%\Include" %DEFINES%
-set LIBS=-Ldeps -L"%VULKAN_SDK%\Lib" -lvulkan-1 -lglfw3 -lgdi32 -luser32 -lshell32
-set VKB=..\layers\core\VmaImpl.cpp ..\layers\core\VulkanBuffer.cpp ..\layers\core\VulkanCommand.cpp ..\layers\core\VulkanContext.cpp ..\layers\core\VulkanDevice.cpp ..\layers\core\VulkanImage.cpp ..\layers\core\VulkanPipeline.cpp ..\layers\core\VulkanSwapchain.cpp ..\layers\core\VulkanSync.cpp ..\layers\core\VCKCrossplatform.cpp ..\layers\expansion\VCKExpansion.cpp ..\layers\execution\VCKExecution.cpp
+where cmake >nul 2>&1 || ( call :BANNER & call :ERR "cmake not found on PATH." & exit /b 1 )
+where ninja >nul 2>&1 || ( call :BANNER & call :ERR "ninja not found on PATH.  Install via 'choco install ninja' or scoop." & exit /b 1 )
 
-:: ── Banner + menu ------------------------------------------------------------
+if "%CHOICE%"=="" goto MENU
+goto DISPATCH
+
+:MENU
 call :BANNER
-
-echo  %C_BOLD%%C_WHT%Raw core%C_RESET%                %C_DIM%(VulkanSync / VulkanCommand path, you write everything)%C_RESET%
-echo    %C_YEL%[1]%C_RESET%  %C_WHT%RGBTriangle%C_RESET%                 coloured triangle, live resize
+echo  %C_BOLD%%C_WHT%Raw core%C_RESET%                %C_DIM%(pure Vulkan, hand-recorded commands)%C_RESET%
+echo    %C_YEL%[1]%C_RESET%  %C_WHT%RGBTriangle%C_RESET%                 hello triangle, manual everything
 echo    %C_YEL%[2]%C_RESET%  %C_WHT%MipmapExample%C_RESET%               mip chain generation and sampling
+echo.
+echo  %C_BOLD%%C_WHT%Plus VMM%C_RESET%                %C_DIM%(persistent / transient / frame-buffered)%C_RESET%
 echo    %C_YEL%[3]%C_RESET%  %C_WHT%VMMExample%C_RESET%                  VMM all three layers
 echo    %C_YEL%[4]%C_RESET%  %C_WHT%SecondaryCmdExample%C_RESET%         secondary command buffers + scheduler-aware resize (v0.3)
 echo.
-echo  %C_BOLD%%C_WHT%Debug + tooling%C_RESET%         %C_DIM%(opt-in instrumentation, still hand-records)%C_RESET%
+echo  %C_BOLD%%C_WHT%Plus debug instrumentation%C_RESET%
 echo    %C_YEL%[5]%C_RESET%  %C_WHT%DebugTimelineExample%C_RESET%        span recorder + Dump every 120 frames
 echo    %C_YEL%[6]%C_RESET%  %C_WHT%DebugShowcaseExample%C_RESET%        VCKLog levels / dedup / VK_CHECK / debug toggle
 echo.
-echo  %C_BOLD%%C_WHT%Expansion%C_RESET%               %C_DIM%(AA / framebuffer / sampler wiring)%C_RESET%
-echo    %C_YEL%[7]%C_RESET%  %C_WHT%AAShowcaseExample%C_RESET%           AATechnique decision matrix + auto-pick + triangle
+echo  %C_BOLD%%C_WHT%Plus AA%C_RESET%                  %C_DIM%(MSAA / FXAA expansion)%C_RESET%
+echo    %C_YEL%[7]%C_RESET%  %C_WHT%AAShowcaseExample%C_RESET%           MSAA + FXAA + post pipeline
 echo.
 echo  %C_BOLD%%C_WHT%Execution layer%C_RESET%         %C_DIM%(JobGraph / batching / timeline / policy)%C_RESET%
 echo    %C_YEL%[8]%C_RESET%  %C_WHT%JobGraphExample%C_RESET%             CPU task graph with dependencies
 echo    %C_YEL%[9]%C_RESET%  %C_WHT%SubmissionBatchingExample%C_RESET%   2 cmd buffers, 1 vkQueueSubmit
-echo   %C_YEL%[10]%C_RESET% %C_WHT%TimelineExample%C_RESET%             TimelineSemaphore + DependencyToken
-echo   %C_YEL%[11]%C_RESET% %C_WHT%SchedulerPolicyExample%C_RESET%      Lockstep / Pipelined / AsyncMax at runtime
+echo    %C_YEL%[10]%C_RESET% %C_WHT%TimelineExample%C_RESET%             DependencyToken / GPU wait chains
+echo    %C_YEL%[11]%C_RESET% %C_WHT%SchedulerPolicyExample%C_RESET%      Pipelined / AsyncMax policies
 echo.
 echo  %C_BOLD%%C_WHT%Mostly VCK%C_RESET%              %C_DIM%(ergonomic API does the work)%C_RESET%
-echo   %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
-echo   %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
+echo    %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal FrameScheduler + triangle
+echo    %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
 echo.
-echo    %C_CYN%[A]%C_RESET%  %C_WHT%Build all%C_RESET%                   in order, stops on first failure
-echo    %C_CYN%[0]%C_RESET%  %C_WHT%Exit%C_RESET%
+echo    %C_YEL%[A]%C_RESET%  %C_BOLD%Build all%C_RESET%
+echo    %C_YEL%[T]%C_RESET%  %C_BOLD%R14 unit-test harness (build + run)%C_RESET%
+echo    %C_YEL%[0]%C_RESET%  %C_DIM%Exit%C_RESET%
 echo.
-set /p CHOICE=   %C_BOLD%%C_CYN%select^>%C_RESET% 
+set /p "CHOICE=> "
 
-if /i "%CHOICE%"=="A" goto BUILD_ALL
-if "%CHOICE%"=="1" goto BUILD_TRIANGLE
-if "%CHOICE%"=="2" goto BUILD_MIPMAP
-if "%CHOICE%"=="3" goto BUILD_VMM
-if "%CHOICE%"=="4"  ( set EX=SecondaryCmdExample      & set STEM=secondary                   & goto BUILD_ONE )
-if "%CHOICE%"=="5"  ( set EX=DebugTimelineExample      & set STEM=DebugTimelineExample       & goto BUILD_ONE )
-if "%CHOICE%"=="6"  ( set EX=DebugShowcaseExample     & set STEM=                            & goto BUILD_ONE_NO_SHADERS )
-if "%CHOICE%"=="7"  ( set EX=AAShowcaseExample        & set STEM=aa                          & goto BUILD_ONE )
-if "%CHOICE%"=="8"  ( set EX=JobGraphExample           & set STEM=JobGraphExample            & goto BUILD_ONE )
-if "%CHOICE%"=="9"  ( set EX=SubmissionBatchingExample & set STEM=SubmissionBatchingExample  & goto BUILD_ONE )
-if "%CHOICE%"=="10" ( set EX=TimelineExample           & set STEM=TimelineExample            & goto BUILD_ONE )
-if "%CHOICE%"=="11" ( set EX=SchedulerPolicyExample    & set STEM=SchedulerPolicyExample     & goto BUILD_ONE )
-if "%CHOICE%"=="12" ( set EX=HelloExample              & set STEM=hello                     & goto BUILD_ONE )
-if "%CHOICE%"=="13" ( set EX=EasyCubeExample          & set STEM=easycube                    & goto BUILD_ONE )
-if "%CHOICE%"=="0" exit /b 0
-call :ERR "unknown selection '%CHOICE%'"
-exit /b 1
+:DISPATCH
+if /i "%CHOICE%"=="0" exit /b 0
 
+call :CONFIGURE || exit /b 1
 
-:: =============================================================================
-::  Single-example builds
-:: =============================================================================
+if /i "%CHOICE%"=="A" (
+    cmake --build build -j --target examples
+    exit /b !ERRORLEVEL!
+)
+if /i "%CHOICE%"=="T" (
+    cmake --build build -j --target vck_tests || exit /b !ERRORLEVEL!
+    "%~dp0..\tests\vck_tests.exe"
+    exit /b !ERRORLEVEL!
+)
 
-:BUILD_TRIANGLE
-set EX=RGBTriangle
-set STEM=triangle
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
+set "TARGET="
+if "%CHOICE%"=="1"  set "TARGET=RGBTriangle"
+if "%CHOICE%"=="2"  set "TARGET=MipmapExample"
+if "%CHOICE%"=="3"  set "TARGET=VMMExample"
+if "%CHOICE%"=="4"  set "TARGET=SecondaryCmdExample"
+if "%CHOICE%"=="5"  set "TARGET=DebugTimelineExample"
+if "%CHOICE%"=="6"  set "TARGET=DebugShowcaseExample"
+if "%CHOICE%"=="7"  set "TARGET=AAShowcaseExample"
+if "%CHOICE%"=="8"  set "TARGET=JobGraphExample"
+if "%CHOICE%"=="9"  set "TARGET=SubmissionBatchingExample"
+if "%CHOICE%"=="10" set "TARGET=TimelineExample"
+if "%CHOICE%"=="11" set "TARGET=SchedulerPolicyExample"
+if "%CHOICE%"=="12" set "TARGET=HelloExample"
+if "%CHOICE%"=="13" set "TARGET=EasyCubeExample"
 
-:BUILD_MIPMAP
-set EX=MipmapExample
-set STEM=mip
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
+if "%TARGET%"=="" (
+    call :ERR "unknown selection '%CHOICE%'.  Pick 1-13, A, T, or 0."
+    exit /b 1
+)
 
-:BUILD_VMM
-set EX=VMMExample
-set STEM=vmm
-call :COMPILE_SHADERS                 || exit /b 1
-call :COMPILE_CPP_WITH_VMM            || exit /b 1
-call :OK_RUN
-goto END
+cmake --build build -j --target %TARGET%
+exit /b %ERRORLEVEL%
 
-:BUILD_ONE
-:: Trim any trailing space left by the inline ( ... & ... ) assignment.
-for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
-for /f "tokens=* delims= " %%A in ("!STEM!") do set "STEM=%%A"
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
-
-:BUILD_ONE_NO_SHADERS
-:: DebugShowcaseExample has no shader assets - skip shader compile.
-for /f "tokens=* delims= " %%A in ("!EX!")   do set "EX=%%A"
-call :COMPILE_CPP     || exit /b 1
-call :OK_RUN
-goto END
-
-
-:: =============================================================================
-::  Build-all  (inlined to preserve on-screen colour output)
-:: =============================================================================
-
-:BUILD_ALL
-call :STEP "[1/13] RGBTriangle"
-set EX=RGBTriangle
-set STEM=triangle
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[2/13] MipmapExample"
-set EX=MipmapExample
-set STEM=mip
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[3/13] VMMExample"
-set EX=VMMExample
-set STEM=vmm
-call :COMPILE_SHADERS          || exit /b 1
-call :COMPILE_CPP_WITH_VMM     || exit /b 1
-
-call :STEP "[4/13] SecondaryCmdExample"
-set EX=SecondaryCmdExample
-set STEM=secondary
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[5/13] DebugTimelineExample"
-set EX=DebugTimelineExample
-set STEM=DebugTimelineExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[6/13] DebugShowcaseExample"
-set EX=DebugShowcaseExample
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[7/13] AAShowcaseExample"
-set EX=AAShowcaseExample
-set STEM=aa
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[8/13] JobGraphExample"
-set EX=JobGraphExample
-set STEM=JobGraphExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[9/13] SubmissionBatchingExample"
-set EX=SubmissionBatchingExample
-set STEM=SubmissionBatchingExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[10/13] TimelineExample"
-set EX=TimelineExample
-set STEM=TimelineExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[11/13] SchedulerPolicyExample"
-set EX=SchedulerPolicyExample
-set STEM=SchedulerPolicyExample
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[12/13] HelloExample"
-set EX=HelloExample
-set STEM=hello
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-call :STEP "[13/13] EasyCubeExample"
-set EX=EasyCubeExample
-set STEM=easycube
-call :COMPILE_SHADERS || exit /b 1
-call :COMPILE_CPP     || exit /b 1
-
-echo.
-echo %C_GRN%  all 13 examples built.%C_RESET%
-echo.
-goto END
-
-
-:: =============================================================================
-::  Helpers  (called as :LABEL)
-:: =============================================================================
+:: ── Subroutines ----------------------------------------------------------
+:CONFIGURE
+:: Configure once.  CMake itself only re-runs the generator when CMakeLists
+:: changed, so re-running this on every invocation is essentially free
+:: (Ninja's null-build).
+if not exist "build\CMakeCache.txt" (
+    echo %C_DIM%[cmake] configuring (one-time)...%C_RESET%
+    cmake -S "%~dp0." -B "%~dp0build" -G Ninja -DCMAKE_BUILD_TYPE=Release || exit /b 1
+)
+exit /b 0
 
 :BANNER
 echo.
-echo  %C_CYN%+---------------------------------------------------------+%C_RESET%
-echo  %C_CYN%^|%C_RESET%   %C_BOLD%%C_WHT%V C K%C_RESET%   %C_DIM%Vulkan Core Kit  -  example builder%C_RESET%    %C_CYN%^|%C_RESET%
-echo  %C_CYN%+---------------------------------------------------------+%C_RESET%
+echo %C_BOLD%%C_CYN%VCK%C_RESET% %C_DIM%- example builder (Windows / cmake + ninja)%C_RESET%
 echo.
-exit /b 0
-
-:STEP
-:: %~1 = header text, e.g. "[4/9] HelloExample"
-:: Escape the literal '>' with '^>' so cmd.exe doesn't try to redirect output
-:: (which produces the cosmetic 'filename, directory name or volume label
-::  syntax is incorrect' error before any command runs).
-echo.
-echo %C_MAG%^>%C_RESET% %C_BOLD%%~1%C_RESET%
 exit /b 0
 
 :ERR
-:: %~1 = error text
-echo.
-echo %C_RED%  ERROR:%C_RESET% %~1
-echo.
-exit /b 0
-
-:COMPILE_SHADERS
-set ASSETS=%EX%\assets
-if not exist "%ASSETS%" mkdir "%ASSETS%"
-echo   %C_DIM%glslang %STEM%.vert%C_RESET%
-glslangValidator -V %ASSETS%\%STEM%.vert -o %ASSETS%\%STEM%.vert.spv >nul
-if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.vert" & exit /b 1 )
-echo   %C_DIM%glslang %STEM%.frag%C_RESET%
-glslangValidator -V %ASSETS%\%STEM%.frag -o %ASSETS%\%STEM%.frag.spv >nul
-if errorlevel 1 ( call :ERR "shader compile failed: %STEM%.frag" & exit /b 1 )
-exit /b 0
-
-:COMPILE_CPP
-echo   %C_DIM%g++      %EX%.exe%C_RESET%
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
-echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
-exit /b 0
-
-:COMPILE_CPP_WITH_VMM
-echo   %C_DIM%g++      %EX%.exe  (+VMM)%C_RESET%
-g++ %EX%\main.cpp %EX%\App.cpp %VKB% ..\layers\vmm\VulkanMemoryManager.cpp -o %EX%\%EX%.exe -std=c++17 %INCLUDES% %LIBS%
-if errorlevel 1 ( call :ERR "C++ compile failed: %EX%" & exit /b 1 )
-echo   %C_GRN%  OK%C_RESET%   %EX%\%EX%.exe
-exit /b 0
-
-:OK_RUN
-echo.
-echo   %C_CYN%run:%C_RESET%   cd %EX%  ^&^&  %EX%.exe
-echo.
-exit /b 0
-
-:END
-endlocal
+echo %C_RED%ERROR:%C_RESET% %~1
+exit /b 1

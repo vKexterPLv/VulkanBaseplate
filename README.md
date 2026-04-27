@@ -192,8 +192,9 @@ layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
 cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
 from 720p to 4K is handled in-library). Build with:
 
-- Windows: `example/build.bat` (MinGW g++)
-- Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
+- Windows: `example/build.bat` (CMake + Ninja under the hood; cl from a Developer Cmd Prompt or MinGW g++ on `PATH`)
+- Linux / macOS: `example/build.sh` (CMake + Ninja under the hood; g++ / clang++ from `PATH`)
+- Anywhere: `cmake -S example -B build -G Ninja && cmake --build build -j` (the canonical command - `build.bat` / `build.sh` are thin wrappers around it)
 
 | #  | Example                     | Demonstrates |
 |----|-----------------------------|--------------|
@@ -215,11 +216,18 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
 ## Build
 
-Windows (MinGW-w64 + Vulkan SDK + `example/deps/libglfw3.a`):
+Windows — CMake + Ninja picks whichever C++ compiler is on `PATH`.  Run
+from a Developer Cmd Prompt and `cl` is used; otherwise MinGW-w64 `g++`
+(MSYS2's `C:\msys64\mingw64\bin`) is picked up automatically:
 
 ```
 cd example
-build.bat
+build.bat                    :: interactive menu, picks compiler from PATH
+build.bat A                  :: build all 13 examples
+build.bat T                  :: build + run the R14 unit-test harness
+:: or skip the wrapper entirely:
+cmake -S . -B build -G Ninja
+cmake --build build -j --target examples
 ```
 
 Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
@@ -229,9 +237,16 @@ cd example
 ./build.sh
 ```
 
-Both scripts share the same `[1]-[13] / [A] / [0]` menu and print a
-diagnostic if tools or dependencies are missing. Full step-by-step:
-[`docs/Build.md`](docs/Build.md).
+Both scripts share the same `[1]-[13] / [A] / [T] / [0]` menu and print a
+diagnostic if tools or dependencies are missing. `[T]` builds and links
+the R14 unit-test harness against the lib-once `vck.lib` / `libvck.a` and
+runs it. Full step-by-step: [`docs/Build.md`](docs/Build.md).
+
+Both scripts use a **lib-once compile model** (PR #7): the VCK static
+library compiles once into `build/vck.lib` (cl) or `build/libvck.a`
+(gcc/clang) and every example links against it (`main.cpp` + `App.cpp`
+only). Build-all wall-clock on a modern 8-core machine: ~30-40 s on
+Linux/macOS, ~2-3 min on Windows MSVC `/MP`, ~3-4 min on MinGW.
 
 ## Documentation
 

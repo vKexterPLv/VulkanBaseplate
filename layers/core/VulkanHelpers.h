@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <functional>
 
 // -----------------------------------------------------------------------------
 //  VCK logging
@@ -75,6 +76,21 @@ inline std::string& LastTag()     { static std::string s; return s; }
 
 inline void SetDebug(bool on) { DebugFlag() = on; }
 inline bool IsDebug()         { return DebugFlag(); }
+
+// Optional log sink: when set, every Emit() call forwards (level, tag, msg)
+// to the sink BEFORE dedup + Info-suppression filtering, so observers see
+// the full call sequence the codebase intended to log.  Used by the R14
+// unit-test harness (tests/) to assert that every Initialize() failure
+// actually emits exactly one Error line.  Default = no sink, zero overhead.
+//
+// Not threadsafe by design - VCK is single-threaded at the API surface
+// (rule 18) and a global mutable sink behind a mutex would be friction the
+// hot-path logger does not need.  Tests that need parallelism can install
+// per-thread sinks via thread-local indirection.
+using Sink = std::function<void(Level, const char*, const std::string&)>;
+inline Sink& SinkRef() { static Sink s; return s; }
+inline void SetSink(Sink s) { SinkRef() = std::move(s); }
+inline void ClearSink()     { SinkRef() = nullptr; }
 
 inline const char* LevelColour(Level level) {
     switch (level) {
@@ -163,6 +179,11 @@ inline void FlushDedup()
 
 inline void Emit(Level level, const char* tag, const std::string& msg)
 {
+    // Forward to optional test sink BEFORE any filtering so observers see
+    // the full call sequence (rule 14 / R14-harness friendly).  Costs one
+    // bool check + indirect call when set; zero overhead when not.
+    if (auto& sink = SinkRef()) sink(level, tag, msg);
+
     // Drop Info-level lines unless debug is enabled.
     if (level == Level::Info && !IsDebug()) {
         // Still run through dedup bookkeeping so that if the same Info line
