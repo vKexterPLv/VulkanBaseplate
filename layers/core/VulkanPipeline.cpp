@@ -214,11 +214,13 @@ namespace VCK {
         shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
         shaderStages[0].module = vertModule;
         shaderStages[0].pName = "main";
+        shaderStages[0].pSpecializationInfo = m_PipelineCfg.vertSpecialization;
 
         shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
         shaderStages[1].module = fragModule;
         shaderStages[1].pName = "main";
+        shaderStages[1].pSpecializationInfo = m_PipelineCfg.fragSpecialization;
 
         // ── Vertex input ──────────────────────────────────────────────────────────
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};

@@ -2,8 +2,18 @@
 // VCKExpansion.h is pulled in by VCK.h via the aggregate includes.
 
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
+#include <string>
+#include <system_error>
+#include <vector>
 
 namespace VCK {
 
@@ -1222,6 +1232,64 @@ PushConstants& PushConstants::Declare(const char* name, PushConstType t)
     return *this;
 }
 
+PushConstants& PushConstants::Declare(const char* name, PushConstType t, uint32_t count)
+{
+    const uint32_t elemSize = PushConstTypeSize(t);
+    if (elemSize == 0 || name == nullptr || count == 0)
+    {
+        VCKLog::Error("PushConstants",
+            std::string("Declare(\"") + (name ? name : "?") +
+            "\", count) got unknown type, null name, or zero count");
+        return *this;
+    }
+
+    for (const Slot& s : m_Slots)
+    {
+        if (SameCStr(s.name, name))
+        {
+            VCKLog::Error("PushConstants",
+                std::string("Declare(\"") + name + "\") - name already declared");
+            return *this;
+        }
+    }
+
+    Slot s{};
+    s.name   = name;
+    s.type   = t;
+    s.offset = static_cast<uint32_t>(m_Buffer.size());
+    s.size   = elemSize * count;
+    m_Slots.push_back(s);
+    m_Buffer.resize(m_Buffer.size() + s.size, 0);
+    return *this;
+}
+
+bool PushConstants::SetRaw(const char* name, const void* data, uint32_t size)
+{
+    if (name == nullptr || data == nullptr)
+    {
+        VCKLog::Error("PushConstants", "SetRaw got null name or data");
+        return false;
+    }
+
+    for (const Slot& s : m_Slots)
+    {
+        if (!SameCStr(s.name, name)) continue;
+        if (s.size != size)
+        {
+            VCKLog::Error("PushConstants",
+                std::string("SetRaw(\"") + name + "\") size mismatch: slot is " +
+                std::to_string(s.size) + " bytes, caller passed " +
+                std::to_string(size));
+            return false;
+        }
+        std::memcpy(m_Buffer.data() + s.offset, data, size);
+        return true;
+    }
+    VCKLog::Error("PushConstants",
+        std::string("SetRaw(\"") + name + "\") - name not declared");
+    return false;
+}
+
 uint8_t* PushConstants::SlotWrite(const char* name, PushConstType expected, uint32_t expectedSize)
 {
     for (const Slot& s : m_Slots)
@@ -1470,6 +1538,548 @@ Mesh Line(const Vec3& a, const Vec3& b)
 }
 
 } // namespace Primitives
+
+
+// =============================================================================
+// [26] ShaderLoader
+// =============================================================================
+namespace
+{
+    bool ReadSpirvFile(const std::string& path, std::vector<uint32_t>& out)
+    {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file.is_open())
+        {
+            VCKLog::Error("ShaderLoader",
+                std::string("failed to open SPIR-V file: ") + path);
+            return false;
+        }
+
+        const std::streamsize bytes = file.tellg();
+        if (bytes <= 0 || (bytes % 4) != 0)
+        {
+            VCKLog::Error("ShaderLoader",
+                std::string("invalid SPIR-V byte count (") +
+                std::to_string(static_cast<long long>(bytes)) + ") for " + path);
+            return false;
+        }
+
+        out.assign(static_cast<std::size_t>(bytes / 4), 0u);
+        file.seekg(0, std::ios::beg);
+        file.read(reinterpret_cast<char*>(out.data()), bytes);
+        if (!file)
+        {
+            VCKLog::Error("ShaderLoader",
+                std::string("failed to read SPIR-V file: ") + path);
+            out.clear();
+            return false;
+        }
+        return true;
+    }
+
+    const char* GlslangStageName(VkShaderStageFlagBits stage)
+    {
+        switch (stage)
+        {
+            case VK_SHADER_STAGE_VERTEX_BIT:   return "vert";
+            case VK_SHADER_STAGE_FRAGMENT_BIT: return "frag";
+            default:                           return nullptr;
+        }
+    }
+
+    std::vector<uint32_t> g_EmptySpirv;
+}
+
+bool ShaderLoader::LoadFromFile(const std::string& path, VkShaderStageFlagBits stage)
+{
+    std::vector<uint32_t>* dst = nullptr;
+    if      (stage == VK_SHADER_STAGE_VERTEX_BIT)   dst = &m_VertSpirv;
+    else if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) dst = &m_FragSpirv;
+    else
+    {
+        VCKLog::Error("ShaderLoader",
+            "LoadFromFile only supports VK_SHADER_STAGE_VERTEX_BIT or _FRAGMENT_BIT");
+        return false;
+    }
+
+    std::vector<uint32_t> bytes;
+    if (!ReadSpirvFile(path, bytes))
+        return false;
+
+    *dst = std::move(bytes);
+    VCKLog::Notice("ShaderLoader",
+        std::string("loaded ") + path + " (" +
+        std::to_string(dst->size() * sizeof(uint32_t)) + " bytes)");
+    return true;
+}
+
+bool ShaderLoader::LoadFromGLSL(const std::string& glslPath, VkShaderStageFlagBits stage)
+{
+    const char* stageName = GlslangStageName(stage);
+    if (stageName == nullptr)
+    {
+        VCKLog::Error("ShaderLoader",
+            "LoadFromGLSL only supports VK_SHADER_STAGE_VERTEX_BIT or _FRAGMENT_BIT");
+        return false;
+    }
+
+    if (!std::filesystem::exists(glslPath))
+    {
+        VCKLog::Error("ShaderLoader",
+            std::string("LoadFromGLSL: source file does not exist: ") + glslPath);
+        return false;
+    }
+
+    namespace fs = std::filesystem;
+    fs::path tmpDir;
+    try { tmpDir = fs::temp_directory_path(); }
+    catch (const std::exception& e)
+    {
+        VCKLog::Error("ShaderLoader",
+            std::string("temp_directory_path failed: ") + e.what());
+        return false;
+    }
+
+    const std::string baseName = fs::path(glslPath).filename().string();
+    const fs::path    spvPath  = tmpDir /
+        (baseName + "." + std::to_string(
+            static_cast<unsigned long long>(
+                std::chrono::steady_clock::now().time_since_epoch().count())) + ".spv");
+
+    // Build: glslangValidator -V -S <stage> "<input>" -o "<output>"
+    std::string cmd;
+    cmd.reserve(256);
+    cmd += "glslangValidator -V -S ";
+    cmd += stageName;
+    cmd += " \"";
+    cmd += glslPath;
+    cmd += "\" -o \"";
+    cmd += spvPath.string();
+    cmd += "\"";
+
+    VCKLog::Info("ShaderLoader", std::string("invoking: ") + cmd);
+
+    const int rc = std::system(cmd.c_str());
+    if (rc != 0)
+    {
+        VCKLog::Error("ShaderLoader",
+            std::string("glslangValidator returned ") + std::to_string(rc) +
+            " (is it on PATH?). Failed to compile " + glslPath);
+        std::error_code ec;
+        fs::remove(spvPath, ec);
+        return false;
+    }
+
+    std::vector<uint32_t> bytes;
+    const bool ok = ReadSpirvFile(spvPath.string(), bytes);
+    {
+        std::error_code ec;
+        fs::remove(spvPath, ec);
+    }
+    if (!ok) return false;
+
+    if (stage == VK_SHADER_STAGE_VERTEX_BIT)        m_VertSpirv = std::move(bytes);
+    else /* VK_SHADER_STAGE_FRAGMENT_BIT */          m_FragSpirv = std::move(bytes);
+
+    VCKLog::Notice("ShaderLoader",
+        std::string("compiled GLSL ") + glslPath + " (stage=" + stageName + ")");
+    return true;
+}
+
+VulkanPipeline::ShaderInfo ShaderLoader::GetShaderInfo() const
+{
+    VulkanPipeline::ShaderInfo info;
+    info.VertexSpirv   = m_VertSpirv;
+    info.FragmentSpirv = m_FragSpirv;
+    return info;
+}
+
+const std::vector<uint32_t>& ShaderLoader::GetSpirv(VkShaderStageFlagBits stage) const
+{
+    if (stage == VK_SHADER_STAGE_VERTEX_BIT)   return m_VertSpirv;
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) return m_FragSpirv;
+    return g_EmptySpirv;
+}
+
+void ShaderLoader::Clear()
+{
+    m_VertSpirv.clear();
+    m_FragSpirv.clear();
+}
+
+
+// =============================================================================
+// [27] ShaderWatcher
+// =============================================================================
+bool ShaderWatcher::Watch(const std::string& path, VkShaderStageFlagBits stage)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::exists(path, ec) || ec)
+    {
+        VCKLog::Error("ShaderWatcher",
+            std::string("Watch: file does not exist: ") + path);
+        return false;
+    }
+
+    WatchedFile w;
+    w.path  = path;
+    w.stage = stage;
+    w.lastWriteTime = fs::last_write_time(path, ec);
+    if (ec)
+    {
+        VCKLog::Error("ShaderWatcher",
+            std::string("Watch: last_write_time failed for ") + path +
+            ": " + ec.message());
+        return false;
+    }
+    m_Files.push_back(std::move(w));
+    return true;
+}
+
+bool ShaderWatcher::HasChanged()
+{
+    namespace fs = std::filesystem;
+    for (WatchedFile& w : m_Files)
+    {
+        std::error_code ec;
+        const auto now = fs::last_write_time(w.path, ec);
+        if (ec)
+        {
+            VCKLog::Warn("ShaderWatcher",
+                std::string("HasChanged: last_write_time failed for ") + w.path +
+                ": " + ec.message());
+            continue;
+        }
+        if (now != w.lastWriteTime)
+        {
+            w.lastWriteTime = now;
+            m_Changed = true;
+            VCKLog::Notice("ShaderWatcher",
+                std::string("change detected: ") + w.path);
+        }
+    }
+    return m_Changed;
+}
+
+bool ShaderWatcher::Reload()
+{
+    for (WatchedFile& w : m_Files)
+    {
+        std::vector<uint32_t> bytes;
+        if (!ReadSpirvFile(w.path, bytes))
+        {
+            VCKLog::Error("ShaderWatcher",
+                std::string("Reload: failed to read ") + w.path);
+            return false;
+        }
+        w.spirv = std::move(bytes);
+        VCKLog::Notice("ShaderWatcher",
+            std::string("reloaded ") + w.path);
+    }
+    return true;
+}
+
+void ShaderWatcher::ResetChanged()
+{
+    m_Changed = false;
+}
+
+VulkanPipeline::ShaderInfo ShaderWatcher::GetShaderInfo() const
+{
+    VulkanPipeline::ShaderInfo info;
+    for (const WatchedFile& w : m_Files)
+    {
+        if      (w.stage == VK_SHADER_STAGE_VERTEX_BIT)   info.VertexSpirv   = w.spirv;
+        else if (w.stage == VK_SHADER_STAGE_FRAGMENT_BIT) info.FragmentSpirv = w.spirv;
+    }
+    return info;
+}
+
+const std::vector<uint32_t>& ShaderWatcher::GetSpirv(VkShaderStageFlagBits stage) const
+{
+    for (const WatchedFile& w : m_Files)
+        if (w.stage == stage) return w.spirv;
+    return g_EmptySpirv;
+}
+
+void ShaderWatcher::Shutdown()
+{
+    m_Files.clear();
+    m_Changed = false;
+}
+
+
+// =============================================================================
+// [28] SpecConstants
+// =============================================================================
+namespace
+{
+    template <typename T>
+    void SpecAppendOrReplace(std::vector<VkSpecializationMapEntry>& entries,
+                              std::vector<uint8_t>&                  data,
+                              uint32_t                                constantID,
+                              const T&                                value)
+    {
+        // Overwrite an existing entry with the same constantID.  Layout is
+        // packed so we can just rewrite the bytes in place when sizes match.
+        for (std::size_t i = 0; i < entries.size(); ++i)
+        {
+            if (entries[i].constantID != constantID) continue;
+
+            if (entries[i].size == sizeof(T))
+            {
+                std::memcpy(data.data() + entries[i].offset, &value, sizeof(T));
+                return;
+            }
+
+            // Size changed - rebuild data buffer with this entry replaced.
+            const std::size_t oldOffset = entries[i].offset;
+            const std::size_t oldSize   = entries[i].size;
+
+            std::vector<uint8_t> rebuilt;
+            rebuilt.reserve(data.size() - oldSize + sizeof(T));
+            rebuilt.insert(rebuilt.end(), data.begin(),
+                           data.begin() + oldOffset);
+            rebuilt.insert(rebuilt.end(),
+                           reinterpret_cast<const uint8_t*>(&value),
+                           reinterpret_cast<const uint8_t*>(&value) + sizeof(T));
+            rebuilt.insert(rebuilt.end(),
+                           data.begin() + oldOffset + oldSize, data.end());
+            data = std::move(rebuilt);
+
+            const int32_t delta =
+                static_cast<int32_t>(sizeof(T)) - static_cast<int32_t>(oldSize);
+            entries[i].size = sizeof(T);
+            for (std::size_t j = i + 1; j < entries.size(); ++j)
+                entries[j].offset = static_cast<uint32_t>(
+                    static_cast<int32_t>(entries[j].offset) + delta);
+            return;
+        }
+
+        VkSpecializationMapEntry e{};
+        e.constantID = constantID;
+        e.offset     = static_cast<uint32_t>(data.size());
+        e.size       = sizeof(T);
+        entries.push_back(e);
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
+        data.insert(data.end(), bytes, bytes + sizeof(T));
+    }
+}
+
+SpecConstants& SpecConstants::Set(uint32_t constantID, uint32_t value)
+{
+    SpecAppendOrReplace(m_Entries, m_Data, constantID, value);
+    return *this;
+}
+SpecConstants& SpecConstants::Set(uint32_t constantID, int32_t value)
+{
+    SpecAppendOrReplace(m_Entries, m_Data, constantID, value);
+    return *this;
+}
+SpecConstants& SpecConstants::Set(uint32_t constantID, float value)
+{
+    SpecAppendOrReplace(m_Entries, m_Data, constantID, value);
+    return *this;
+}
+SpecConstants& SpecConstants::Set(uint32_t constantID, bool value)
+{
+    const uint32_t v = value ? 1u : 0u;
+    SpecAppendOrReplace(m_Entries, m_Data, constantID, v);
+    return *this;
+}
+
+void SpecConstants::Rebuild() const
+{
+    m_Info = VkSpecializationInfo{};
+    m_Info.mapEntryCount = static_cast<uint32_t>(m_Entries.size());
+    m_Info.pMapEntries   = m_Entries.empty() ? nullptr : m_Entries.data();
+    m_Info.dataSize      = m_Data.size();
+    m_Info.pData         = m_Data.empty()    ? nullptr : m_Data.data();
+}
+
+const VkSpecializationInfo* SpecConstants::GetInfo() const
+{
+    if (m_Entries.empty()) return nullptr;
+    Rebuild();
+    return &m_Info;
+}
+
+void SpecConstants::Clear()
+{
+    m_Entries.clear();
+    m_Data.clear();
+    m_Info = VkSpecializationInfo{};
+}
+
+
+// =============================================================================
+// [29] ShaderStage
+// =============================================================================
+ShaderStage::ShaderStage(VkShaderStageFlagBits stage)
+    : m_Stage(stage)
+{
+}
+
+VertexLayout&  ShaderStage::Vertex() { return m_Vertex; }
+PushConstants& ShaderStage::Push()   { return m_Push;   }
+
+ShaderStage& ShaderStage::Uniform(uint32_t set, uint32_t binding)
+{
+    m_Bindings.push_back({ set, binding,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, m_Stage });
+    return *this;
+}
+
+ShaderStage& ShaderStage::Sampler(uint32_t set, uint32_t binding)
+{
+    m_Bindings.push_back({ set, binding,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, m_Stage });
+    return *this;
+}
+
+ShaderStage& ShaderStage::Storage(uint32_t set, uint32_t binding)
+{
+    m_Bindings.push_back({ set, binding,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Stage });
+    return *this;
+}
+
+
+// =============================================================================
+// [30] ShaderInterface
+// =============================================================================
+namespace
+{
+    PushConstants MergePush(const std::vector<ShaderStage>& stages)
+    {
+        // Vulkan requires push constants to be identical across stages.
+        // Take the first non-empty Push() block and warn on conflicts.
+        const PushConstants* first = nullptr;
+        for (const ShaderStage& st : stages)
+        {
+            if (st.GetPush().Size() > 0)
+            {
+                if (first == nullptr) { first = &st.GetPush(); continue; }
+                if (first->Size() != st.GetPush().Size())
+                {
+                    VCKLog::Warn("ShaderInterface",
+                        std::string("push constant size mismatch across stages (") +
+                        std::to_string(first->Size()) + " vs " +
+                        std::to_string(st.GetPush().Size()) +
+                        ") - using the first declaration");
+                }
+            }
+        }
+        return first ? *first : PushConstants{};
+    }
+}
+
+ShaderInterface::ShaderInterface(std::initializer_list<ShaderStage> stages)
+    : m_Stages(stages.begin(), stages.end())
+    , m_SharedPush(MergePush(m_Stages))
+{
+}
+
+ShaderInterface::ShaderInterface(std::vector<ShaderStage> stages)
+    : m_Stages(std::move(stages))
+    , m_SharedPush(MergePush(m_Stages))
+{
+}
+
+VulkanPipeline::VertexInputInfo ShaderInterface::VertexInput() const
+{
+    VulkanPipeline::VertexInputInfo vi;
+    for (const ShaderStage& st : m_Stages)
+    {
+        if (st.Stage() != VK_SHADER_STAGE_VERTEX_BIT) continue;
+        if (st.GetVertex().Count() == 0) break;
+
+        vi.Bindings   = { st.GetVertex().Binding(0) };
+        vi.Attributes = st.GetVertex().Attributes(0);
+        return vi;
+    }
+    return vi;
+}
+
+VulkanPipeline::Config ShaderInterface::PipelineConfig() const
+{
+    VulkanPipeline::Config cfg;
+    if (m_SharedPush.Size() > 0)
+    {
+        // One range per stage that declared push constants.  All ranges
+        // share the same offset+size, just different stage flags.
+        for (const ShaderStage& st : m_Stages)
+        {
+            if (st.GetPush().Size() > 0)
+                cfg.pushConstantRanges.push_back(m_SharedPush.Range(st.Stage()));
+        }
+        if (cfg.pushConstantRanges.empty())
+            cfg.pushConstantRanges.push_back(
+                m_SharedPush.Range(VK_SHADER_STAGE_ALL_GRAPHICS));
+    }
+    return cfg;
+}
+
+VkDescriptorSetLayout ShaderInterface::BuildSetLayout(VulkanDevice& device,
+                                                       uint32_t      setIndex) const
+{
+    std::vector<VkDescriptorSetLayoutBinding> bindings;
+    for (const ShaderStage& st : m_Stages)
+    {
+        for (const ShaderStage::BindingDecl& d : st.GetBindings())
+        {
+            if (d.set != setIndex) continue;
+
+            // Merge stage flags when the same (set, binding) appears in
+            // multiple stages - Vulkan expects one binding per index.
+            bool merged = false;
+            for (VkDescriptorSetLayoutBinding& b : bindings)
+            {
+                if (b.binding == d.binding && b.descriptorType == d.type)
+                {
+                    b.stageFlags |= d.stage;
+                    merged = true;
+                    break;
+                }
+            }
+            if (merged) continue;
+
+            VkDescriptorSetLayoutBinding b{};
+            b.binding         = d.binding;
+            b.descriptorType  = d.type;
+            b.descriptorCount = 1;
+            b.stageFlags      = d.stage;
+            bindings.push_back(b);
+        }
+    }
+
+    VkDescriptorSetLayoutCreateInfo ci{};
+    ci.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    ci.bindingCount = static_cast<uint32_t>(bindings.size());
+    ci.pBindings    = bindings.empty() ? nullptr : bindings.data();
+
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    if (!VK_CHECK(vkCreateDescriptorSetLayout(
+            device.GetDevice(), &ci, nullptr, &layout)))
+    {
+        VCKLog::Error("ShaderInterface",
+            std::string("vkCreateDescriptorSetLayout failed for set=") +
+            std::to_string(setIndex));
+        return VK_NULL_HANDLE;
+    }
+
+    VCKLog::Notice("ShaderInterface",
+        std::string("built descriptor set layout (set=") +
+        std::to_string(setIndex) + ", bindings=" +
+        std::to_string(bindings.size()) + ")");
+    return layout;
+}
+
+PushConstants& ShaderInterface::Push()
+{
+    return m_SharedPush;
+}
 
 
 // =============================================================================

@@ -106,6 +106,13 @@ namespace VCK {
             // (1.0 = full rate, 0.25 = 1 in 4 samples, etc.).
             bool                               sampleRateShading    = false;
             float                              minSampleShadingRate = 0.2f;
+
+            // Specialization constants - borrowed.  When non-null the pointer
+            // is wired into VkPipelineShaderStageCreateInfo::pSpecializationInfo
+            // for the corresponding stage.  Caller owns the storage; it must
+            // outlive Initialize() but does not need to outlive the pipeline.
+            const VkSpecializationInfo*        vertSpecialization   = nullptr;
+            const VkSpecializationInfo*        fragSpecialization   = nullptr;
         };
 
 
