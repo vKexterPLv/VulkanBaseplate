@@ -55,7 +55,11 @@ endif()
 # at compile time.
 if(MSVC)
     add_compile_options(/W0 /Zc:__cplusplus /permissive- /MP)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    #  NOMINMAX: Windows.h defines min(a,b) / max(a,b) as preprocessor
+    #  macros that clobber std::min / std::max - VulkanSwapchain.cpp uses
+    #  both heavily.  WIN32_LEAN_AND_MEAN trims the windows.h transitive
+    #  include set so we don't pull in winsock / GDI / OLE for no reason.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
     add_compile_options(-w -Werror=return-type)
 endif()

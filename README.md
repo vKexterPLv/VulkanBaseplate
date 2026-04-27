@@ -192,8 +192,9 @@ layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
 cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
 from 720p to 4K is handled in-library). Build with:
 
-- Windows: `example/build.bat` (auto-detects MSVC `cl` via `vswhere`, falls back to MinGW g++; `--toolchain {auto|cl|gcc}` to override)
-- Linux / macOS: `example/build.sh` (auto-detects OS via `uname`)
+- Windows: `example/build.bat` (CMake + Ninja under the hood; cl from a Developer Cmd Prompt or MinGW g++ on `PATH`)
+- Linux / macOS: `example/build.sh` (CMake + Ninja under the hood; g++ / clang++ from `PATH`)
+- Anywhere: `cmake -S example -B build -G Ninja && cmake --build build -j` (the canonical command - `build.bat` / `build.sh` are thin wrappers around it)
 
 | #  | Example                     | Demonstrates |
 |----|-----------------------------|--------------|
@@ -215,14 +216,18 @@ Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
 ## Build
 
-Windows — auto-detects MSVC `cl` via `vswhere` and falls back to MinGW
-g++; `--toolchain {auto|cl|gcc}` overrides:
+Windows — CMake + Ninja picks whichever C++ compiler is on `PATH`.  Run
+from a Developer Cmd Prompt and `cl` is used; otherwise MinGW-w64 `g++`
+(MSYS2's `C:\msys64\mingw64\bin`) is picked up automatically:
 
 ```
 cd example
-build.bat                    :: auto (prefer cl)
-build.bat --toolchain gcc    :: force MinGW (Vulkan SDK + example\deps\libglfw3.a)
-build.bat --toolchain cl A   :: force cl + build all (Vulkan SDK + example\deps\glfw3.lib)
+build.bat                    :: interactive menu, picks compiler from PATH
+build.bat A                  :: build all 13 examples
+build.bat T                  :: build + run the R14 unit-test harness
+:: or skip the wrapper entirely:
+cmake -S . -B build -G Ninja
+cmake --build build -j --target examples
 ```
 
 Linux / macOS (`pkg-config vulkan glfw3` + `glslangValidator` + `g++` or `clang++`):
