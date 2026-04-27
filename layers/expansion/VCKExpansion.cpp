@@ -50,14 +50,31 @@ bool VulkanOneTimeCommand::Begin(VulkanDevice& device, VulkanCommand& command)
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    return VK_CHECK(vkBeginCommandBuffer(m_Cmd, &bi));
+    if (!VK_CHECK(vkBeginCommandBuffer(m_Cmd, &bi)))
+    {
+        // Free the cmd we just allocated; if we leave m_Cmd set the caller
+        // can't tell Begin failed and a later End() would try to End/Submit
+        // a cmd that was never begun (VUID violation) or just leak it.
+        vkFreeCommandBuffers(device.GetDevice(), m_Pool, 1, &m_Cmd);
+        m_Cmd = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
 }
 
 void VulkanOneTimeCommand::End()
 {
     if (!m_Cmd) return;
 
-    VK_CHECK(vkEndCommandBuffer(m_Cmd));
+    if (!VK_CHECK(vkEndCommandBuffer(m_Cmd)))
+    {
+        // Same reasoning as VMM::SubmitStagingCmd: a malformed cmd buffer
+        // must not reach vkQueueSubmit (VUID violation).  Skip the submit,
+        // free the cmd, fall through to the cleanup at the bottom.
+        vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
+        m_Cmd = VK_NULL_HANDLE;
+        return;
+    }
 
     VkSubmitInfo si{};
     si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;

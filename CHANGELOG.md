@@ -2,7 +2,34 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.3.2] - 2026-04-22
+
+### Fixed
+
+- **VMM `SubmitStagingCmd` — unchecked `vkEndCommandBuffer`.** If End failed, the staging cmd was malformed, the next `vkQueueSubmit` would VUID-fail, AND any pending acquire barriers would issue layout transitions against resources still in `UNDEFINED` (the release halves never actually ran). VUID-`VkImageMemoryBarrier`-`oldLayout`-01197. Now bails with cmd-buffer free + drops `m_PendingAcquire{Buffers,Images}`.
+- **VMM cross-family acquire path — unchecked `vkBeginCommandBuffer` / `vkEndCommandBuffer`.** Recording into a not-begun cmd is undefined; submitting a not-ended cmd is a VUID violation. Both now `VK_CHECK` and bail with cmd-free + pending-acquire drop on failure.
+- **VMM cross-family acquire path — fence path could silently skip the submit.** If `vkCreateFence` or the fenced `vkQueueSubmit` failed, the acquire barriers never ran, leaving resources stranded in "released to graphics family with no matching acquire" state (UB per spec §7.7.4). Added a `vkQueueWaitIdle`-based fallback so the acquire submit always actually runs (matches the staging fallback).
+- **Swapchain `CreateSwapchain` — unchecked `vkCreateSwapchainKHR` and both `vkGetSwapchainImagesKHR`.** Continuing past these on failure left a half-built swapchain; now returns false on device-lost so the caller can teardown (rule 14).
+- **`VulkanOneTimeCommand::Begin` — leaked the allocated cmd buffer when `vkBeginCommandBuffer` failed.** `m_Cmd` stayed populated so the caller couldn't tell Begin failed; a later `End()` would VUID-fail on a never-begun cmd, or never get called and the allocation leaked until pool teardown. Free + zero `m_Cmd` on Begin failure.
+
+### Build
+
+- **`.spv` outputs no longer tracked.** `glslangValidator` regenerates them on every build and bytes differ across glslang versions, so tracking them dirtied every local build against a CI-built tree. Added to `.gitignore`.
+
+### Documentation
+
+- **De-AI rewrite pass.** Every comment, doc, README, and CONTRIBUTING that read like marketing copy got the AI tells removed (no more "leverages", "seamlessly", "robust", "this ensures"). Voice is terser, comments explain *why* not *what*, README leads with a 3-line elevator pitch, CONTRIBUTING has opinions. Technical accuracy preserved; only the voice changed.
+- CHANGELOG, VCK.h header block, and `docs/*.md` resynced to v0.3.2 state.
+- Wiki tarball rebuilt: `VCK.wiki.v0.3.2.tar.gz`.
+
+## [0.3.1] - 2026-04-22
+
+### Build (cmake migration, PR #7)
+- **CMake + Ninja replaces `build.bat` / `build.sh` as the canonical build path.** `example/CMakeLists.txt` is now the single source of truth for all 4 platforms (Windows MinGW, Windows MSVC, Linux, macOS). Auto-detects `cl` from a Developer Cmd Prompt or `g++` / `clang++` from `PATH` — no `--toolchain` flag.
+- **Lib-once compile model.** All 12 VCK sources compile once into `vck.lib` / `libvck.a`; the 13 example exes + the R14 test exe link against it. Eliminates 143 redundant TU recompilations. Wall-clock cold build-all on a modern 8c box: Linux/macOS ~30-45s (was 10-12 min), Windows MSVC ~1-2 min, Windows MinGW ~2-3 min.
+- **Vulkan-Headers via FetchContent.** CMakeLists.txt fetches the `vulkan-sdk-1.4.321.0` tag itself, so the `vk_video/*.h` gap on Ubuntu 22.04 (which ships 1.3.x) is gone. CI no longer needs the manual sparse-checkout dance.
+- **R14 unit test harness** (`tests/`). Header-only assertion micro-framework, no GoogleTest dep. Asserts every `Initialize()` failure returns `false` AND emits exactly one `VCKLog::Error`. Wired through `ctest`. 14/14 pass on all 4 platforms.
+- `build.bat` / `build.sh` are now thin wrappers around `cmake --build` that preserve the interactive `[1-13/A/T/0]` menu UX.
 
 ### Added
 - **CI matrix: Linux + macOS jobs** — `.github/workflows/build.yml` now also runs on `ubuntu-latest` (apt: `libvulkan-dev libglfw3-dev vulkan-tools glslang-tools pkg-config g++`, `./build.sh A`) and `macos-latest` (brew: `vulkan-headers vulkan-loader glfw glslang molten-vk pkg-config`, `CXX=clang++ ./build.sh A`). The Windows job (build.bat [A] on MinGW + LunarG SDK) is unchanged and remains the canonical platform; Linux + macOS catch POSIX regressions in `VCK::Window` / `VCKCrossplatform` / `build.sh` that the Windows runner can't.

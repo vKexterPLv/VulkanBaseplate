@@ -847,7 +847,22 @@ void VulkanMemoryManager::SubmitStagingCmd()
 {
     if (!m_StagingOpen || !m_StagingCmd) return;
 
-    vkEndCommandBuffer(m_StagingCmd);
+    // If End fails the cmd is malformed and submitting it would be a VUID
+    // violation - bail with full cleanup instead of plowing into vkQueueSubmit.
+    if (!VK_CHECK(vkEndCommandBuffer(m_StagingCmd)))
+    {
+        vkFreeCommandBuffers(m_Device->GetDevice(),
+                             m_TransferPool, 1, &m_StagingCmd);
+        m_StagingCmd  = VK_NULL_HANDLE;
+        m_StagingOpen = false;
+        // Pending acquires reference release barriers that never actually
+        // executed - clear them so the next graphics submit doesn't issue
+        // a layout transition against a resource that's still in its
+        // pre-staging state.
+        m_PendingAcquireBuffers.clear();
+        m_PendingAcquireImages.clear();
+        return;
+    }
 
     // v0.3: route staging through the (possibly dedicated) transfer queue
     // and use a per-submit VkFence instead of vkQueueWaitIdle.
@@ -947,7 +962,20 @@ void VulkanMemoryManager::SubmitStagingCmd()
         VkCommandBufferBeginInfo gbi{};
         gbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         gbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(acquireCmd, &gbi);
+        if (!VK_CHECK(vkBeginCommandBuffer(acquireCmd, &gbi)))
+        {
+            // Recording into a not-begun cmd is undefined; bail before we
+            // record barriers that would never actually run.  Resources
+            // released to graphics family stay stranded - the next staging
+            // pass will overwrite layout/access masks anyway, and a future
+            // graphics use is the next chance to recover.
+            VCKLog::Error("VMM", "Failed to begin acquire-barrier cmd; pending acquires dropped.");
+            vkFreeCommandBuffers(m_Device->GetDevice(),
+                                 m_Command->GetCommandPool(), 1, &acquireCmd);
+            m_PendingAcquireBuffers.clear();
+            m_PendingAcquireImages.clear();
+            return;
+        }
 
         // Buffer acquires - srcAccessMask ignored; conservative dstAccessMask
         // covers vertex/index/uniform reads (the common post-upload usage).
@@ -1001,24 +1029,48 @@ void VulkanMemoryManager::SubmitStagingCmd()
             static_cast<uint32_t>(bbs.size()), bbs.empty() ? nullptr : bbs.data(),
             static_cast<uint32_t>(ibs.size()), ibs.empty() ? nullptr : ibs.data());
 
-        vkEndCommandBuffer(acquireCmd);
+        if (!VK_CHECK(vkEndCommandBuffer(acquireCmd)))
+        {
+            // End failed - cmd is incomplete, submitting it is a VUID
+            // violation.  Free the cmd and drop pending acquires; same
+            // reasoning as the BeginCommandBuffer failure path above.
+            vkFreeCommandBuffers(m_Device->GetDevice(),
+                                 m_Command->GetCommandPool(), 1, &acquireCmd);
+            m_PendingAcquireBuffers.clear();
+            m_PendingAcquireImages.clear();
+            return;
+        }
 
         VkSubmitInfo gsi{};
         gsi.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         gsi.commandBufferCount = 1;
         gsi.pCommandBuffers    = &acquireCmd;
 
+        // The acquire submit MUST execute - skipping it leaves resources in
+        // the "released to graphics family" state with no matching acquire,
+        // so any subsequent graphics use is UB per spec §7.7.4.  Prefer the
+        // fence path; fall back to vkQueueWaitIdle if fence creation or the
+        // fenced submit fails so the barriers always actually run.
         VkFence acquireFence = VK_NULL_HANDLE;
         VkFenceCreateInfo afi{};
         afi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
+        bool acquireFenced = false;
         if (VK_CHECK(vkCreateFence(m_Device->GetDevice(), &afi, nullptr, &acquireFence)))
         {
             if (VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &gsi, acquireFence)))
             {
                 vkWaitForFences(m_Device->GetDevice(), 1, &acquireFence, VK_TRUE, UINT64_MAX);
+                acquireFenced = true;
             }
             vkDestroyFence(m_Device->GetDevice(), acquireFence, nullptr);
+        }
+
+        if (!acquireFenced)
+        {
+            VCKLog::Warn("VMM", "Acquire-barrier fence path failed; falling back to queue wait.");
+            if (VK_CHECK(vkQueueSubmit(m_Device->GetGraphicsQueue(), 1, &gsi, VK_NULL_HANDLE)))
+                VK_CHECK(vkQueueWaitIdle(m_Device->GetGraphicsQueue()));
         }
 
         vkFreeCommandBuffers(m_Device->GetDevice(),

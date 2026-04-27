@@ -215,13 +215,16 @@ namespace VCK {
             swapchainInfo.pQueueFamilyIndices = nullptr;
         }
 
-        VK_CHECK(vkCreateSwapchainKHR(m_Device->GetDevice(), &swapchainInfo, nullptr, &m_Swapchain));
+        if (!VK_CHECK(vkCreateSwapchainKHR(m_Device->GetDevice(), &swapchainInfo, nullptr, &m_Swapchain)))
+            return false;
 
         // ── Retrieve images ──────────────────────────────────────────────────────
         uint32_t actualImageCount = 0;
-        vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, nullptr);
+        if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, nullptr)))
+            return false;
         m_Images.resize(actualImageCount);
-        vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, m_Images.data());
+        if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, m_Images.data())))
+            return false;
 
         m_ImageFormat = surfaceFormat.format;
         m_Extent = extent;

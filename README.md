@@ -2,10 +2,9 @@
 
 # V C K
 
-**Vulkan Core Kit** — a small, no-magic Vulkan kit for Windows, Linux, and
-macOS, plus a frame-level execution orchestration layer on top.
+**Vulkan Core Kit.** One header. You write the renderer. VCK shuts up about everything else.
 
-<sub>**not** an engine · no scene graph · no material system · you own the frame</sub>
+<sub>not an engine · no scene graph · no material system · you own the frame</sub>
 
 [![Windows build](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml/badge.svg?branch=VCK)](https://github.com/vKexterPLv/VCK/actions/workflows/build.yml)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](docs/Build.md)
@@ -19,29 +18,26 @@ macOS, plus a frame-level execution orchestration layer on top.
 
 ---
 
-Drop one header:
-
 ```cpp
-#include "VCK.h"   // auto-includes the expansion + execution layers
+#include "VCK.h"   // pulls expansion + execution
 ```
 
-…and you get the full kit: core Vulkan objects, higher-level building blocks
-(textures, meshes, descriptors, mipmaps), an optional memory manager (VMM),
-and an optional frame scheduler with a CPU job graph + GPU submission
-batcher.
+Gets you the core Vulkan objects, expansion (textures, meshes, descriptors,
+mipmaps, AA), an optional memory manager (VMM), and an optional frame
+scheduler with a CPU job graph + GPU submission batcher.
 
-**What's in the box (v0.3):**
+**v0.3 highlights:**
 
-- **Cross-platform**: Windows / Linux / macOS via `VCK::Window` + `VCK_PLATFORM_*` macros — no raw GLFW or Win32 in user code.
-- **Live resize as a first-class feature**: `VCK::HandleLiveResize(window, ...)` handles any resize including 720p → 4K. One call per frame. The scheduler-aware overload (v0.3) drains via `FrameScheduler::DrainInFlight()` instead of `vkDeviceWaitIdle`.
-- **Frame retirement in one word** (v0.3): `FrameScheduler` owns one `TimelineSemaphore`; `EndFrame` signals a monotonic per-slot value and `BeginFrame` waits on it with a single `vkWaitSemaphores`. Fence-path fallback when `VK_KHR_timeline_semaphore` isn't available.
-- **Dedicated compute / transfer queues** (v0.3): `VulkanDevice` picks compute-only + transfer-only families where the vendor exposes them; VMM staging submits to the dedicated transfer queue with release/acquire ownership barriers back to graphics.
-- **Secondary command buffers** (v0.3): `VulkanCommand::AllocateSecondary / BeginSecondary / EndSecondary / ExecuteSecondaries` for multi-threaded record-then-execute patterns.
-- **Ergonomic shader API** (v0.2.1): `VCKMath` (Vec2/3/4, Mat4, Perspective/LookAt), `VertexLayout`, `PushConstants`, `Primitives::Cube/Plane/Sphere/Quad/Line` — cube setup goes from ~40 lines of vertex tables to one call.
-- **Anti-aliasing framework**: `cfg.aa.technique = AATechnique::Auto` runs a 5-step decision tree (VRAM tier → forward path → motion vectors → pick) once at `Swapchain::Initialize`. Sample-based (MSAA / A2C / SampleRate) is implemented; post-process names (FXAA / SMAA / TAA / TAAU) are returned to the renderer.
-- **Structured logging**: `VCK::VCKLog` with `Info` / `Notice` / `Warn` / `Error` levels, console-spam dedup, `cfg.debug` opt-in. `VK_CHECK` routes failures to `Error` directly — fail loud by default.
-- **22 design rules** enforced: explicit over magic, no hidden state, frame is the unit of truth, external synchronisation, zero cost for unused features, every public API has an example, `VCK.h` is the API surface. See [`docs/Design.md`](docs/Design.md).
-- **[Cookbook](docs/Cookbook.md)** — copy-paste recipes for things the kit doesn't ship (image / OBJ loading, cube / line / SDF / text rendering, FXAA / SMAA / TAA, ImGui, offscreen PNG readback).
+- **Cross-platform** — `VCK::Window` + `VCK_PLATFORM_*` on Windows / Linux / macOS. No raw GLFW or Win32 in user code.
+- **Live resize is one call** — `VCK::HandleLiveResize(window, ...)` handles 720p → 4K. The scheduler-aware overload drains via `FrameScheduler::DrainInFlight()` instead of `vkDeviceWaitIdle`.
+- **Timeline semaphores** — `FrameScheduler` signals a monotonic per-slot value, `BeginFrame` waits with one `vkWaitSemaphores`. Fence fallback when the timeline ext is absent.
+- **Dedicated compute / transfer queues** — picked when the vendor exposes them. VMM staging runs on transfer with release/acquire ownership barriers back to graphics (spec §7.7.4).
+- **Secondary command buffers** — `Allocate/Begin/End/ExecuteSecondaries` for record-then-execute.
+- **Ergonomic shaders** — `VCKMath`, `VertexLayout`, `PushConstants`, `Primitives::Cube/Plane/Sphere/Quad/Line`. Cube setup: ~40 lines → one call.
+- **AA decision tree** — `cfg.aa.technique = Auto` picks at `Swapchain::Initialize` (VRAM tier → forward path → motion vectors). MSAA / A2C / SampleRate ship; FXAA / SMAA / TAA / TAAU names are returned to the renderer (the cookbook has the shaders).
+- **Structured logging** — `VCKLog::{Info,Notice,Warn,Error}` with console-spam dedup. `VK_CHECK` routes failures to `Error`.
+- **24 design rules** — fail loud, frame is the unit of truth, `VCK.h` is the surface, every public class has an example, etc. See [`docs/Design.md`](docs/Design.md).
+- **[Cookbook](docs/Cookbook.md)** — recipes for the things VCK refuses to ship (image / OBJ loading, ImGui, FXAA/SMAA/TAA, compute particles, shadows, PBR/IBL, deferred, bloom, hot-reload, picking).
 
 ## Layers
 
