@@ -2,7 +2,7 @@
 
 # Examples &nbsp;·&nbsp; `example/build.bat`
 
-Thirteen runnable examples, ordered from **raw Vulkan** to **fully VCK-assisted**.
+Fourteen runnable examples, ordered from **raw Vulkan** to **fully VCK-assisted**.
 
 </div>
 
@@ -75,8 +75,9 @@ takes ~40 lines of vertex tables in the raw tier into a few statements.
 
 | #  | Example          | Demonstrates |
 |----|------------------|--------------|
-| 12 | `HelloExample`   | smallest `FrameScheduler` program — `BeginFrame` / acquire / record / `QueueGraphics` / `EndFrame` / present |
-| 13 | `EasyCubeExample`| `Primitives::Cube()` + `VertexLayout` + `PushConstants` + `VCKMath` (`Perspective` / `LookAt`) — spinning cube in ~50 lines |
+| 12 | `HelloExample`           | smallest `FrameScheduler` program — `BeginFrame` / acquire / record / `QueueGraphics` / `EndFrame` / present |
+| 13 | `EasyCubeExample`        | `Primitives::Cube()` + `VertexLayout` + `PushConstants` + `VCKMath` (`Perspective` / `LookAt`) — spinning cube in ~50 lines |
+| 14 | `ShaderToolingExample`   | v0.4 shader tooling layer — `ShaderLoader` (no hand-written `LoadSpv`), `ShaderWatcher` (debug-only `.spv` hot reload via `Shutdown` + `Initialize` + `framebuffers.Recreate`), `SpecConstants` (`fragSpecialization` pinning fragment `BRIGHTNESS`), `ShaderStage` + `ShaderInterface` (single-source `VertexInput()` + `PipelineConfig()`) |
 
 ## Building
 
@@ -92,6 +93,6 @@ Pick an example from the menu. See [Build](Build) for dependency setup.
 ### Why this order?
 
 Reading top-down, each new example adds **one layer** of VCK assistance over
-the previous tier — so by the time you finish `[13]`, you've seen every
+the previous tier — so by the time you finish `[14]`, you've seen every
 abstraction VCK ships and exactly what each one buys you. Pick the lowest tier
 that meets your needs; rule 9 (escape hatches) means you can always drop back.
