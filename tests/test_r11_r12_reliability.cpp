@@ -17,8 +17,7 @@
 
 #include "vck_test.h"
 #include "vck_log_capture.h"
-#include "VulkanHelpers.h"
-#include "layers/execution/VCKExecution.h"
+#include "VCK.h"   // umbrella: VCKExecution forward-uses VulkanDevice/Command/Sync/...
 
 // ---------------------------------------------------------------------------
 //  R11 — Deterministic frame behaviour

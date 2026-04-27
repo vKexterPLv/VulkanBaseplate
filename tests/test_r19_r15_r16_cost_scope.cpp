@@ -15,6 +15,7 @@
 // =============================================================================
 
 #include "vck_test.h"
+#include "vck_log_capture.h"
 #include "VCK.h"
 #include <cmath>
 
