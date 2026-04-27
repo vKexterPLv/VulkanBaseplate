@@ -1,94 +1,79 @@
-# Contributing to VCK
+# Contributing
 
-Thanks for wanting to contribute. VCK is small on purpose — no scene graph, no
-ECS, no material system — so most contributions fall into one of:
+VCK is small on purpose. No scene graph, no ECS, no material system, no asset pipeline. If you want to add one of those, this is the wrong project — go fork or write your own engine on top.
 
-1. **Bug fix** in the core primitives, expansion layer, execution layer, or
-   examples. Smallest-possible diff preferred.
-2. **New example** in `example/<Name>Example/` demonstrating a Vulkan feature
-   with the same `main.cpp + App.{h,cpp}` pattern as the existing 13.
-3. **Docs / wiki polish** — the wiki is the 1-hour-onboarding surface; the
-   `docs/` folder is where the source lives (wiki is mirrored from it).
-4. **Cross-platform fix** for Windows / Linux / macOS compile or runtime issues.
+What does land here:
 
-## Before you open a PR
+1. **Bug fixes** in core / expansion / execution / VMM / examples. Small, focused diffs. One bug per commit.
+2. **New examples** under `example/<Name>Example/` following the `main.cpp + App.{h,cpp}` pattern the existing 13 use. Don't reinvent the layout.
+3. **Docs / wiki polish.** The wiki mirrors `docs/`; edit the `docs/` source, not the wiki directly.
+4. **Cross-platform fixes** for Windows / Linux / macOS. CI runs all three.
 
-- Read [`docs/Design.md`](docs/Design.md) — the 22 design rules are the
-  architectural contract. PRs that violate a rule get a rework request unless
-  the rule itself is being changed in the same PR.
-- Read [`VCK.h`](VCK.h) — the header block is the single source of truth for
-  the API surface, class index, config, and quick-start (rule 21). If you add
-  a public class or config knob, update `VCK.h`.
-- Rule 20: every public class in `VCK.h` must be exercised by at least one
-  example. New public API lands with its example in the same PR.
-- Run `example/build.bat [A]` (Windows, MinGW) or `example/build.sh` (Linux /
-  macOS) and confirm all 13 examples still compile.
+## Before opening a PR
 
-## Design rules, in one line
+Read these. Yes really.
 
-1. Explicit over magic (Init/Shutdown pairs, no singletons).
-2. Core owns resources; expansion/execution borrow raw pointers.
-3. Strict lifecycle order (Context → Device → Swapchain → Command → Sync → …).
-4. No hidden synchronisation — only `Shutdown()` may call `vkDeviceWaitIdle`;
-   the runtime hot path never does (v0.3).
-5. Memory is frame-scoped or persistent; no dangling state.
-6. No hidden behaviour; user-visible picks log as `VCKLog::Notice`.
+- [`docs/Design.md`](docs/Design.md) — the 24 rules are the contract. Violating one gets a rework request unless you're changing the rule itself in the same PR.
+- [`VCK.h`](VCK.h) — the header doc block is the API surface (R21). New public class or `cfg` knob? Update `VCK.h` in the same PR.
+- R20: every public class has at least one example. New API ships with its example.
+- Build it. `cmake -S example -B build -G Ninja && cmake --build build -j` plus `ctest --test-dir build`. CI does this on all 4 platforms. If your local fails, CI will fail.
+
+## The 24 design rules in one line each
+
+1. Explicit over magic. `Initialize` / `Shutdown` pairs, no singletons.
+2. Core owns; expansion / execution borrow raw pointers.
+3. Strict lifecycle order: Context → Device → Swapchain → Command → Sync → ...
+4. No hidden synchronisation. Only `Shutdown()` may call `vkDeviceWaitIdle`. The hot path never does.
+5. Memory is frame-scoped or persistent. No dangling state.
+6. No hidden behaviour. User-visible picks log as `VCKLog::Notice`.
 7. User owns the frame loop unless they opt into `FrameScheduler`.
-8. Explicit synchronisation model; no implicit ordering.
-9. Escape hatches everywhere — every wrapper exposes `Get<VkHandle>()`.
+8. Explicit synchronisation. No implicit ordering.
+9. Escape hatches everywhere. Every wrapper exposes `Get<VkHandle>()`.
 10. Zero hidden GPU state.
-11. Deterministic frame behaviour under Pipelined / Lockstep; `AsyncMax` is documented nondeterminism.
+11. Deterministic frame behaviour under Pipelined / Lockstep. `AsyncMax` is documented nondeterminism.
 12. Explicit recreation events (logged + `DebugTimeline` spans).
-13. Debuggability is a core feature, not optional.
-14. Fail fast, fail loud — every failure returns an explicit `bool` **and**
-    logs via `VCKLog::Error("<subsystem>", ...)`. Silent `return false` is a bug.
+13. Debuggability is a core feature. Not optional.
+14. Fail fast, fail loud. Every failure returns `bool` AND logs `VCKLog::Error("<subsystem>", ...)`. Silent `return false` is a bug.
 15. Minimal core surface.
-16. No engine assumptions (no scene graph, no materials, no assets).
+16. No engine assumptions.
 17. The frame is the unit of truth.
-18. External synchronisation — concurrent access to the same VCK instance from
-    multiple threads is UB unless the caller locks. `JobGraph` is the sole
-    thread-safe exception.
-19. Zero cost for unused features — un-`Initialize`d modules allocate nothing,
-    spawn no thread, emit no log line.
-20. Every public class in `VCK.h` has at least one example under `example/`.
-21. `VCK.h` is the API surface. Layer headers under `layers/*` are
-    implementation detail and may move. Breaking changes to `VCK.h` bump the
-    minor version (0.x) until v1.0.0.
-22. VCK never owns user handles. Raw `Vk*` passed in is caller-owned; handles
-    VCK returns via getters are borrows — do not destroy them.
+18. External synchronisation. Concurrent access from multiple threads is UB unless the caller locks. `JobGraph` is the sole exception.
+19. Zero cost for unused features. Un-`Initialize`d modules allocate nothing, spawn no thread, emit no log.
+20. Every public class in `VCK.h` has at least one example.
+21. `VCK.h` is the API surface. Layer headers under `layers/` may move. Breaking changes to `VCK.h` bump minor (0.x) until v1.0.
+22. VCK never owns user handles. Raw `Vk*` passed in is caller-owned. Handles VCK returns via getters are borrows — don't destroy them.
+23. Extension transparency. Every extension VCK enables silently is logged via `VCKLog::Notice` at init, with support status and fallback.
+24. `cfg` is the contract. If a behavioural difference changes how the user writes their renderer → it lives in `cfg`. If it only changes how VCK works underneath → silent bundle.
 
 ## Branching
 
-- `master` — stable; only merge via PR with a green CI.
-- `VCK` — current integration branch for the 0.x pre-release line.
-- Feature branches — `feature/<name>` or `fix/<issue>`.
+- `VCK` — current pre-release integration branch (default).
+- `first-vck` — historical first-release snapshot. Don't touch.
+- Feature branches: `devin/<timestamp>-<name>` or `feature/<name>` or `fix/<issue>`.
 
-## Commit style
+## Commits
 
-- First line: ≤ 72 chars, imperative mood ("Add AA auto-detector", not "Added AA auto-detector").
-- Body (optional): wrap at 72 cols, explain *why* more than *what*.
-- No `--amend` on pushed commits; no `--no-verify`.
+- First line ≤ 72 chars, imperative mood. "Add AA auto-detector" not "Added AA auto-detector".
+- Body wrapped at 72. Explain *why* more than *what*. The diff already shows what.
+- No `--amend` on pushed commits. Add follow-up commits.
+- No `--no-verify`. If the hook is wrong, fix the hook.
 
 ## Code style
 
-- C++17. Follow the surrounding style of the file you're editing.
+- C++17 in core. C++20 only inside `example/` (designated initializers).
 - Include order: local (`"../../VCK.h"`) → third-party (`<vulkan/vulkan.h>`) → std (`<vector>`).
-- Prefer minimal comments; `VCK.h` header documents the API, not per-class
-  headers.
-- `snake_case` for local variables, `camelCase` for functions/methods,
-  `PascalCase` for types, `m_Member` for class members.
+- Comments are sparse and explain *why*. The `VCK.h` header documents the public API; layer headers don't repeat it.
+- `snake_case` locals, `camelCase` methods, `PascalCase` types, `m_Member` for class members.
+- Don't comment the diff. "Fixed X by doing Y" belongs in the commit message, not in the source.
 
 ## Testing
 
-VCK currently has no unit tests. CI on Windows runs `build.bat [A]` which
-compiles all 13 examples. Runtime validation is manual:
+R14 unit harness lives in `tests/` and runs under `ctest`. It's a small home-grown thing, not GoogleTest — VCK has zero third-party test dependencies. Each test asserts that a failed `Initialize()` returns `false` AND emits exactly one `VCKLog::Error`.
 
-- Run an example, resize the window (including 720p ↔ 4K), confirm no
-  stutter.
-- Run with `cfg.debug = true` and verify the `[Context]` / `[Device]` /
-  `[Swapchain]` init chatter is visible.
+Beyond R14, validation is manual:
+- Run an example. Resize the window, including 720p ↔ 4K. No stutter.
+- Run with `cfg.debug = true`. The init chatter from `[Context]` / `[Device]` / `[Swapchain]` is visible.
 
 ## License
 
-By contributing, you agree your work is licensed under the repo's MIT license
-(see [`LICENSE`](LICENSE)).
+By contributing, you agree your work ships under the repo's MIT licence (see [`LICENSE`](LICENSE)).
