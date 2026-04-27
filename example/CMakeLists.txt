@@ -36,7 +36,11 @@ project(vck_examples
 # ---------------------------------------------------------------------------
 #  Compile settings shared by every target.
 # ---------------------------------------------------------------------------
-set(CMAKE_CXX_STANDARD          17)
+#  C++20 because example App.cpp files use designated initializers
+#  ( '.foo = bar' inside aggregate { } ) for VkSomeStructInfo struct
+#  literals.  GCC + clang accept these in C++17 mode as a non-standard
+#  extension, but MSVC needs /std:c++20 to compile them.
+set(CMAKE_CXX_STANDARD          20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS        OFF)
 
