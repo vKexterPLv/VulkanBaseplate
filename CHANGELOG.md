@@ -2,6 +2,19 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.3] - 2026-04-27
+
+### Fixed
+
+- **`tests/test_r11_r12_reliability.cpp` — direct include of `layers/execution/VCKExecution.h`.** That header forward-uses `VulkanDevice` / `VulkanCommand` / `VulkanSync` without including their core headers, so it only compiles when the umbrella has already pulled them in. Switched the include to `VCK.h` to match the working tests. CI broke on all 4 jobs (Linux / macOS / Windows MinGW / Windows MSVC) on the post-merge run of v0.3.2.
+- **`tests/test_r19_r15_r16_cost_scope.cpp` — used `VCK::Test::LogCapture` without `vck_log_capture.h`.** Added the include.
+- **`tests/test_vckmath.cpp` — `Mat4` access mismatch.** `Mat4` stores `float m[16]` flat (column-major) with an `At(row, col)` accessor; the tests indexed it as `m[col][row]`. Switched to `At(row, col)`.
+- **`tests/test_vckmath.cpp` — `lookat_z_axis_points_to_target` asserted positive view-space Z.** VCK is right-handed (the third row of `LookAt` negates `f`, matching the `Perspective` convention which negates `z` into `w`), so a target one unit ahead at world `(0, 0, -1)` lands at view-space `z = -1`. Fixed assertion.
+
+### Notes
+
+v0.3.3 is a test-harness fix release on top of v0.3.2 — no library code changed, no behaviour change. If your tree was on v0.3.2 with green CI on PR #8, you don't need to take this; it only matters for the maintainer's `a9f3e92` "Moar tests" commit that landed post-merge.
+
 ## [0.3.2] - 2026-04-22
 
 ### Fixed
