@@ -2,6 +2,26 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-04-27
+
+### Added
+
+- **Shader tooling layer (5 new expansion classes, [PR #10](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/10)).** A grouped layer that owns the shader-side ceremony so users never write their own SPIR-V loaders, hot-reload polling, specialization constant buffers, or per-stage descriptor declarations. All five live in `layers/expansion/VCKExpansion.{h,cpp}` under `namespace VCK` and follow the standing rules — zero state until first call (R19), escape hatches everywhere (R9), `VCKLog::Error` on every failure (R14), `VCKLog::Notice` on every behavioral decision (R23), no GPU state held except the descriptor layout `BuildSetLayout` returns to the caller (R10).
+  - `ShaderLoader` — `LoadFromFile(path, stage)` reads pre-compiled `.spv`. `LoadFromGLSL(glslPath, stage)` is a debug-only helper that shells out to `glslangValidator` on `PATH`. `GetShaderInfo()` produces a ready-to-pass `VulkanPipeline::ShaderInfo`. `GetSpirv(stage)` exposes the raw word-vector.
+  - `ShaderWatcher` — `Watch(path, stage)` registers a `.spv` and stores its `last_write_time`. `HasChanged()` polls all watched files (one timestamp compare per file, never throws). `Reload()` rereads the SPIR-V; the user drives the pipeline rebuild + framebuffer recreate. Conceptually debug-only.
+  - `SpecConstants` — builder around `VkSpecializationInfo` + `VkSpecializationMapEntry`. `Set(constantID, value)` overloads for `uint32_t / int32_t / float / bool` (bool stored as 0/1 uint32). Re-`Set` on the same `constantID` overwrites in place when sizes match, otherwise the data buffer is rebuilt and downstream offsets shift accordingly. `GetInfo()` returns `nullptr` when empty.
+  - `ShaderStage` — pure-data per-stage declaration. `Vertex()` returns `VertexLayout&`, `Push()` returns `PushConstants&`, `Uniform/Sampler/Storage(set, binding)` declare descriptor bindings. No GPU objects.
+  - `ShaderInterface` — merges multiple `ShaderStage`s. `VertexInput()` pulls `Bindings[0] / Attributes[0]` from the vertex stage. `PipelineConfig()` pre-fills `pushConstantRanges` from the merged push block. `BuildSetLayout(device, setIndex)` returns a caller-owned `VkDescriptorSetLayout`. `Push()` returns the shared push block. Warns via `VCKLog::Warn` when two stages declare push blocks of different sizes.
+  - `ApplyToConfig(spec, cfg)` free function — convenience for wiring one `SpecConstants` into both vert + frag fields of `VulkanPipeline::Config`.
+- **`PushConstants::Declare(name, type, count)`** — array overload, reserves `count * sizeof(type)` bytes.
+- **`PushConstants::SetRaw(name, data, size)`** — typed-`Set` escape hatch. Returns `false + VCKLog::Error` on unknown name or size mismatch.
+- **`VulkanPipeline::Config::vertSpecialization` / `fragSpecialization`** — `const VkSpecializationInfo*`, default `nullptr`. `CreateGraphicsPipeline` plumbs them into `VkPipelineShaderStageCreateInfo::pSpecializationInfo` for both stages.
+- **`VCK.h` class index** extended to 20 expansion classes ([26]–[30]).
+
+### Notes
+
+v0.4.0 is a feature release — minor SemVer bump because the shader tooling adds new public surface but does not change any existing class signature, behavior, or example. CI green on Linux / macOS / Windows MinGW / Windows MSVC at merge.
+
 ## [0.3.3] - 2026-04-27
 
 ### Fixed
