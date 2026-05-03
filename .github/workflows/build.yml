@@ -156,6 +156,57 @@ jobs:
         run: ctest --test-dir build --output-on-failure -j
 
   # ---------------------------------------------------------------------------
+  #  Linux / Ubuntu sanitizers (g++ + ASan + UBSan).  Same toolchain as the
+  #  plain linux job, but the build is instrumented with -fsanitize=address,
+  #  undefined and ctest runs under ASAN_OPTIONS / UBSAN_OPTIONS that abort
+  #  on first error.  This is the gate the v0.5 audit (Theme F2) added so
+  #  the bug-audit sweep (Theme A) and the synchronization2 / render-graph
+  #  feature work (Themes S, X, E) run under sanitizer scrutiny from day 1.
+  #
+  #  Cost: ~2x the plain linux build time.  Worth it given how easy it is
+  #  to land an off-by-one in barrier code.
+  # ---------------------------------------------------------------------------
+  linux-sanitizers:
+    name: cmake + ninja (Linux / g++ + ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Vulkan, GLFW, glslang, cmake, ninja, g++)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
+            pkg-config g++ cmake ninja-build
+
+      - name: Verify toolchain
+        run: |
+          which g++ cmake ninja glslangValidator
+          g++ --version
+          cmake --version
+          ninja --version
+          pkg-config --modversion vulkan
+          pkg-config --modversion glfw3
+
+      - name: Configure (ASan + UBSan)
+        env:
+          CFLAGS:   "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g"
+          CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g"
+          LDFLAGS:  "-fsanitize=address,undefined"
+        run: cmake -S example -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build all examples + R14 tests
+        run: cmake --build build -j --target examples vck_tests
+
+      - name: Run R14 tests under sanitizers
+        env:
+          ASAN_OPTIONS:  "abort_on_error=1:halt_on_error=1:detect_leaks=0:symbolize=1"
+          UBSAN_OPTIONS: "abort_on_error=1:halt_on_error=1:print_stacktrace=1:symbolize=1"
+        run: ctest --test-dir build --output-on-failure -j
+
+  # ---------------------------------------------------------------------------
   #  macOS (clang++ + MoltenVK + Ninja).  Homebrew covers everything; the
   #  CMake build links against vulkan-loader (Vulkan::Vulkan) which on macOS
   #  resolves to libvulkan.dylib that wraps MoltenVK at runtime.  CI does
