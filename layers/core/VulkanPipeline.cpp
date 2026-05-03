@@ -61,14 +61,28 @@ namespace VCK {
         // when Initialize returned false.  Each sub-function owns its
         // subsystem-tagged Error on failure (R14: exactly one Error per
         // failure path) - these Info lines do not log on the failure branch.
+        // Failure paths roll back already-built sub-state inline so the
+        // caller does not have to know to call Shutdown() after a failed
+        // Initialize() (matches the VulkanDevice / VulkanCommand /
+        // VulkanSync rollback contract).
         VCKLog::Info("Pipeline", "Creating render pass...");
         if (!CreateRenderPass(swapchainFormat))             return false;
 
         VCKLog::Info("Pipeline", "Creating pipeline layout...");
-        if (!CreatePipelineLayout())                        return false;
+        if (!CreatePipelineLayout()) {
+            vkDestroyRenderPass(m_Device->GetDevice(), m_RenderPass, nullptr);
+            m_RenderPass = VK_NULL_HANDLE;
+            return false;
+        }
 
         VCKLog::Info("Pipeline", "Creating graphics pipeline...");
-        if (!CreateGraphicsPipeline(shaders, vertexInput))  return false;
+        if (!CreateGraphicsPipeline(shaders, vertexInput)) {
+            vkDestroyPipelineLayout(m_Device->GetDevice(), m_PipelineLayout, nullptr);
+            vkDestroyRenderPass    (m_Device->GetDevice(), m_RenderPass,     nullptr);
+            m_PipelineLayout = VK_NULL_HANDLE;
+            m_RenderPass     = VK_NULL_HANDLE;
+            return false;
+        }
 
         VCKLog::Info("Pipeline", "Initialized");
         return true;
@@ -207,12 +221,13 @@ namespace VCK {
         createInfo.codeSize = spirv.size() * sizeof(uint32_t);
         createInfo.pCode = spirv.data();
 
+        // Silent helper: the caller (CreateGraphicsPipeline) emits the
+        // single subsystem-tagged Error covering both modules so that
+        // failing both shader stages produces exactly one Error for the
+        // user's logical failure (R14), not three.
         VkShaderModule shaderModule = VK_NULL_HANDLE;
         if (!VK_OK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
-        {
-            VCKLog::Error("Pipeline", "vkCreateShaderModule failed");
             return VK_NULL_HANDLE;
-        }
 
         return shaderModule;
     }
