@@ -56,8 +56,19 @@ namespace VCK {
         // cfg.swapchain.msaaSamples); we simply mirror it here.
         m_Samples = samples;
 
+        // Per-step Info lines so the user can tell at a glance which init
+        // stage failed when one of the sub-functions returns false.  Each
+        // sub-function emits its own subsystem-tagged Error on failure
+        // (R14: exactly one Error per failure); these Info lines give
+        // additional audit-trail context at the public-API boundary,
+        // matching VulkanDevice::Initialize's per-step logging style.
+        VCKLog::Info("Pipeline", "Creating render pass...");
         if (!CreateRenderPass(swapchainFormat))    return false;
+
+        VCKLog::Info("Pipeline", "Creating pipeline layout...");
         if (!CreatePipelineLayout())               return false;
+
+        VCKLog::Info("Pipeline", "Creating graphics pipeline...");
         if (!CreateGraphicsPipeline(shaders, vertexInput)) return false;
 
         VCKLog::Info("Pipeline", "Initialized");

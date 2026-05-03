@@ -106,6 +106,15 @@ namespace VCK {
 #endif
 
     void VulkanContext::Shutdown() {
+        // R14 + R19: a default-constructed (or already-shut-down) context
+        // produces zero log output.  Without this guard the unconditional
+        // Info("Shutdown") + Info("Shutdown complete") below fired for any
+        // Shutdown() call, leaking noise into tests + caller code that
+        // defensively calls Shutdown() in error-handling paths.
+        if (Instance == VK_NULL_HANDLE) {
+            return;
+        }
+
         VCKLog::Info("Context", "Shutdown");
 
         // Order matters: surface → debug messenger → instance

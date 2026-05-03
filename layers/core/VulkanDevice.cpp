@@ -37,21 +37,25 @@ namespace VCK {
         VCKLog::Info("Device", "Selecting physical device...");
         if (!PickPhysicalDevice(instance, surface))
         {
-            VCKLog::Error("Device", "No suitable GPU found");
+            // PickPhysicalDevice already emits a detailed VCKLog::Error
+            // (deviceCount=0, no scoring device, missing extension, etc).
+            // R14 says exactly one Error per failure - propagate without
+            // adding a generic second line.
             return false;
         }
 
         VCKLog::Info("Device", "Creating logical device...");
         if (!CreateLogicalDevice())
         {
-            VCKLog::Error("Device", "Logical device creation failed");
+            // CreateLogicalDevice already emits a tagged Error - propagate
+            // without double-logging (R14: exactly one Error per failure).
             return false;
         }
 
         VCKLog::Info("Device", "Creating VMA allocator...");
         if (!CreateAllocator(instance))
         {
-            VCKLog::Error("Device", "VMA allocator creation failed");
+            // CreateAllocator already emits a tagged Error.
             return false;
         }
 
@@ -504,7 +508,11 @@ namespace VCK {
             deviceInfo.pEnabledFeatures = &deviceFeatures;
         }
 
-        VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice));
+        if (!VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice)))
+        {
+            VCKLog::Error("Device", "vkCreateDevice failed");
+            return false;
+        }
 
         m_TimelineSemaphoresEnabled = timelineRequested && timelineSupported;
 
@@ -566,7 +574,11 @@ namespace VCK {
         allocatorInfo.instance = instance;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_2;
 
-        VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator));
+        if (!VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)))
+        {
+            VCKLog::Error("Device", "vmaCreateAllocator failed");
+            return false;
+        }
         VCKLog::Info("Device", "VMA allocator ready");
         return true;
     }

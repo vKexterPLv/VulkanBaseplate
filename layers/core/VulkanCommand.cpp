@@ -96,13 +96,25 @@ namespace VCK {
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        return VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+        if (!VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo)))
+        {
+            VCKLog::Error("Command",
+                "vkBeginCommandBuffer failed for frame " + std::to_string(frameIndex));
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::EndRecording(uint32_t frameIndex)
     {
-        return VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex]));
+        if (!VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex])))
+        {
+            VCKLog::Error("Command",
+                "vkEndCommandBuffer failed for frame " + std::to_string(frameIndex));
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

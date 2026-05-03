@@ -162,6 +162,18 @@ TEST(A1_Core_R14, vulkan_device_shutdown_uninitialized_silent)
     ASSERT_EQ(cap.warns().size(),  static_cast<std::size_t>(0));
 }
 
+TEST(A1_Core_R14, vulkan_context_shutdown_uninitialized_silent)
+{
+    // Pre-fix VulkanContext::Shutdown unconditionally emitted two Info
+    // lines ("Shutdown" + "Shutdown complete") even on a default-
+    // constructed context.  Post-fix the early-return guard makes
+    // un-initialized Shutdown a true no-op (R19 + R14).
+    VCK::Test::LogCapture cap;
+    VCK::VulkanContext ctx;
+    ctx.Shutdown();
+    ASSERT_EQ(cap.entries.size(), static_cast<std::size_t>(0));
+}
+
 
 // ---------------------------------------------------------------------------
 //  Double-Shutdown idempotency — calling Shutdown twice on an
@@ -218,4 +230,33 @@ TEST(A1_Core_R14, vulkan_sync_double_shutdown_silent)
     sync.Shutdown();
     ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(0));
     ASSERT_EQ(cap.warns().size(),  static_cast<std::size_t>(0));
+}
+
+TEST(A1_Core_R14, vulkan_swapchain_double_shutdown_silent)
+{
+    VCK::Test::LogCapture cap;
+    VCK::VulkanSwapchain sw;
+    sw.Shutdown();
+    sw.Shutdown();
+    ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(0));
+    ASSERT_EQ(cap.warns().size(),  static_cast<std::size_t>(0));
+}
+
+TEST(A1_Core_R14, vulkan_device_double_shutdown_silent)
+{
+    VCK::Test::LogCapture cap;
+    VCK::VulkanDevice dev;
+    dev.Shutdown();
+    dev.Shutdown();
+    ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(0));
+    ASSERT_EQ(cap.warns().size(),  static_cast<std::size_t>(0));
+}
+
+TEST(A1_Core_R14, vulkan_context_double_shutdown_silent)
+{
+    VCK::Test::LogCapture cap;
+    VCK::VulkanContext ctx;
+    ctx.Shutdown();
+    ctx.Shutdown();
+    ASSERT_EQ(cap.entries.size(), static_cast<std::size_t>(0));
 }
