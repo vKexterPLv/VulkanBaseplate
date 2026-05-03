@@ -41,9 +41,14 @@ cmake-build-*/
 /example/RGBTriangle/RGBTriangle
 /example/SchedulerPolicyExample/SchedulerPolicyExample
 /example/SecondaryCmdExample/SecondaryCmdExample
+/example/ShaderToolingExample/ShaderToolingExample
 /example/SubmissionBatchingExample/SubmissionBatchingExample
 /example/TimelineExample/TimelineExample
 /example/VMMExample/VMMExample
+
+# Stray accidental shell-redirection artifacts (e.g. `> s`).
+/example/*/s
+/example/*/S
 /tests/vck_tests
 /tests/vck_tests.exe
 CMakeCache.txt
