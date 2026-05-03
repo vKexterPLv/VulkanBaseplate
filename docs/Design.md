@@ -266,6 +266,53 @@ Expansion / Execution / VMM / Tools layers.
      of renderer code if I flip this?" decides which side of the line
      it falls on.
 
+## Versioning and deprecation
+
+VCK follows [SemVer](https://semver.org/). The contract surface — anything
+declared or documented in `VCK.h` — has a one-minor-version deprecation
+window. The contract surface is *only* `VCK.h`; layer headers under
+`layers/` are implementation detail and may change without notice
+between minor versions.
+
+**The window.** A class signature, public method, `cfg` knob, enum value,
+or free function on the `VCK.h` surface will not be removed or have its
+meaning changed without one full minor version of overlap. Concretely:
+if a name is announced as deprecated in `vX.Y`, it keeps working through
+the entirety of the `vX.Y.*` line and is removed no earlier than `vX.(Y+1).0`.
+
+**How a deprecation is announced.**
+
+1. The name in `VCK.h` carries a `// [deprecated since vX.Y; removed in
+   vX.(Y+1)]` comment on the same line as the declaration. R21 means
+   `VCK.h` is the documented surface, so the comment is the contract.
+2. The first invocation in a process emits one `VCKLog::Warn` with the
+   subsystem tag of the owning class (R14). The warn payload names the
+   deprecated symbol and its replacement.
+3. The `CHANGELOG.md` "Changed" section for `vX.Y` lists every newly
+   deprecated symbol under a "**Deprecated**" sub-bullet. The `vX.(Y+1)`
+   "Removed" section confirms the actual removal.
+4. Any example that uses the deprecated symbol is migrated to the
+   replacement in the same PR that announces the deprecation. R20
+   coverage of the new symbol follows.
+
+**Superseded `cfg` knobs.** Config knobs that become no-ops because the
+feature they gated is no longer optional follow the same window: the
+knob keeps existing for one minor version and `VCKLog::Notice` fires
+once at `Initialize` to announce that the value is being ignored. The
+knob is removed in the following minor.
+
+**What is not the contract.** Comments in layer headers, internal helper
+classes (anything not forwarded from `VCK.h`), the on-disk layout under
+`layers/`, build scripts, vendored dependencies, the wiki page count and
+ordering, and the example menu numbering are all implementation detail.
+They may change at any time. If a refactor lands in `layers/` and your
+code still compiles against `VCK.h`, the refactor was correct.
+
+This section establishes the policy. The first deprecation cycle does
+not begin until the first symbol is actually deprecated.
+
+---
+
 ## Status and caveats
 
 - **Dedicated queues (v0.3).** `VulkanDevice::FindQueueFamilies` picks a
