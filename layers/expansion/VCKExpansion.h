@@ -472,7 +472,14 @@ public:
             m_Sets[i] = pool.GetSet(i);
 
             if (!m_Buffers[i].CreateUniform(device, sizeof(T)))
+            {
+                // Track partial progress so a subsequent Shutdown() cleans up
+                // the slots we did create.  Without this, m_FramesInFlight
+                // would still be 0 and Shutdown() would iterate zero slots,
+                // leaking the [0, i) buffers we already constructed.
+                m_FramesInFlight = i;
                 return false;
+            }
 
             // Point descriptor set at the buffer
             VkDescriptorBufferInfo bufInfo{};
