@@ -186,7 +186,8 @@ bash docs/perf_baseline.sh
    <commit>`. Keep the metric and the commit linked so any v0.6
    regression can be bisected.
 
-The script exits with code 0 on success and a non-zero code if any
-required example fails to build or the GPU-only anchors cannot be
-collected (in which case A3/A4/A5 are reported as "GPU unavailable"
-and only the static + RSS anchors land).
+The script exits with code 0 on success — including when the GPU-only
+anchors cannot be collected (in which case A3/A4/A5 are reported as
+"GPU unavailable" and only the static + RSS anchors land). A non-zero
+exit code means a required example failed to build, or the cmake
+configure step failed.
