@@ -30,7 +30,7 @@ question the user has to answer when picking a graphics framework.
 |---|---|---|
 | **A1 · Peak RSS, init** | "How much memory does VCK eat to draw a triangle?" | `RGBTriangle` in the first 16 frames |
 | **A2 · Peak RSS, steady** | "Does it leak?" | `RGBTriangle` after 1000 frames |
-| **A3 · Frame time** | "Can I hit 144 Hz at 1280×720 on this GPU?" | `RGBTriangle` average over 1000 frames, V-sync off, `framesInFlight = 2` |
+| **A3 · Frame time** | "Can I hit 144 Hz at 1280×720 on this GPU?" | `RGBTriangle` median over 1000 frames, V-sync off, `framesInFlight = 2` |
 | **A4 · VMM staging throughput** | "How fast can I stream textures?" | `VMMExample` total bytes uploaded / wall time, ring at max load |
 | **A5 · Hot-reload latency** | "How long from `:wq` to seeing the change?" | `ShaderToolingExample` time from `.spv` `mtime` change to first redrawn frame |
 

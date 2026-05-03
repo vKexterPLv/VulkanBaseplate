@@ -243,7 +243,7 @@ cat <<EOF
 | S2 | \`cfg\` knob count                  | ${S2} |
 | S3 | Examples count                    | ${S3} |
 | S4 | \`VCK.h\` line count                 | ${S4} |
-| S5 | \`vck.a\` (static lib) size, Release | ${S5_human} |
+| S5 | \`libvck.a\` (static lib) size, Release | ${S5_human} |
 | S6 | Build wall time, all examples      | ${S6_human} |
 
 **Test machine:**
