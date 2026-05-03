@@ -34,14 +34,17 @@ namespace VCK {
 
     bool VulkanDevice::Initialize(VkInstance instance, VkSurfaceKHR surface)
     {
+        // Each sub-step owns the single subsystem-tagged Error on failure
+        // (R14: exactly one Error per failure).  The Notice lines below are
+        // public-API-level breadcrumbs so a reader scanning for "Device"
+        // can see exactly which step Initialize gave up on without us
+        // double-emitting Error.  Failure paths roll back already-built
+        // sub-state so the caller does not have to know to call Shutdown()
+        // after a failed Initialize().
+
         VCKLog::Info("Device", "Selecting physical device...");
         if (!PickPhysicalDevice(instance, surface))
         {
-            // PickPhysicalDevice already emits a detailed VCKLog::Error
-            // (deviceCount=0, no scoring device, missing extension, etc).
-            // Add a Notice-level public-API marker so a reader scanning the
-            // log for "Device" can see Initialize gave up here without us
-            // double-emitting Error (R14: exactly one Error per failure).
             VCKLog::Notice("Device", "Initialize aborted: PickPhysicalDevice failed");
             return false;
         }
@@ -50,6 +53,7 @@ namespace VCK {
         if (!CreateLogicalDevice())
         {
             VCKLog::Notice("Device", "Initialize aborted: CreateLogicalDevice failed");
+            m_PhysicalDevice = VK_NULL_HANDLE;     // roll back PickPhysicalDevice
             return false;
         }
 
@@ -57,6 +61,16 @@ namespace VCK {
         if (!CreateAllocator(instance))
         {
             VCKLog::Notice("Device", "Initialize aborted: CreateAllocator failed");
+            // Roll back the logical device built two steps up so we do not
+            // leak it.  Inlined rather than calling Shutdown() so a failed
+            // Initialize never logs a misleading "shut down" line.
+            vkDestroyDevice(m_LogicalDevice, nullptr);
+            m_LogicalDevice  = VK_NULL_HANDLE;
+            m_GraphicsQueue  = VK_NULL_HANDLE;
+            m_PresentQueue   = VK_NULL_HANDLE;
+            m_ComputeQueue   = VK_NULL_HANDLE;
+            m_TransferQueue  = VK_NULL_HANDLE;
+            m_PhysicalDevice = VK_NULL_HANDLE;
             return false;
         }
 
