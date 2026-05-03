@@ -36,24 +36,36 @@ OS="$(uname -s)"
 #                                     or "unavailable" if /usr/bin/time
 #                                     (or gtime on macOS) isn't installed.
 peak_rss() {
+    # Pick a time(1) binary and the parser that matches it.
+    #   /usr/bin/time on Linux is GNU time          -> -v, kbytes, capital M
+    #   /usr/bin/time on macOS is BSD time          -> -l, bytes, lowercase m
+    #   gtime on macOS (Homebrew coreutils) is GNU  -> use the GNU parser
+    local time_bin="" parser=""
     if [[ "$OS" == "Darwin" ]]; then
-        local time_bin="/usr/bin/time"
-        [[ -x "$time_bin" ]] || time_bin="$(command -v gtime || true)"
-        [[ -n "$time_bin" && -x "$time_bin" ]] || { echo unavailable; return; }
-        # macOS /usr/bin/time -l reports "maximum resident set size" in bytes.
-        "$time_bin" -l "$@" 2> .rss.tmp >/dev/null
-        local bytes
-        bytes=$(awk '/maximum resident set size/ { print $1 }' .rss.tmp)
-        if [[ -z "$bytes" ]]; then echo unavailable; else echo "$bytes"; fi
+        if [[ -x /usr/bin/time ]]; then
+            time_bin="/usr/bin/time"; parser="bsd"
+        elif command -v gtime >/dev/null 2>&1; then
+            time_bin="$(command -v gtime)"; parser="gnu"
+        fi
     else
-        local time_bin="/usr/bin/time"
-        [[ -x "$time_bin" ]] || { echo unavailable; rm -f .rss.tmp; return; }
-        # GNU time -v reports "Maximum resident set size (kbytes)".
-        "$time_bin" -v "$@" 2> .rss.tmp >/dev/null
-        local kib
-        kib=$(awk -F': ' '/Maximum resident set size/ { print $2 }' .rss.tmp)
-        if [[ -z "$kib" ]]; then echo unavailable; else echo $(( kib * 1024 )); fi
+        [[ -x /usr/bin/time ]] && { time_bin="/usr/bin/time"; parser="gnu"; }
     fi
+    [[ -n "$time_bin" ]] || { echo unavailable; return; }
+
+    case "$parser" in
+        bsd)
+            "$time_bin" -l "$@" 2> .rss.tmp >/dev/null
+            local bytes
+            bytes=$(awk '/maximum resident set size/ { print $1 }' .rss.tmp)
+            if [[ -z "$bytes" ]]; then echo unavailable; else echo "$bytes"; fi
+            ;;
+        gnu)
+            "$time_bin" -v "$@" 2> .rss.tmp >/dev/null
+            local kib
+            kib=$(awk -F': ' '/Maximum resident set size/ { print $2 }' .rss.tmp)
+            if [[ -z "$kib" ]]; then echo unavailable; else echo $(( kib * 1024 )); fi
+            ;;
+    esac
     rm -f .rss.tmp
 }
 
