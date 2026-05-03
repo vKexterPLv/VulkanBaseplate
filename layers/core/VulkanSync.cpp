@@ -38,24 +38,36 @@ namespace VCK {
 
         for (uint32_t i = 0; i < m_FramesInFlight; ++i)
         {
-            if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i])))
+            if (!VK_OK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i])))
             {
                 VCKLog::Error("Sync",
                     "vkCreateSemaphore failed (imageAvailable, frame " + std::to_string(i) + ")");
+                m_FramesInFlight = i;     // proactive cleanup window for Shutdown()
+                Shutdown();
                 return false;
             }
 
-            if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i])))
+            if (!VK_OK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i])))
             {
                 VCKLog::Error("Sync",
                     "vkCreateSemaphore failed (renderFinished, frame " + std::to_string(i) + ")");
+                vkDestroySemaphore(device.GetDevice(), m_ImageAvailableSemaphores[i], nullptr);
+                m_ImageAvailableSemaphores[i] = VK_NULL_HANDLE;
+                m_FramesInFlight = i;
+                Shutdown();
                 return false;
             }
 
-            if (!VK_CHECK(vkCreateFence(device.GetDevice(), &fenceInfo, nullptr, &m_InFlightFences[i])))
+            if (!VK_OK(vkCreateFence(device.GetDevice(), &fenceInfo, nullptr, &m_InFlightFences[i])))
             {
                 VCKLog::Error("Sync",
                     "vkCreateFence failed (inFlight, frame " + std::to_string(i) + ")");
+                vkDestroySemaphore(device.GetDevice(), m_RenderFinishedSemaphores[i], nullptr);
+                vkDestroySemaphore(device.GetDevice(), m_ImageAvailableSemaphores[i], nullptr);
+                m_RenderFinishedSemaphores[i] = VK_NULL_HANDLE;
+                m_ImageAvailableSemaphores[i] = VK_NULL_HANDLE;
+                m_FramesInFlight = i;
+                Shutdown();
                 return false;
             }
         }

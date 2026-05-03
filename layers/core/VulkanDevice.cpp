@@ -39,23 +39,24 @@ namespace VCK {
         {
             // PickPhysicalDevice already emits a detailed VCKLog::Error
             // (deviceCount=0, no scoring device, missing extension, etc).
-            // R14 says exactly one Error per failure - propagate without
-            // adding a generic second line.
+            // Add a Notice-level public-API marker so a reader scanning the
+            // log for "Device" can see Initialize gave up here without us
+            // double-emitting Error (R14: exactly one Error per failure).
+            VCKLog::Notice("Device", "Initialize aborted: PickPhysicalDevice failed");
             return false;
         }
 
         VCKLog::Info("Device", "Creating logical device...");
         if (!CreateLogicalDevice())
         {
-            // CreateLogicalDevice already emits a tagged Error - propagate
-            // without double-logging (R14: exactly one Error per failure).
+            VCKLog::Notice("Device", "Initialize aborted: CreateLogicalDevice failed");
             return false;
         }
 
         VCKLog::Info("Device", "Creating VMA allocator...");
         if (!CreateAllocator(instance))
         {
-            // CreateAllocator already emits a tagged Error.
+            VCKLog::Notice("Device", "Initialize aborted: CreateAllocator failed");
             return false;
         }
 
@@ -508,7 +509,7 @@ namespace VCK {
             deviceInfo.pEnabledFeatures = &deviceFeatures;
         }
 
-        if (!VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice)))
+        if (!VK_OK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice)))
         {
             VCKLog::Error("Device", "vkCreateDevice failed");
             return false;
@@ -574,7 +575,7 @@ namespace VCK {
         allocatorInfo.instance = instance;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_2;
 
-        if (!VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)))
+        if (!VK_OK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)))
         {
             VCKLog::Error("Device", "vmaCreateAllocator failed");
             return false;

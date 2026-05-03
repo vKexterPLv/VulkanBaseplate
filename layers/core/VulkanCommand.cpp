@@ -35,7 +35,7 @@ namespace VCK {
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         poolInfo.queueFamilyIndex = device.GetQueueFamilyIndices().GraphicsFamily.value();
 
-        if (!VK_CHECK(vkCreateCommandPool(device.GetDevice(), &poolInfo, nullptr, &m_CommandPool)))
+        if (!VK_OK(vkCreateCommandPool(device.GetDevice(), &poolInfo, nullptr, &m_CommandPool)))
         {
             VCKLog::Error("Command", "vkCreateCommandPool failed");
             return false;
@@ -49,10 +49,14 @@ namespace VCK {
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = m_FramesInFlight;
 
-        if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
+        if (!VK_OK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
         {
             VCKLog::Error("Command",
                 "vkAllocateCommandBuffers failed (" + std::to_string(m_FramesInFlight) + " buffers)");
+            // Proactive cleanup: release the pool we created above so callers
+            // don't have to know to call Shutdown() on partial-init failure.
+            vkDestroyCommandPool(device.GetDevice(), m_CommandPool, nullptr);
+            m_CommandPool = VK_NULL_HANDLE;
             return false;
         }
 
@@ -83,7 +87,7 @@ namespace VCK {
         VkCommandBuffer cmd = m_CommandBuffers[frameIndex];
 
         // Reset the individual buffer - pool stays intact, other slots unaffected.
-        if (!VK_CHECK(vkResetCommandBuffer(cmd, 0)))
+        if (!VK_OK(vkResetCommandBuffer(cmd, 0)))
         {
             VCKLog::Error("Command",
                 "vkResetCommandBuffer failed for frame " + std::to_string(frameIndex));
@@ -96,7 +100,7 @@ namespace VCK {
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        if (!VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo)))
+        if (!VK_OK(vkBeginCommandBuffer(cmd, &beginInfo)))
         {
             VCKLog::Error("Command",
                 "vkBeginCommandBuffer failed for frame " + std::to_string(frameIndex));
@@ -108,7 +112,7 @@ namespace VCK {
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::EndRecording(uint32_t frameIndex)
     {
-        if (!VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex])))
+        if (!VK_OK(vkEndCommandBuffer(m_CommandBuffers[frameIndex])))
         {
             VCKLog::Error("Command",
                 "vkEndCommandBuffer failed for frame " + std::to_string(frameIndex));
@@ -132,8 +136,11 @@ namespace VCK {
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer cb = VK_NULL_HANDLE;
-        if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &cb)))
+        if (!VK_OK(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &cb)))
+        {
+            VCKLog::Error("Command", "vkAllocateCommandBuffers (secondary) failed");
             return VK_NULL_HANDLE;
+        }
         return cb;
     }
 
@@ -156,12 +163,22 @@ namespace VCK {
         // ONE_TIME_SUBMIT / SIMULTANEOUS_USE to match their usage.
         bi.flags            = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | extraFlags;
         bi.pInheritanceInfo = &inheritance;
-        return VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+        if (!VK_OK(vkBeginCommandBuffer(cb, &bi)))
+        {
+            VCKLog::Error("Command", "vkBeginCommandBuffer (secondary) failed");
+            return false;
+        }
+        return true;
     }
 
     bool VulkanCommand::EndSecondary(VkCommandBuffer cb)
     {
-        return VK_CHECK(vkEndCommandBuffer(cb));
+        if (!VK_OK(vkEndCommandBuffer(cb)))
+        {
+            VCKLog::Error("Command", "vkEndCommandBuffer (secondary) failed");
+            return false;
+        }
+        return true;
     }
 
     void VulkanCommand::ExecuteSecondaries(VkCommandBuffer         primary,

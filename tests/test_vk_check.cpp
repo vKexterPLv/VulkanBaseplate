@@ -49,3 +49,37 @@ TEST(VkCheck, distinct_failures_each_log_once)
     (void)VK_CHECK(VkResult{VK_ERROR_OUT_OF_DEVICE_MEMORY});
     ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(2));
 }
+
+// =============================================================================
+//  VK_OK - silent variant of VK_CHECK.
+// =============================================================================
+//  VK_OK is the bool conversion only; failure logs nothing on its own.  The
+//  caller pairs it with a subsystem-tagged VCKLog::Error so each failure
+//  emits exactly one Error (R14).  These tests pin the silent contract so a
+//  future change to VulkanHelpers.h can't accidentally turn VK_OK into a
+//  second logger and double-log every Vulkan failure in core.
+// =============================================================================
+TEST(VkOk, success_returns_true_no_log)
+{
+    VCK::Test::LogCapture cap;
+    bool ok = VK_OK(VkResult{VK_SUCCESS});
+    ASSERT_TRUE(ok);
+    ASSERT_EQ(cap.entries.size(), static_cast<std::size_t>(0));
+}
+
+TEST(VkOk, failure_returns_false_and_logs_nothing)
+{
+    VCK::Test::LogCapture cap;
+    bool ok = VK_OK(VkResult{VK_ERROR_INITIALIZATION_FAILED});
+    ASSERT_FALSE(ok);
+    ASSERT_EQ(cap.entries.size(), static_cast<std::size_t>(0));
+    ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(0));
+}
+
+TEST(VkOk, distinct_failures_log_nothing)
+{
+    VCK::Test::LogCapture cap;
+    (void)VK_OK(VkResult{VK_ERROR_OUT_OF_HOST_MEMORY});
+    (void)VK_OK(VkResult{VK_ERROR_OUT_OF_DEVICE_MEMORY});
+    ASSERT_EQ(cap.errors().size(), static_cast<std::size_t>(0));
+}

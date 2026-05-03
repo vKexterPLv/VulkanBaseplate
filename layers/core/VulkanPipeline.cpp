@@ -56,20 +56,19 @@ namespace VCK {
         // cfg.swapchain.msaaSamples); we simply mirror it here.
         m_Samples = samples;
 
-        // Per-step Info lines so the user can tell at a glance which init
-        // stage failed when one of the sub-functions returns false.  Each
-        // sub-function emits its own subsystem-tagged Error on failure
-        // (R14: exactly one Error per failure); these Info lines give
-        // additional audit-trail context at the public-API boundary,
-        // matching VulkanDevice::Initialize's per-step logging style.
+        // Per-step Info breadcrumbs at the public-API boundary so a reader
+        // scanning the log can tell at a glance which sub-stage was running
+        // when Initialize returned false.  Each sub-function owns its
+        // subsystem-tagged Error on failure (R14: exactly one Error per
+        // failure path) - these Info lines do not log on the failure branch.
         VCKLog::Info("Pipeline", "Creating render pass...");
-        if (!CreateRenderPass(swapchainFormat))    return false;
+        if (!CreateRenderPass(swapchainFormat))             return false;
 
         VCKLog::Info("Pipeline", "Creating pipeline layout...");
-        if (!CreatePipelineLayout())               return false;
+        if (!CreatePipelineLayout())                        return false;
 
         VCKLog::Info("Pipeline", "Creating graphics pipeline...");
-        if (!CreateGraphicsPipeline(shaders, vertexInput)) return false;
+        if (!CreateGraphicsPipeline(shaders, vertexInput))  return false;
 
         VCKLog::Info("Pipeline", "Initialized");
         return true;
@@ -164,7 +163,7 @@ namespace VCK {
         renderPassInfo.dependencyCount = 1;
         renderPassInfo.pDependencies = &dependency;
 
-        if (!VK_CHECK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass)))
+        if (!VK_OK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass)))
         {
             VCKLog::Error("Pipeline",
                 std::string("vkCreateRenderPass failed (") + (useMsaa ? "MSAA" : "single-sample") + ")");
@@ -190,7 +189,7 @@ namespace VCK {
                                           ? nullptr
                                           : m_PipelineCfg.pushConstantRanges.data();
 
-        if (!VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout)))
+        if (!VK_OK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout)))
         {
             VCKLog::Error("Pipeline",
                 "vkCreatePipelineLayout failed (setLayouts=" + std::to_string(layoutInfo.setLayoutCount)
@@ -209,9 +208,9 @@ namespace VCK {
         createInfo.pCode = spirv.data();
 
         VkShaderModule shaderModule = VK_NULL_HANDLE;
-        if (!VK_CHECK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
+        if (!VK_OK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
         {
-            VCKLog::Error("Pipeline", "shader module creation failed");
+            VCKLog::Error("Pipeline", "vkCreateShaderModule failed");
             return VK_NULL_HANDLE;
         }
 
@@ -357,7 +356,7 @@ namespace VCK {
         pipelineInfo.subpass = 0;
         pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
-        bool success = VK_CHECK(vkCreateGraphicsPipelines(
+        bool success = VK_OK(vkCreateGraphicsPipelines(
             m_Device->GetDevice(),
             VK_NULL_HANDLE,   // no pipeline cache yet
             1, &pipelineInfo,

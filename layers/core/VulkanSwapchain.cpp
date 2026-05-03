@@ -197,9 +197,9 @@ namespace VCK {
         const QueueFamilyIndices& queueIndices = m_Device->GetQueueFamilyIndices();
 
         // queueFamilyArray must outlive vkCreateSwapchainKHR below: the driver
-        // reads pQueueFamilyIndices during the create call, so the storage has
-        // to be alive for the entire CreateSwapchain function scope, not just
-        // the if-branch that populates it.  (A1 / Theme A · pre-existing UB.)
+        // reads pQueueFamilyIndices during the create call, so the storage
+        // has to be alive for the entire CreateSwapchain function scope, not
+        // just the if-branch that populates it.
         uint32_t queueFamilyArray[2] = { 0u, 0u };
 
         if (!queueIndices.IsCombined())
@@ -219,7 +219,7 @@ namespace VCK {
             swapchainInfo.pQueueFamilyIndices = nullptr;
         }
 
-        if (!VK_CHECK(vkCreateSwapchainKHR(m_Device->GetDevice(), &swapchainInfo, nullptr, &m_Swapchain)))
+        if (!VK_OK(vkCreateSwapchainKHR(m_Device->GetDevice(), &swapchainInfo, nullptr, &m_Swapchain)))
         {
             VCKLog::Error("Swapchain", "vkCreateSwapchainKHR failed");
             return false;
@@ -227,13 +227,13 @@ namespace VCK {
 
         // ── Retrieve images ──────────────────────────────────────────────────────
         uint32_t actualImageCount = 0;
-        if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, nullptr)))
+        if (!VK_OK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, nullptr)))
         {
             VCKLog::Error("Swapchain", "vkGetSwapchainImagesKHR (count) failed");
             return false;
         }
         m_Images.resize(actualImageCount);
-        if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, m_Images.data())))
+        if (!VK_OK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, m_Images.data())))
         {
             VCKLog::Error("Swapchain",
                 "vkGetSwapchainImagesKHR (images) failed (" + std::to_string(actualImageCount) + " requested)");
@@ -265,7 +265,19 @@ namespace VCK {
             viewInfo.subresourceRange.baseArrayLayer = 0;
             viewInfo.subresourceRange.layerCount = 1;
 
-            VK_CHECK(vkCreateImageView(m_Device->GetDevice(), &viewInfo, nullptr, &m_ImageViews[i]));
+            if (!VK_OK(vkCreateImageView(m_Device->GetDevice(), &viewInfo, nullptr, &m_ImageViews[i])))
+            {
+                VCKLog::Error("Swapchain",
+                    "vkCreateImageView failed for swapchain image " + std::to_string(i));
+                // Roll back partial state so a subsequent Shutdown() (or
+                // re-Initialize()) sees a consistent zeroed slot set.
+                for (uint32_t j = 0; j < i; ++j) {
+                    vkDestroyImageView(m_Device->GetDevice(), m_ImageViews[j], nullptr);
+                    m_ImageViews[j] = VK_NULL_HANDLE;
+                }
+                m_ImageViews[i] = VK_NULL_HANDLE;
+                return false;
+            }
         }
 
         // -- MSAA colour targets (one per swapchain image) ---------------------
