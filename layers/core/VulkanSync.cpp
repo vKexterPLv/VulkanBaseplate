@@ -39,13 +39,25 @@ namespace VCK {
         for (uint32_t i = 0; i < m_FramesInFlight; ++i)
         {
             if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateSemaphore failed (imageAvailable, frame " + std::to_string(i) + ")");
                 return false;
+            }
 
             if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateSemaphore failed (renderFinished, frame " + std::to_string(i) + ")");
                 return false;
+            }
 
             if (!VK_CHECK(vkCreateFence(device.GetDevice(), &fenceInfo, nullptr, &m_InFlightFences[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateFence failed (inFlight, frame " + std::to_string(i) + ")");
                 return false;
+            }
         }
 
         VCKLog::Info("Sync", "Initialized - " + std::to_string(m_FramesInFlight) + " frames in flight");

@@ -153,7 +153,13 @@ namespace VCK {
         renderPassInfo.dependencyCount = 1;
         renderPassInfo.pDependencies = &dependency;
 
-        return VK_CHECK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass));
+        if (!VK_CHECK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass)))
+        {
+            VCKLog::Error("Pipeline",
+                std::string("vkCreateRenderPass failed (") + (useMsaa ? "MSAA" : "single-sample") + ")");
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +179,14 @@ namespace VCK {
                                           ? nullptr
                                           : m_PipelineCfg.pushConstantRanges.data();
 
-        return VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout));
+        if (!VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout)))
+        {
+            VCKLog::Error("Pipeline",
+                "vkCreatePipelineLayout failed (setLayouts=" + std::to_string(layoutInfo.setLayoutCount)
+                + ", pushRanges=" + std::to_string(layoutInfo.pushConstantRangeCount) + ")");
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +199,10 @@ namespace VCK {
 
         VkShaderModule shaderModule = VK_NULL_HANDLE;
         if (!VK_CHECK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
+        {
+            VCKLog::Error("Pipeline", "shader module creation failed");
             return VK_NULL_HANDLE;
+        }
 
         return shaderModule;
     }
@@ -203,6 +219,10 @@ namespace VCK {
 
         if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE)
         {
+            VCKLog::Error("Pipeline",
+                std::string("graphics pipeline aborted: ")
+                + (vertModule == VK_NULL_HANDLE ? "vertex" : "fragment")
+                + " shader module unavailable");
             if (vertModule) vkDestroyShaderModule(m_Device->GetDevice(), vertModule, nullptr);
             if (fragModule) vkDestroyShaderModule(m_Device->GetDevice(), fragModule, nullptr);
             return false;
@@ -331,6 +351,9 @@ namespace VCK {
         // Shader modules are no longer needed after pipeline creation.
         vkDestroyShaderModule(m_Device->GetDevice(), vertModule, nullptr);
         vkDestroyShaderModule(m_Device->GetDevice(), fragModule, nullptr);
+
+        if (!success)
+            VCKLog::Error("Pipeline", "vkCreateGraphicsPipelines failed");
 
         return success;
     }

@@ -36,7 +36,10 @@ namespace VCK {
         poolInfo.queueFamilyIndex = device.GetQueueFamilyIndices().GraphicsFamily.value();
 
         if (!VK_CHECK(vkCreateCommandPool(device.GetDevice(), &poolInfo, nullptr, &m_CommandPool)))
+        {
+            VCKLog::Error("Command", "vkCreateCommandPool failed");
             return false;
+        }
 
         // ── Command buffers ───────────────────────────────────────────────────────
         // One primary buffer per frame-in-flight slot.
@@ -47,7 +50,11 @@ namespace VCK {
         allocInfo.commandBufferCount = m_FramesInFlight;
 
         if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
+        {
+            VCKLog::Error("Command",
+                "vkAllocateCommandBuffers failed (" + std::to_string(m_FramesInFlight) + " buffers)");
             return false;
+        }
 
         VCKLog::Info("Command", std::string("Initialized - pool + ")
             + std::to_string(m_FramesInFlight) + " command buffers");
@@ -77,7 +84,11 @@ namespace VCK {
 
         // Reset the individual buffer - pool stays intact, other slots unaffected.
         if (!VK_CHECK(vkResetCommandBuffer(cmd, 0)))
+        {
+            VCKLog::Error("Command",
+                "vkResetCommandBuffer failed for frame " + std::to_string(frameIndex));
             return false;
+        }
 
         // ONE_TIME_SUBMIT: hint to the driver that this buffer is recorded and
         // submitted exactly once before the next reset.

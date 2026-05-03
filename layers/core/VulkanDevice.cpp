@@ -143,7 +143,12 @@ namespace VCK {
         }
 
         if (bestDevice == VK_NULL_HANDLE || bestScore < 0)
+        {
+            VCKLog::Error("Device",
+                "PickPhysicalDevice: no suitable GPU found (best score < 0 across "
+                + std::to_string(deviceCount) + " device(s) - check required extensions, queue families, and surface format support)");
             return false;
+        }
 
         m_PhysicalDevice = bestDevice;
         m_QueueFamilyIndices = FindQueueFamilies(bestDevice, surface);

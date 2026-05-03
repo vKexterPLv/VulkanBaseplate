@@ -216,15 +216,25 @@ namespace VCK {
         }
 
         if (!VK_CHECK(vkCreateSwapchainKHR(m_Device->GetDevice(), &swapchainInfo, nullptr, &m_Swapchain)))
+        {
+            VCKLog::Error("Swapchain", "vkCreateSwapchainKHR failed");
             return false;
+        }
 
         // ── Retrieve images ──────────────────────────────────────────────────────
         uint32_t actualImageCount = 0;
         if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, nullptr)))
+        {
+            VCKLog::Error("Swapchain", "vkGetSwapchainImagesKHR (count) failed");
             return false;
+        }
         m_Images.resize(actualImageCount);
         if (!VK_CHECK(vkGetSwapchainImagesKHR(m_Device->GetDevice(), m_Swapchain, &actualImageCount, m_Images.data())))
+        {
+            VCKLog::Error("Swapchain",
+                "vkGetSwapchainImagesKHR (images) failed (" + std::to_string(actualImageCount) + " requested)");
             return false;
+        }
 
         m_ImageFormat = surfaceFormat.format;
         m_Extent = extent;
