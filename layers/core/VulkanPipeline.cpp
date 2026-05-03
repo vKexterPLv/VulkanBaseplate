@@ -219,10 +219,15 @@ namespace VCK {
 
         if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE)
         {
+            const bool vertMissing = (vertModule == VK_NULL_HANDLE);
+            const bool fragMissing = (fragModule == VK_NULL_HANDLE);
+            const char* which =
+                (vertMissing && fragMissing) ? "vertex+fragment" :
+                vertMissing                  ? "vertex" :
+                                               "fragment";
             VCKLog::Error("Pipeline",
                 std::string("graphics pipeline aborted: ")
-                + (vertModule == VK_NULL_HANDLE ? "vertex" : "fragment")
-                + " shader module unavailable");
+                + which + " shader module(s) unavailable");
             if (vertModule) vkDestroyShaderModule(m_Device->GetDevice(), vertModule, nullptr);
             if (fragModule) vkDestroyShaderModule(m_Device->GetDevice(), fragModule, nullptr);
             return false;

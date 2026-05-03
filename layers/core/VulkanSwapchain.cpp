@@ -196,13 +196,17 @@ namespace VCK {
 
         const QueueFamilyIndices& queueIndices = m_Device->GetQueueFamilyIndices();
 
+        // queueFamilyArray must outlive vkCreateSwapchainKHR below: the driver
+        // reads pQueueFamilyIndices during the create call, so the storage has
+        // to be alive for the entire CreateSwapchain function scope, not just
+        // the if-branch that populates it.  (A1 / Theme A · pre-existing UB.)
+        uint32_t queueFamilyArray[2] = { 0u, 0u };
+
         if (!queueIndices.IsCombined())
         {
             // Two distinct families - images must be shared between them
-            uint32_t queueFamilyArray[] = {
-                queueIndices.GraphicsFamily.value(),
-                queueIndices.PresentFamily.value()
-            };
+            queueFamilyArray[0] = queueIndices.GraphicsFamily.value();
+            queueFamilyArray[1] = queueIndices.PresentFamily.value();
             swapchainInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             swapchainInfo.queueFamilyIndexCount = 2;
             swapchainInfo.pQueueFamilyIndices = queueFamilyArray;
