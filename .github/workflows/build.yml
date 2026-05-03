@@ -190,12 +190,19 @@ jobs:
           pkg-config --modversion vulkan
           pkg-config --modversion glfw3
 
+      # CMAKE_BUILD_TYPE=RelWithDebInfo would normally append -O2 -g -DNDEBUG
+      # *after* CMAKE_CXX_FLAGS, so sanitizer-friendly -O1 would lose to -O2
+      # and -DNDEBUG would silently disable assert() in VCKMath.h + vk_mem_alloc.h.
+      # Override CMAKE_*_FLAGS_RELWITHDEBINFO directly so the per-build-type
+      # flag set IS the sanitizer flag set - last on the gcc command line wins.
       - name: Configure (ASan + UBSan)
-        env:
-          CFLAGS:   "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g"
-          CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g"
-          LDFLAGS:  "-fsanitize=address,undefined"
-        run: cmake -S example -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: >
+          cmake -S example -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+          -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO="-fsanitize=address,undefined"
+          -DCMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO="-fsanitize=address,undefined"
 
       - name: Build all examples + R14 tests
         run: cmake --build build -j --target examples vck_tests
