@@ -21,20 +21,41 @@
 set -uo pipefail
 IFS=$'\n\t'
 
+# Force a deterministic locale for any sub-tool that emits localized
+# numbers, headings, or separators (notably GNU time and awk parsing
+# of its output).  Anything we capture and parse must be in the C locale.
+export LC_ALL=C
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root '$REPO_ROOT'" >&2; exit 1; }
 
 BUILD_DIR="${BUILD_DIR:-build-perf}"
 OS="$(uname -s)"
+
+# All tmp files live here; cleaned on any exit, including signal.
+TMPDIR_HARNESS="$(mktemp -d -t vck-perf.XXXXXX)"
+trap 'rm -rf "$TMPDIR_HARNESS"' EXIT INT TERM
 
 # ---------------------------------------------------------------------------
 #  Helpers
 # ---------------------------------------------------------------------------
 
+# first_line CMD ARGS...  ->  prints the first line of command output, or
+# nothing if the command failed or produced no output.  Avoids the
+# `pipefail + head -1 + ||` trap where SIGPIPE on the producer triggers
+# both the real output AND a fallback string.  We collect everything
+# first, then take the first line in pure shell.
+first_line() {
+    local out
+    out=$("$@" 2>/dev/null) || return 1
+    [[ -z "$out" ]] && return 1
+    printf '%s\n' "${out%%$'\n'*}"
+}
+
 # Read peak RSS (in bytes) from a command, portable Linux/macOS.
 # Usage:  peak_rss CMD ARGS...   ->   prints integer bytes on stdout,
-#                                     or "unavailable" if /usr/bin/time
-#                                     (or gtime on macOS) isn't installed.
+#                                     or "unavailable" if no time(1)
+#                                     binary we can parse is installed.
 peak_rss() {
     # Pick a time(1) binary and the parser that matches it.
     #   /usr/bin/time on Linux is GNU time          -> -v, kbytes, capital M
@@ -52,25 +73,25 @@ peak_rss() {
     fi
     [[ -n "$time_bin" ]] || { echo unavailable; return; }
 
+    local rss_log="$TMPDIR_HARNESS/rss.$$"
     case "$parser" in
         bsd)
-            "$time_bin" -l "$@" 2> .rss.tmp >/dev/null
+            "$time_bin" -l "$@" 2> "$rss_log" >/dev/null
             local bytes
-            bytes=$(awk '/maximum resident set size/ { print $1 }' .rss.tmp)
+            bytes=$(awk '/maximum resident set size/ { print $1 }' "$rss_log")
             if [[ -z "$bytes" ]]; then echo unavailable; else echo "$bytes"; fi
             ;;
         gnu)
-            "$time_bin" -v "$@" 2> .rss.tmp >/dev/null
+            "$time_bin" -v "$@" 2> "$rss_log" >/dev/null
             local kib
-            kib=$(awk -F': ' '/Maximum resident set size/ { print $2 }' .rss.tmp)
+            kib=$(awk -F': ' '/Maximum resident set size/ { print $2 }' "$rss_log")
             if [[ -z "$kib" ]]; then echo unavailable; else echo $(( kib * 1024 )); fi
             ;;
     esac
-    rm -f .rss.tmp
 }
 
 human_bytes() {
-    local b=$1
+    local b=${1:-0}
     awk -v b="$b" 'BEGIN {
         if (b > 1073741824) printf "%.1f GiB", b/1073741824;
         else if (b > 1048576) printf "%.1f MiB", b/1048576;
@@ -92,13 +113,16 @@ have_display() {
 
 echo "==> configuring $BUILD_DIR (Release)..."
 rm -rf "$BUILD_DIR"
+cmake_log="$TMPDIR_HARNESS/cmake.log"
 cmake -S example -B "$BUILD_DIR" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release >/dev/null
+    -DCMAKE_BUILD_TYPE=Release > "$cmake_log" 2>&1 \
+    || { echo "FATAL: cmake configure failed; log:" >&2; cat "$cmake_log" >&2; exit 1; }
 
 build_start=$(date +%s)
 echo "==> building all examples + vck_tests..."
-cmake --build "$BUILD_DIR" -j --target examples vck_tests >/dev/null 2>&1 \
-    || { echo "FATAL: build failed" >&2; exit 1; }
+build_log="$TMPDIR_HARNESS/build.log"
+cmake --build "$BUILD_DIR" -j --target examples vck_tests > "$build_log" 2>&1 \
+    || { echo "FATAL: build failed; log:" >&2; cat "$build_log" >&2; exit 1; }
 build_end=$(date +%s)
 build_seconds=$(( build_end - build_start ))
 
@@ -119,17 +143,29 @@ S2=$(awk '/^struct Config$/,/^};/' layers/core/VulkanHelpers.h \
 
 # S3 - count example directories (those that contain App.cpp).
 S3=$(find example -mindepth 1 -maxdepth 1 -type d -exec test -f '{}/App.cpp' \; -print | wc -l | tr -d ' ')
+
+# S4 - VCK.h line count.
 S4=$(wc -l < VCK.h | tr -d ' ')
-S5_path="$BUILD_DIR/libvck.a"
-if [[ ! -f "$S5_path" ]]; then
-    S5_path=$(find "$BUILD_DIR" -maxdepth 4 -name 'libvck*.a' -o -name 'vck.lib' 2>/dev/null | head -1)
+
+# S5 - static-lib size on disk.  Look in the obvious place first, then
+#      fall back to a bounded find().  Read the find result line by line
+#      (no `head -1 | pipefail` race).
+S5_path=""
+if [[ -f "$BUILD_DIR/libvck.a" ]]; then
+    S5_path="$BUILD_DIR/libvck.a"
+else
+    while IFS= read -r p; do
+        if [[ -f "$p" ]]; then S5_path="$p"; break; fi
+    done < <(find "$BUILD_DIR" -maxdepth 4 \( -name 'libvck*.a' -o -name 'vck.lib' \) 2>/dev/null)
 fi
 if [[ -n "$S5_path" && -f "$S5_path" ]]; then
-    S5_bytes=$(stat -c%s "$S5_path" 2>/dev/null || stat -f%z "$S5_path")
+    S5_bytes=$(stat -c%s -- "$S5_path" 2>/dev/null || stat -f%z -- "$S5_path" 2>/dev/null || echo 0)
     S5_human=$(human_bytes "$S5_bytes")
 else
     S5_human="(not found)"
 fi
+
+# S6 - build wall time captured above.
 S6_human="${build_seconds} s"
 
 # ---------------------------------------------------------------------------
@@ -142,7 +178,12 @@ S6_human="${build_seconds} s"
 # the same allocations plus the swapchain and the framebuffer set.
 
 A1_path="tests/vck_tests"
-[[ -x "$A1_path" ]] || A1_path="$(find . -name 'vck_tests' -type f -executable 2>/dev/null | head -1)"
+if [[ ! -x "$A1_path" ]]; then
+    while IFS= read -r p; do
+        if [[ -x "$p" ]]; then A1_path="$p"; break; fi
+    done < <(find . -name 'vck_tests' -type f -executable 2>/dev/null)
+fi
+
 if [[ -n "$A1_path" && -x "$A1_path" ]]; then
     A1_raw=$(peak_rss "$A1_path")
     if [[ "$A1_raw" == "unavailable" ]]; then
@@ -175,10 +216,12 @@ fi
 #  Output
 # ---------------------------------------------------------------------------
 
-GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || true)
+[[ -n "$GIT_SHA" ]] || GIT_SHA="unknown"
 DATE_NOW=$(date -u +"%Y-%m-%d")
 KERNEL=$(uname -sr)
-COMPILER=$(${CXX:-g++} --version 2>/dev/null | head -1 || echo "(unknown)")
+COMPILER=$(first_line "${CXX:-g++}" --version || true)
+[[ -n "$COMPILER" ]] || COMPILER="(unknown)"
 
 cat <<EOF
 
