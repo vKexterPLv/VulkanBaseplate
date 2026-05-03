@@ -741,9 +741,11 @@
 //  VulkanDescriptorPool
 //
 //  Creates a VkDescriptorPool pre-sized for one descriptor type and
-//  pre-allocates exactly MAX_FRAMES_IN_FLIGHT (2) descriptor sets from a
-//  given layout in a single Initialize() call - the standard pattern for
-//  per-frame uniform data.
+//  pre-allocates exactly `framesInFlight` descriptor sets from a given
+//  layout in a single Initialize() call - the standard pattern for per-frame
+//  uniform data.  The caller passes `framesInFlight` (typically
+//  cfg.sync.framesInFlight) so the descriptor ring matches the runtime
+//  frame ring exactly - no unused slots, no stale sets.
 //
 //  Usage:
 //    VkDescriptorSetLayout layout =
@@ -753,7 +755,8 @@
 //            .Build(device);
 //
 //    VulkanDescriptorPool pool;
-//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+//                    /*framesInFlight=*/cfg.sync.framesInFlight);
 //
 //    // per frame:
 //    VkDescriptorSet set = pool.GetSet(frameIndex);
@@ -764,14 +767,20 @@
 //  ── Lifecycle ─────────────────────────────────────────────────────────────
 //  bool Initialize(VulkanDevice&         device,
 //                  VkDescriptorSetLayout layout,
-//                  VkDescriptorType      type)
-//    Creates the pool and allocates MAX_FRAMES_IN_FLIGHT sets from layout.
+//                  VkDescriptorType      type,
+//                  uint32_t              framesInFlight)
+//    Creates the pool and allocates exactly `framesInFlight` sets from
+//    the layout.  framesInFlight must be in [1, MAX_FRAMES_IN_FLIGHT].
 //  void Shutdown()
 //    Destroys the pool (all allocated sets are implicitly freed).
 //
 //  ── Accessor ──────────────────────────────────────────────────────────────
 //  VkDescriptorSet GetSet(uint32_t frameIndex) const
 //    Returns the pre-allocated descriptor set for the given frame slot.
+//    Out-of-range frameIndex returns VK_NULL_HANDLE + VCKLog::Error.
+//  uint32_t GetFramesInFlight() const
+//    Returns the value passed to Initialize() (0 before/after).  Used by
+//    VulkanUniformSet<T> so the UBO ring sizes itself to the pool.
 // -----------------------------------------------------------------------------
 
 
@@ -782,9 +791,9 @@
 //  descriptor sets provided by VulkanDescriptorPool.
 //  T must be a trivially-copyable struct (matrices, light params, etc.).
 //
-//  Initialize() creates MAX_FRAMES_IN_FLIGHT (2) VulkanBuffer::CreateUniform
-//  buffers and calls vkUpdateDescriptorSets to point each frame's descriptor
-//  set at its matching buffer.
+//  Initialize() creates exactly pool.GetFramesInFlight() VulkanBuffer
+//  per-frame uniform buffers and calls vkUpdateDescriptorSets to point each
+//  frame's descriptor set at its matching buffer.
 //  Write() does a plain memcpy into the persistently-mapped buffer.
 //
 //  Usage:
@@ -797,7 +806,8 @@
 //            .Build(device);
 //
 //    VulkanDescriptorPool pool;
-//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+//                    /*framesInFlight=*/cfg.sync.framesInFlight);
 //
 //    VulkanUniformSet<FrameUBO> ubo;
 //    ubo.Initialize(device, pool, 0 /* binding */);
@@ -1087,8 +1097,11 @@
  VulkanDescriptorPool
    bool            VulkanDescriptorPool::Initialize(VulkanDevice&,
                                                      VkDescriptorSetLayout,
-                                                     VkDescriptorType)
+                                                     VkDescriptorType,
+                                                     uint32_t framesInFlight)
    void            VulkanDescriptorPool::Shutdown()
+   VkDescriptorSet VulkanDescriptorPool::GetSet(uint32_t frameIndex) const
+   uint32_t        VulkanDescriptorPool::GetFramesInFlight() const
 
  VulkanUniformSet<T>   (header-inline template)
    bool            VulkanUniformSet<T>::Initialize(VulkanDevice&,

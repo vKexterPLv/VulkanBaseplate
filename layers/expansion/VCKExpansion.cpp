@@ -643,41 +643,71 @@ VkDescriptorSetLayout VulkanDescriptorLayoutBuilder::Build(VulkanDevice& device)
 
 bool VulkanDescriptorPool::Initialize(VulkanDevice& device,
                                        VkDescriptorSetLayout layout,
-                                       VkDescriptorType type)
+                                       VkDescriptorType type,
+                                       uint32_t framesInFlight)
 {
-    m_Device = &device;
+    if (framesInFlight == 0 || framesInFlight > MAX_FRAMES_IN_FLIGHT)
+    {
+        VCKLog::Error("DescriptorPool",
+                      ("Initialize: framesInFlight " + std::to_string(framesInFlight) +
+                       " out of range [1, " + std::to_string(MAX_FRAMES_IN_FLIGHT) + "]").c_str());
+        return false;
+    }
+
+    m_Device         = &device;
+    m_FramesInFlight = framesInFlight;
+    m_Sets.assign(framesInFlight, VK_NULL_HANDLE);
 
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = type;
-    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount = framesInFlight;
 
     VkDescriptorPoolCreateInfo ci{};
     ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    ci.maxSets       = MAX_FRAMES_IN_FLIGHT;
+    ci.maxSets       = framesInFlight;
     ci.poolSizeCount = 1;
     ci.pPoolSizes    = &poolSize;
 
     if (!VK_CHECK(vkCreateDescriptorPool(device.GetDevice(), &ci, nullptr, &m_Pool)))
         return false;
 
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    layouts.fill(layout);
+    std::vector<VkDescriptorSetLayout> layouts(framesInFlight, layout);
 
     VkDescriptorSetAllocateInfo ai{};
     ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     ai.descriptorPool     = m_Pool;
-    ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    ai.descriptorSetCount = framesInFlight;
     ai.pSetLayouts        = layouts.data();
 
-    return VK_CHECK(vkAllocateDescriptorSets(device.GetDevice(), &ai, m_Sets.data()));
+    if (!VK_CHECK(vkAllocateDescriptorSets(device.GetDevice(), &ai, m_Sets.data())))
+        return false;
+
+    VCKLog::Notice("DescriptorPool",
+                   ("Initialize: allocated " + std::to_string(framesInFlight) +
+                    " descriptor set(s)").c_str());
+    return true;
 }
 
 void VulkanDescriptorPool::Shutdown()
 {
     if (m_Pool && m_Device)
         vkDestroyDescriptorPool(m_Device->GetDevice(), m_Pool, nullptr);
-    m_Pool   = VK_NULL_HANDLE;
-    m_Device = nullptr;
+    m_Pool           = VK_NULL_HANDLE;
+    m_Sets.clear();
+    m_FramesInFlight = 0;
+    m_Device         = nullptr;
+}
+
+VkDescriptorSet VulkanDescriptorPool::GetSet(uint32_t frameIndex) const
+{
+    if (static_cast<std::size_t>(frameIndex) >= m_Sets.size())
+    {
+        VCKLog::Error("DescriptorPool",
+                      ("GetSet: frameIndex " + std::to_string(frameIndex) +
+                       " out of range (framesInFlight=" + std::to_string(m_FramesInFlight) + ")").c_str());
+        return VK_NULL_HANDLE;
+    }
+    return m_Sets[frameIndex];
 }
 
 
