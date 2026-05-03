@@ -105,16 +105,22 @@ VkDescriptorSetLayout layout = VCK::VulkanDescriptorLayoutBuilder()
 
 ```cpp
 VCK::VulkanDescriptorPool pool;
-pool.Initialize(dev, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+pool.Initialize(dev, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                /*framesInFlight=*/cfg.sync.framesInFlight);
 VkDescriptorSet set = pool.GetSet(frameSlot);   // one set per frame slot
 ```
 
+The pool allocates exactly `framesInFlight` descriptor sets — pass the
+same value you set on `VulkanSync` / `VulkanCommand` so the descriptor
+ring matches the frame ring exactly.  `framesInFlight` must be in
+`[1, MAX_FRAMES_IN_FLIGHT]`; out-of-range values return `false` and
+emit `VCKLog::Error("DescriptorPool", ...)`.
+
 ## VulkanUniformSet\<T\>
 
-Per-frame typed UBO. Owns up to `MAX_FRAMES_IN_FLIGHT` (= 3) buffers —
-iterates only over the runtime `framesInFlight` you set on `VulkanSync` /
-`VulkanCommand`, and points the pool's descriptor sets at them on
-`Initialize`.
+Per-frame typed UBO.  Reads `pool.GetFramesInFlight()` on `Initialize`
+and sizes its internal buffer ring to match — the user threads
+`framesInFlight` to the pool only, never to the UBO.
 
 ```cpp
 struct SceneUbo { glm::mat4 view, proj; };

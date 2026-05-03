@@ -368,13 +368,16 @@ private:
 // =============================================================================
 // [8] VulkanDescriptorPool
 //
-//  Creates a VkDescriptorPool and pre-allocates MAX_FRAMES_IN_FLIGHT descriptor
-//  sets from a single layout.
+//  Creates a VkDescriptorPool and pre-allocates exactly `framesInFlight`
+//  descriptor sets from a single layout.  `framesInFlight` is supplied by the
+//  caller (typically `cfg.sync.framesInFlight`) so the pool's allocation
+//  matches the runtime frame ring exactly - no unused slots, no stale sets.
 //
 //  Usage:
 //    VkDescriptorSetLayout layout = VulkanDescriptorLayoutBuilder{}.Add(...).Build(device);
 //    VulkanDescriptorPool pool;
-//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+//    pool.Initialize(device, layout, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+//                    /*framesInFlight=*/cfg.sync.framesInFlight);
 //    VkDescriptorSet set = pool.GetSet(frameIndex);
 //    pool.Shutdown();
 //    vkDestroyDescriptorSetLayout(device.GetDevice(), layout, nullptr);
@@ -388,25 +391,37 @@ public:
     VulkanDescriptorPool(const VulkanDescriptorPool&)            = delete;
     VulkanDescriptorPool& operator=(const VulkanDescriptorPool&) = delete;
 
+    // framesInFlight: must be in [1, MAX_FRAMES_IN_FLIGHT].  Returns false
+    // and emits VCKLog::Error otherwise.  The pool allocates exactly this
+    // many descriptor sets; GetSet(i) is valid only for i in [0, framesInFlight).
     bool Initialize(VulkanDevice&         device,
                     VkDescriptorSetLayout layout,
-                    VkDescriptorType      type);
+                    VkDescriptorType      type,
+                    uint32_t              framesInFlight);
     void Shutdown();
 
-    VkDescriptorSet GetSet(uint32_t frameIndex) const { return m_Sets[frameIndex]; }
+    // Returns VK_NULL_HANDLE and emits VCKLog::Error if frameIndex is out
+    // of range or the pool is not initialized.
+    VkDescriptorSet GetSet(uint32_t frameIndex) const;
+
+    // Number of sets the pool was initialized with (0 before Initialize).
+    uint32_t GetFramesInFlight() const { return m_FramesInFlight; }
 
 private:
-    VulkanDevice*  m_Device = nullptr;
-    VkDescriptorPool m_Pool = VK_NULL_HANDLE;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_Sets{};
+    VulkanDevice*                m_Device         = nullptr;
+    VkDescriptorPool             m_Pool           = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_Sets;
+    uint32_t                     m_FramesInFlight = 0;
 };
 
 
 // =============================================================================
 // [9] VulkanUniformSet<T>
 //
-//  Per-frame typed UBO.  Owns MAX_FRAMES_IN_FLIGHT VulkanBuffers and points
-//  descriptor sets (from VulkanDescriptorPool) at them on Initialize().
+//  Per-frame typed UBO.  Owns exactly `pool.GetFramesInFlight()` VulkanBuffers
+//  and points the pool's descriptor sets at them on Initialize().  The
+//  count is read from the pool so the UBO ring always matches the descriptor
+//  ring; the user never has to thread `framesInFlight` to two places.
 //
 //  Usage:
 //    VulkanUniformSet<MyUBO> ubo;
@@ -427,17 +442,32 @@ public:
     VulkanUniformSet(const VulkanUniformSet&)            = delete;
     VulkanUniformSet& operator=(const VulkanUniformSet&) = delete;
 
-    // pool   - provides the pre-allocated descriptor sets
-    // layout - the VkDescriptorSetLayout the sets were allocated from
+    // pool    - provides the pre-allocated descriptor sets and frames-in-flight count
     // binding - the binding index to write the UBO into
+    // Returns false + VCKLog::Error if pool is not initialized.
+    //
+    // Implementation note: the buffer + descriptor-set arrays are sized to
+    // MAX_FRAMES_IN_FLIGHT at compile time (VulkanBuffer is non-movable, so
+    // we cannot resize a std::vector of them).  Only the first
+    // pool.GetFramesInFlight() slots are ever populated or used; the rest
+    // remain default-constructed and cost nothing.
     bool Initialize(VulkanDevice&        device,
                     VulkanDescriptorPool& pool,
                     uint32_t              binding)
     {
-        m_Device  = &device;
-        m_Binding = binding;
+        m_Device         = &device;
+        m_Binding        = binding;
+        m_FramesInFlight = 0;
 
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        const uint32_t framesInFlight = pool.GetFramesInFlight();
+        if (framesInFlight == 0)
+        {
+            VCKLog::Error("UniformSet",
+                          "Initialize: pool has zero frames-in-flight (was the pool initialized?)");
+            return false;
+        }
+
+        for (uint32_t i = 0; i < framesInFlight; i++)
         {
             m_Sets[i] = pool.GetSet(i);
 
@@ -460,27 +490,56 @@ public:
 
             vkUpdateDescriptorSets(device.GetDevice(), 1, &write, 0, nullptr);
         }
+
+        m_FramesInFlight = framesInFlight;
         return true;
     }
 
     void Shutdown()
     {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (uint32_t i = 0; i < m_FramesInFlight; i++)
             m_Buffers[i].Shutdown();
-        m_Device = nullptr;
+        for (uint32_t i = 0; i < m_FramesInFlight; i++)
+            m_Sets[i] = VK_NULL_HANDLE;
+        m_FramesInFlight = 0;
+        m_Binding        = 0;
+        m_Device         = nullptr;
     }
 
     // Upload CPU data into the current frame's uniform buffer.
+    // Out-of-range frameIndex emits VCKLog::Error and is a no-op.
     void Write(uint32_t frameIndex, const T& data)
     {
+        if (frameIndex >= m_FramesInFlight)
+        {
+            VCKLog::Error("UniformSet",
+                          ("Write: frameIndex " + std::to_string(frameIndex) +
+                           " out of range (framesInFlight=" + std::to_string(m_FramesInFlight) + ")").c_str());
+            return;
+        }
         m_Buffers[frameIndex].Upload(&data, sizeof(T));
     }
 
-    VkDescriptorSet GetSet(uint32_t frameIndex) const { return m_Sets[frameIndex]; }
+    // Returns VK_NULL_HANDLE and emits VCKLog::Error if frameIndex is out of range.
+    VkDescriptorSet GetSet(uint32_t frameIndex) const
+    {
+        if (frameIndex >= m_FramesInFlight)
+        {
+            VCKLog::Error("UniformSet",
+                          ("GetSet: frameIndex " + std::to_string(frameIndex) +
+                           " out of range (framesInFlight=" + std::to_string(m_FramesInFlight) + ")").c_str());
+            return VK_NULL_HANDLE;
+        }
+        return m_Sets[frameIndex];
+    }
+
+    // Number of slots populated by Initialize (0 before Initialize / after Shutdown).
+    uint32_t GetFramesInFlight() const { return m_FramesInFlight; }
 
 private:
-    VulkanDevice* m_Device  = nullptr;
-    uint32_t      m_Binding = 0;
+    VulkanDevice*                                     m_Device         = nullptr;
+    uint32_t                                          m_Binding        = 0;
+    uint32_t                                          m_FramesInFlight = 0;
     std::array<VulkanBuffer,    MAX_FRAMES_IN_FLIGHT> m_Buffers{};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_Sets{};
 };

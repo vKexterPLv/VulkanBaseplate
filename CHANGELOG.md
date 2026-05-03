@@ -2,6 +2,32 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased] — v0.5 pre-flight + Theme A
+
+### Changed (breaking, expansion layer)
+
+- **`VulkanDescriptorPool::Initialize` now takes `uint32_t framesInFlight`** (Theme A, A7 — Bug B-1). Pre-fix the pool hardcoded `MAX_FRAMES_IN_FLIGHT` for both `VkDescriptorPoolSize::descriptorCount` and `VkDescriptorPoolCreateInfo::maxSets`, so users running with `cfg.sync.framesInFlight = 1` (Lockstep) or any value other than the compile-time max over-allocated descriptor sets that were never used. The new signature is `Initialize(device, layout, type, framesInFlight)`; the caller passes `cfg.sync.framesInFlight` (or whatever runtime value drove `VulkanSync` / `VulkanCommand`) so the descriptor ring matches the frame ring exactly. `framesInFlight` outside `[1, MAX_FRAMES_IN_FLIGHT]` returns `false + VCKLog::Error("DescriptorPool", ...)`. New getter `GetFramesInFlight()` exposes the value so `VulkanUniformSet<T>` reads it directly — the user threads `framesInFlight` to the pool only, never to the UBO.
+- **`VulkanDescriptorPool::GetSet(frameIndex)`** is now bounds-checked: out-of-range `frameIndex` returns `VK_NULL_HANDLE` and emits `VCKLog::Error("DescriptorPool", ...)`. Pre-fix the `std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>` returned the (possibly never-allocated) zero-init slot silently.
+- **`VulkanUniformSet<T>`** now sizes itself to `pool.GetFramesInFlight()` and only iterates that many slots in `Initialize` / `Shutdown`. `GetSet(frameIndex)` and `Write(frameIndex, ...)` are bounds-checked the same way as the pool. `GetFramesInFlight()` getter added for symmetry. Internal storage is still `std::array<,MAX_FRAMES_IN_FLIGHT>` (`VulkanBuffer` is non-movable), but only the live slots are populated — the rest cost nothing per R19.
+
+No callers in the repo (no example uses `VulkanDescriptorPool` or `VulkanUniformSet<T>` directly today); the existing examples that need per-frame UBOs roll their own. The break is forward-compatible — the new parameter has no default, so any out-of-tree caller will see a compile error and a one-line fix.
+
+### Fixed (docs / examples)
+
+- **`example/ShaderToolingExample/App.cpp` header comment referenced a non-existent `pipeline.Reinitialize`** (Theme A, A9 — Bug B-4). The actual hot-reload path does `pipeline.Shutdown() + pipeline.Initialize(...)`; the comment now matches. A real `VulkanPipeline::Reinitialize` method is tracked separately as Theme C5.
+
+### Tests
+
+- **`tests/test_a7_descriptor_pool_fif.cpp`** — 9 new R14 cases covering the post-fix contract: default-construct reports zero frames-in-flight, `GetSet` past the ring returns `VK_NULL_HANDLE` and emits exactly one tagged `VCKLog::Error` (both pool and UBO-set sides), `Write` past the ring is a logged no-op, `Initialize` on a zero-FIF pool fails fast without dereferencing the device. R14 harness now totals **130 cases**.
+
+### v0.5 pre-flight (already merged)
+
+- **PF1** — strip stale `.exe` + stray binaries, `.gitignore` parity ([PR #13](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/13)).
+- **PF3** — `Versioning and deprecation` policy paragraph in `docs/Design.md` ([PR #14](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/14)).
+- **PF5** — Linux ASan + UBSan CI job ([PR #15](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/15)). First run is clean against the existing `VCK` branch — Theme A bug-audit work lands on a clean sanitizer baseline.
+- **PF2** — bump Windows Vulkan SDK 1.3.290 → 1.4.321, matches the vendored 1.4.349 headers, unblocks `vkCmdBeginRendering` for Theme E1 Dynamic ([PR #16](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/16)).
+- **PF4** — `docs/Perf.md` baseline + `docs/perf_baseline.sh` harness ([PR #17](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/17)). First reading: 30 public classes, 22 cfg knobs, 14 examples, 1215 LoC in `VCK.h`, 1.2 MiB `libvck.a`, 67 s clean build, 4.1 MiB `vck_tests` peak RSS. GPU anchors (A3 frame time, A4 staging throughput, A5 hot-reload latency) populated separately on a developer machine.
+
 ## [0.4.0] - 2026-04-27
 
 ### Added

@@ -22,8 +22,9 @@
 //                          the SpecConstants in.
 //      ShaderWatcher ->  debug-only.  Polls the .spv timestamps each
 //                        frame; when one changes the example calls
-//                        scheduler.DrainInFlight + pipeline.Reinitialize
-//                        + framebuffers.Recreate.  Touch
+//                        scheduler.DrainInFlight, then rebuilds the
+//                        pipeline by pipeline.Shutdown() + pipeline.Initialize(),
+//                        then framebuffers.Recreate.  Touch
 //                        assets/shadertool.frag.spv while running and
 //                        the brightness flips.
 //
