@@ -22,7 +22,7 @@ revision.
 
 ## How to read this document
 
-There are four anchor metrics. They are picked because they are cheap
+There are five anchor metrics. They are picked because they are cheap
 to measure, hard to game, and each one corresponds to a real renderer
 question the user has to answer when picking a graphics framework.
 

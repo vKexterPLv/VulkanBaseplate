@@ -42,7 +42,9 @@ peak_rss() {
         [[ -n "$time_bin" && -x "$time_bin" ]] || { echo unavailable; return; }
         # macOS /usr/bin/time -l reports "maximum resident set size" in bytes.
         "$time_bin" -l "$@" 2> .rss.tmp >/dev/null
-        awk '/maximum resident set size/ { print $1 }' .rss.tmp
+        local bytes
+        bytes=$(awk '/maximum resident set size/ { print $1 }' .rss.tmp)
+        if [[ -z "$bytes" ]]; then echo unavailable; else echo "$bytes"; fi
     else
         local time_bin="/usr/bin/time"
         [[ -x "$time_bin" ]] || { echo unavailable; rm -f .rss.tmp; return; }
