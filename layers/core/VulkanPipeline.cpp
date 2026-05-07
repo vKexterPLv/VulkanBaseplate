@@ -48,6 +48,17 @@ namespace VCK {
         m_Device      = &device;
         m_PipelineCfg = pipelineConfig;
 
+        // Theme E (E1): pick the render-pass codepath up-front.  When the
+        // device successfully enabled VK_KHR_dynamic_rendering at Initialize
+        // (cfg.rendering.mode = Dynamic AND the feature was available), this
+        // pipeline skips CreateRenderPass and instead chains
+        // VkPipelineRenderingCreateInfo into vkCreateGraphicsPipelines.
+        // Otherwise the legacy VkRenderPass + VkFramebuffer codepath is used
+        // verbatim (behaviour unchanged for Classic mode and for devices that
+        // did not advertise the feature).
+        m_UsesDynamicRendering = device.HasDynamicRendering();
+        m_DynamicColorFormat   = m_UsesDynamicRendering ? swapchainFormat : VK_FORMAT_UNDEFINED;
+
         // MSAA end-to-end is wired:
         //   - VulkanSwapchain owns one multisampled colour target per image.
         //   - Render pass below adds a resolve attachment when samples > 1.
@@ -71,21 +82,35 @@ namespace VCK {
         // / VulkanCommand / VulkanSync rollback contract.
         VkDevice rawDevice = m_Device->GetDevice();
         const auto rollbackToDefault = [&]() {
-            m_Device      = nullptr;
-            m_PipelineCfg = Config{};
-            m_Samples     = VK_SAMPLE_COUNT_1_BIT;
+            m_Device               = nullptr;
+            m_PipelineCfg          = Config{};
+            m_Samples              = VK_SAMPLE_COUNT_1_BIT;
+            m_UsesDynamicRendering = false;
+            m_DynamicColorFormat   = VK_FORMAT_UNDEFINED;
         };
 
-        VCKLog::Info("Pipeline", "Creating render pass...");
-        if (!CreateRenderPass(swapchainFormat)) {
-            rollbackToDefault();
-            return false;
+        if (m_UsesDynamicRendering)
+        {
+            // Dynamic rendering: no VkRenderPass to create.  m_RenderPass
+            // stays VK_NULL_HANDLE and CreateGraphicsPipeline below chains
+            // VkPipelineRenderingCreateInfo with the swapchain colour format.
+            VCKLog::Info("Pipeline", "Skipping render pass (dynamic rendering)");
+        }
+        else
+        {
+            VCKLog::Info("Pipeline", "Creating render pass...");
+            if (!CreateRenderPass(swapchainFormat)) {
+                rollbackToDefault();
+                return false;
+            }
         }
 
         VCKLog::Info("Pipeline", "Creating pipeline layout...");
         if (!CreatePipelineLayout()) {
-            vkDestroyRenderPass(rawDevice, m_RenderPass, nullptr);
-            m_RenderPass = VK_NULL_HANDLE;
+            if (m_RenderPass) {
+                vkDestroyRenderPass(rawDevice, m_RenderPass, nullptr);
+                m_RenderPass = VK_NULL_HANDLE;
+            }
             rollbackToDefault();
             return false;
         }
@@ -93,9 +118,11 @@ namespace VCK {
         VCKLog::Info("Pipeline", "Creating graphics pipeline...");
         if (!CreateGraphicsPipeline(shaders, vertexInput)) {
             vkDestroyPipelineLayout(rawDevice, m_PipelineLayout, nullptr);
-            vkDestroyRenderPass    (rawDevice, m_RenderPass,     nullptr);
+            if (m_RenderPass) {
+                vkDestroyRenderPass(rawDevice, m_RenderPass, nullptr);
+                m_RenderPass = VK_NULL_HANDLE;
+            }
             m_PipelineLayout = VK_NULL_HANDLE;
-            m_RenderPass     = VK_NULL_HANDLE;
             rollbackToDefault();
             return false;
         }
@@ -370,8 +397,26 @@ namespace VCK {
         colorBlending.pAttachments = &colorBlendAttachment;
 
         // ── Assemble ──────────────────────────────────────────────────────────────
+        // Theme E (E1): when m_UsesDynamicRendering is true, renderPass MUST be
+        // VK_NULL_HANDLE and a VkPipelineRenderingCreateInfo describing the
+        // colour-attachment formats is chained into pNext.  Vulkan spec §10.3.
+        // Single colour attachment matching the swapchain format - depth /
+        // stencil are left UNDEFINED to match the Classic codepath which
+        // does not have a depth attachment yet.
+        VkPipelineRenderingCreateInfo dynRenderingInfo{};
+        VkFormat                      dynColorFormat = m_DynamicColorFormat;
+        if (m_UsesDynamicRendering)
+        {
+            dynRenderingInfo.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+            dynRenderingInfo.colorAttachmentCount    = 1;
+            dynRenderingInfo.pColorAttachmentFormats = &dynColorFormat;
+            dynRenderingInfo.depthAttachmentFormat   = VK_FORMAT_UNDEFINED;
+            dynRenderingInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+        }
+
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.pNext = m_UsesDynamicRendering ? &dynRenderingInfo : nullptr;
         pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
         pipelineInfo.pStages = shaderStages.data();
         pipelineInfo.pVertexInputState = &vertexInputInfo;
@@ -383,7 +428,7 @@ namespace VCK {
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = &dynamicState;
         pipelineInfo.layout = m_PipelineLayout;
-        pipelineInfo.renderPass = m_RenderPass;
+        pipelineInfo.renderPass = m_RenderPass;             // VK_NULL_HANDLE in Dynamic mode
         pipelineInfo.subpass = 0;
         pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 

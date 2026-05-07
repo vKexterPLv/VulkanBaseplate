@@ -158,6 +158,16 @@ namespace VCK {
         VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
         VkRenderPass     GetRenderPass()     const { return m_RenderPass; }
 
+        // Theme E (E1): true when Initialize succeeded against a device that
+        // had cfg.rendering.mode = Dynamic AND VK_KHR_dynamic_rendering
+        // available.  In that case GetRenderPass() returns VK_NULL_HANDLE
+        // and callers MUST issue vkCmdBeginRendering / vkCmdEndRendering
+        // around their draws.  When false the pipeline owns a VkRenderPass
+        // and callers go through VulkanFramebufferSet + vkCmdBeginRenderPass
+        // (the legacy / Classic path, behaviour unchanged from v0.4).
+        bool             UsesDynamicRendering() const { return m_UsesDynamicRendering; }
+        VkFormat         GetDynamicColorFormat() const { return m_DynamicColorFormat; }
+
     private:
         bool CreateRenderPass(VkFormat swapchainFormat);
         bool CreatePipelineLayout();
@@ -168,10 +178,19 @@ namespace VCK {
 
         // ── State ────────────────────────────────────────────────────────────────
         VulkanDevice* m_Device = nullptr;
-        VkRenderPass     m_RenderPass = VK_NULL_HANDLE;
+        VkRenderPass     m_RenderPass = VK_NULL_HANDLE;          // null in Dynamic mode (Theme E - E1)
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline       m_Pipeline = VK_NULL_HANDLE;
         VkSampleCountFlagBits m_Samples = VK_SAMPLE_COUNT_1_BIT;
+
+        // Theme E (E1): true when this pipeline was created without a
+        // VkRenderPass and instead chains VkPipelineRenderingCreateInfo into
+        // pNext at vkCreateGraphicsPipelines.  Set when device.HasDynamicRendering()
+        // is true at Initialize() time.  GetRenderPass() returns VK_NULL_HANDLE
+        // in this mode; callers MUST use vkCmdBeginRendering / vkCmdEndRendering
+        // (not VulkanFramebufferSet + vkCmdBeginRenderPass).
+        bool             m_UsesDynamicRendering = false;
+        VkFormat         m_DynamicColorFormat   = VK_FORMAT_UNDEFINED;
 
         // Snapshot of the caller's per-pipeline config.  Defaults match the
         // pre-Config behaviour, so zero-arg Initialize() is unchanged.

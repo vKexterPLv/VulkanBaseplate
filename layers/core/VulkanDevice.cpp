@@ -388,6 +388,28 @@ namespace VCK {
             //  below; no per-feature Notice here to avoid a duplicate.)
         }
 
+        // Theme E (E1): VK_KHR_dynamic_rendering / 1.3 core feature probe.
+        // Same shape as the timeline-semaphore path above - probe via Features2,
+        // chain into pNext at vkCreateDevice when supported, and gate the
+        // VulkanPipeline codepath on the resulting m_DynamicRenderingEnabled
+        // flag.  When the cfg knob picks Classic OR the device does not
+        // advertise the feature, VulkanPipeline keeps emitting the
+        // VkRenderPass + VkFramebuffer codepath with no API surface change.
+        bool dynamicRenderingRequested = (m_CfgRendering.mode == RenderingMode::Dynamic);
+        bool dynamicRenderingSupported = false;
+        if (dynamicRenderingRequested)
+        {
+            VkPhysicalDeviceDynamicRenderingFeatures probeDr{};
+            probeDr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+
+            VkPhysicalDeviceFeatures2 probeF2{};
+            probeF2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            probeF2.pNext = &probeDr;
+
+            vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probeF2);
+            dynamicRenderingSupported = probeDr.dynamicRendering == VK_TRUE;
+        }
+
         // Build the merged extension list: required + user-supplied extras.
         std::vector<const char*> enabledExts(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
         for (const char* extra : m_CfgDevice.extraDeviceExtensions)
@@ -459,18 +481,18 @@ namespace VCK {
             return true;
         };
 
-        if (m_CfgRendering.mode == RenderingMode::Dynamic)
+        // Theme E (E1): cfg-gated VK_KHR_dynamic_rendering request.  Mirrors
+        // the Theme S sync2 pattern - only push the extension when the device
+        // probe (above) said the feature is available; otherwise the gated
+        // Notice would be misleading (the extension would be enabled but the
+        // feature struct would not be chained, so HasDynamicRendering() would
+        // still report false).  The tri-state R23 Notice (active / unavailable
+        // / cfg=Classic) fires after vkCreateDevice succeeds.
+        if (dynamicRenderingRequested && dynamicRenderingSupported)
         {
 #ifdef VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
             (void)tryGated(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, "cfg.rendering.mode=Dynamic");
 #endif
-            // R23 fallback path: today VulkanPipeline / Frame still emit the
-            // Classic VkRenderPass + VkFramebuffer codepath.  The Dynamic
-            // codepath (vkCmdBeginRendering, on-the-fly attachment description)
-            // ships in v0.4; until then the extension is enabled but VCK still
-            // renders Classic to keep behaviour identical for early adopters.
-            VCKLog::Notice("Device",
-                "cfg.rendering.mode=Dynamic acknowledged - dynamic rendering codepath ships in v0.4; rendering falls back to Classic (R23)");
         }
 
         if (m_CfgDevice.enableBindless)
@@ -509,20 +531,39 @@ namespace VCK {
         deviceInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExts.size());
         deviceInfo.ppEnabledExtensionNames = enabledExts.data();
 
-        // Timeline semaphore feature chain.  When enabled, the feature struct
-        // must live in pNext and pEnabledFeatures must be nullptr (use the
-        // VkPhysicalDeviceFeatures2 path instead).  When disabled, keep the
-        // legacy pEnabledFeatures path untouched (stable for existing setups).
+        // Feature chain (Features2 + per-feature pNext extensions).  When any
+        // chained feature applies, pEnabledFeatures must be null and the base
+        // VkPhysicalDeviceFeatures2 carries the legacy `features` field.  When
+        // none apply we keep the legacy pEnabledFeatures path untouched
+        // (stable for existing setups).  Currently chained features:
+        //   - VkPhysicalDeviceTimelineSemaphoreFeatures (v0.3)
+        //   - VkPhysicalDeviceDynamicRenderingFeatures  (Theme E - E1)
         VkPhysicalDeviceTimelineSemaphoreFeatures tsFeatures{};
+        VkPhysicalDeviceDynamicRenderingFeatures  drFeatures{};
         VkPhysicalDeviceFeatures2                 features2{};
-        if (timelineRequested && timelineSupported)
+        const bool useFeatures2 =
+            (timelineRequested         && timelineSupported)         ||
+            (dynamicRenderingRequested && dynamicRenderingSupported);
+        if (useFeatures2)
         {
-            tsFeatures.sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
-            tsFeatures.timelineSemaphore = VK_TRUE;
-
             features2.sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
             features2.features = deviceFeatures;
-            features2.pNext    = &tsFeatures;
+            void** chainTail   = &features2.pNext;
+
+            if (timelineRequested && timelineSupported)
+            {
+                tsFeatures.sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+                tsFeatures.timelineSemaphore = VK_TRUE;
+                *chainTail = &tsFeatures;
+                chainTail  = &tsFeatures.pNext;
+            }
+            if (dynamicRenderingRequested && dynamicRenderingSupported)
+            {
+                drFeatures.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+                drFeatures.dynamicRendering = VK_TRUE;
+                *chainTail = &drFeatures;
+                chainTail  = &drFeatures.pNext;
+            }
 
             deviceInfo.pNext            = &features2;
             deviceInfo.pEnabledFeatures = nullptr;  // must be null with features2
@@ -538,7 +579,8 @@ namespace VCK {
             return false;
         }
 
-        m_TimelineSemaphoresEnabled = timelineRequested && timelineSupported;
+        m_TimelineSemaphoresEnabled = timelineRequested         && timelineSupported;
+        m_DynamicRenderingEnabled   = dynamicRenderingRequested && dynamicRenderingSupported;
 
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.PresentFamily.value(),  0, &m_PresentQueue);
@@ -581,6 +623,17 @@ namespace VCK {
             VCKLog::Notice("Device", "feature unavailable: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
         } else {
             VCKLog::Notice("Device", "feature disabled by cfg: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
+        }
+
+        // Rule 23: Theme E (E1) dynamic-rendering decision announced same shape
+        // as the timeline path - VulkanPipeline gates on HasDynamicRendering()
+        // and falls back to Classic VkRenderPass + VkFramebuffer when off.
+        if (m_DynamicRenderingEnabled) {
+            VCKLog::Notice("Device", "feature enabled: VK_KHR_dynamic_rendering (cfg.rendering.mode=Dynamic)");
+        } else if (dynamicRenderingRequested) {
+            VCKLog::Notice("Device", "feature unavailable: VK_KHR_dynamic_rendering - VulkanPipeline falls back to VkRenderPass + VkFramebuffer");
+        } else {
+            VCKLog::Notice("Device", "cfg.rendering.mode=Classic - VulkanPipeline emits VkRenderPass + VkFramebuffer");
         }
 
         return true;
