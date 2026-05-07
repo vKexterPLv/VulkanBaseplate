@@ -42,17 +42,24 @@ namespace VCK {
         // sub-state so the caller does not have to know to call Shutdown()
         // after a failed Initialize().
 
+        // Caller-level Error pattern (matches the pre-A1 design):
+        //   - Sub-functions emit Warn-level diagnostic context (deviceCount,
+        //     missing-extension name, etc.) before returning false.
+        //   - Initialize() owns the single subsystem-tagged Error per
+        //     failure path (R14: exactly one Error per failure).
+        // This keeps the rich context AND keeps the caller-level marker
+        // a user can grep for at the public-API boundary.
         VCKLog::Info("Device", "Selecting physical device...");
         if (!PickPhysicalDevice(instance, surface))
         {
-            VCKLog::Notice("Device", "Initialize aborted: PickPhysicalDevice failed");
+            VCKLog::Error("Device", "Initialize aborted: PickPhysicalDevice failed");
             return false;
         }
 
         VCKLog::Info("Device", "Creating logical device...");
         if (!CreateLogicalDevice())
         {
-            VCKLog::Notice("Device", "Initialize aborted: CreateLogicalDevice failed");
+            VCKLog::Error("Device", "Initialize aborted: CreateLogicalDevice failed");
             m_PhysicalDevice = VK_NULL_HANDLE;     // roll back PickPhysicalDevice
             return false;
         }
@@ -60,7 +67,7 @@ namespace VCK {
         VCKLog::Info("Device", "Creating VMA allocator...");
         if (!CreateAllocator(instance))
         {
-            VCKLog::Notice("Device", "Initialize aborted: CreateAllocator failed");
+            VCKLog::Error("Device", "Initialize aborted: CreateAllocator failed");
             // Roll back the logical device built two steps up so we do not
             // leak it.  Inlined rather than calling Shutdown() so a failed
             // Initialize never logs a misleading "shut down" line.
@@ -112,7 +119,9 @@ namespace VCK {
 
         if (deviceCount == 0)
         {
-            VCKLog::Error("Device", "No Vulkan-capable GPUs found");
+            // Diagnostic context only - the caller (Initialize) owns the
+            // single Error per R14.
+            VCKLog::Warn("Device", "No Vulkan-capable GPUs found (vkEnumeratePhysicalDevices returned 0)");
             return false;
         }
 
@@ -163,7 +172,7 @@ namespace VCK {
 
         if (bestDevice == VK_NULL_HANDLE || bestScore < 0)
         {
-            VCKLog::Error("Device",
+            VCKLog::Warn("Device",
                 "PickPhysicalDevice: no suitable GPU found (best score < 0 across "
                 + std::to_string(deviceCount) + " device(s) - check required extensions, queue families, and surface format support)");
             return false;
@@ -247,7 +256,7 @@ namespace VCK {
             }
             if (!found)
             {
-                VCKLog::Error("Device", std::string("Missing required extension: ") + needed);
+                VCKLog::Warn("Device", std::string("Missing required extension: ") + needed);
                 return false;
             }
         }
@@ -525,7 +534,7 @@ namespace VCK {
 
         if (!VK_OK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_LogicalDevice)))
         {
-            VCKLog::Error("Device", "vkCreateDevice failed");
+            VCKLog::Warn("Device", "vkCreateDevice failed");
             return false;
         }
 
@@ -591,7 +600,7 @@ namespace VCK {
 
         if (!VK_OK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)))
         {
-            VCKLog::Error("Device", "vmaCreateAllocator failed");
+            VCKLog::Warn("Device", "vmaCreateAllocator failed");
             return false;
         }
         VCKLog::Info("Device", "VMA allocator ready");
