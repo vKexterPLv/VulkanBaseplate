@@ -2003,13 +2003,14 @@ namespace
         // Vulkan requires push constants to be identical across stages.
         // Take the first non-empty Push() block and warn on conflicts.
         //
-        // A5 note: pre-A5 this only flagged size mismatches.  When two
-        // stages declared push blocks of the same size but different
-        // layouts (e.g. mat4 vs vec4[4]), nothing logged - the user got
-        // silently undefined Apply() behaviour because Apply() uploads
-        // the first stage's bytes.  Now we additionally compare the
-        // raw range bytes (offset / size as exposed via Range) so a
-        // same-sized but layout-divergent declaration is at least loud.
+        // Limitation: this only detects size mismatches.  When two stages
+        // declare push blocks of the same total size but different slot
+        // layouts (e.g. mat4 'M' vs four vec4 slots 'a/b/c/d') the merge
+        // silently uses the first declaration's bytes - PushConstants'
+        // internal slot table is private, so we cannot inspect per-slot
+        // names / types here.  Detecting layout-divergent same-size
+        // declarations needs a public Slots() accessor on PushConstants
+        // and is tracked as a B-themed surface change.
         const PushConstants* first = nullptr;
         for (const ShaderStage& st : stages)
         {
@@ -2024,25 +2025,6 @@ namespace
                 VCKLog::Warn("ShaderInterface",
                     std::string("push constant size mismatch across stages (") +
                     std::to_string(firstSz) + " vs " + std::to_string(stSz) +
-                    ") - using the first declaration");
-                continue;
-            }
-
-            // Same size: compare the VkPushConstantRange offset/size
-            // tuple (the bits Vulkan actually validates).  Any divergence
-            // there is a real bug in the user's ShaderInterface{}.
-            const VkPushConstantRange a =
-                first->Range(VK_SHADER_STAGE_ALL_GRAPHICS);
-            const VkPushConstantRange b =
-                st.GetPush().Range(VK_SHADER_STAGE_ALL_GRAPHICS);
-            if (a.offset != b.offset || a.size != b.size)
-            {
-                VCKLog::Warn("ShaderInterface",
-                    std::string("push constant range layout mismatch "
-                                "across stages (offset/size: ") +
-                    std::to_string(a.offset) + "/" + std::to_string(a.size) +
-                    " vs " +
-                    std::to_string(b.offset) + "/" + std::to_string(b.size) +
                     ") - using the first declaration");
             }
         }
