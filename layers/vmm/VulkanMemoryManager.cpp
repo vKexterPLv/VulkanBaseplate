@@ -396,8 +396,10 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
                             VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     tpci.queueFamilyIndex = m_TransferFamily;
 
-    if (!VK_CHECK(vkCreateCommandPool(device.GetDevice(), &tpci, nullptr, &m_TransferPool)))
+    if (!VK_OK(vkCreateCommandPool(device.GetDevice(), &tpci, nullptr, &m_TransferPool)))
     {
+        // R14: caller-level Error owns the failure log; VK_OK is silent so
+        // we don't double-log via VK_CHECK's generic 'VK_CHECK' tag.
         VCKLog::Error("VMM", "Failed to create transfer command pool (family=" +
               std::to_string(m_TransferFamily) + ")");
         return false;
@@ -416,6 +418,11 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
     {
         VCKLog::Error("VMM", "Failed to allocate staging ring (" +
               std::to_string(config.stagingRingSize / (1024*1024)) + " MB)");
+        // Roll back the transfer command pool built one step up so we do
+        // not leak it on partial-init failure (matches the A1 rollback
+        // contract in VulkanDevice / VulkanCommand / VulkanSync).
+        vkDestroyCommandPool(device.GetDevice(), m_TransferPool, nullptr);
+        m_TransferPool = VK_NULL_HANDLE;
         return false;
     }
 
@@ -443,6 +450,20 @@ bool VulkanMemoryManager::Initialize(VulkanDevice& device,
         if (!m_Transient[i].buffer.IsValid())
         {
             VCKLog::Error("VMM", "Failed to allocate transient block for slot " + std::to_string(i));
+            // Roll back already-built sub-state so the caller does not have
+            // to know to call Shutdown() after a failed Initialize.  Frees
+            // the previously-allocated transient blocks [0, i), the staging
+            // ring, and the transfer command pool, in reverse order of
+            // construction.
+            for (uint32_t k = 0; k < i; ++k)
+            {
+                VmmRawAlloc::FreeBuffer(device, m_Transient[k].buffer);
+                m_Transient[k] = TransientBlock{};
+            }
+            VmmRawAlloc::FreeBuffer(device, m_Ring.buffer);
+            m_Ring = StagingRing{};
+            vkDestroyCommandPool(device.GetDevice(), m_TransferPool, nullptr);
+            m_TransferPool = VK_NULL_HANDLE;
             return false;
         }
     }
@@ -507,8 +528,10 @@ void VulkanMemoryManager::BeginFrame(uint32_t frameIndex, uint32_t absoluteFrame
     // cycle of this slot.
     m_Registry.FreeTransient(frameIndex);
 
-    // Staging ring is drained each EndFrame / FlushStaging (waitIdle model),
-    // so no per-slot retire step is needed here.
+    // Staging ring is drained each EndFrame / FlushStaging via per-submit
+    // fence wait, so no per-slot retire step is needed here.  See StagingRing
+    // comment in the header.  When the staging ring grows to fence-per-frame
+    // we will retire frameTails[frameIndex] here.
 }
 
 // -----------------------------------------------------------------------------
@@ -524,9 +547,10 @@ void VulkanMemoryManager::EndFrame(uint32_t frameIndex)
 
         SubmitStagingCmd();
 
-        // SubmitStagingCmd() ends with vkQueueWaitIdle() - every byte the ring
-        // handed out this frame has now been consumed.  Drop the cursor back
-        // to zero so the ring can be reused from scratch next frame.
+        // SubmitStagingCmd() waits on its per-submit fence before returning,
+        // so every byte the ring handed out this frame has now been consumed
+        // by the GPU.  Drop the cursor back to zero so the ring can be
+        // reused from scratch next frame.
         m_Ring.Reset();
     }
 }
@@ -674,7 +698,7 @@ void VulkanMemoryManager::FlushStaging()
     if (m_StagingOpen)
     {
         SubmitStagingCmd();
-        // Ring fully idle after waitIdle - reclaim all space.
+        // Ring fully idle after the per-submit fence wait - reclaim all space.
         m_Ring.Reset();
     }
 }
@@ -824,15 +848,23 @@ bool VulkanMemoryManager::EnsureStagingCmd()
     ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
 
-    if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &ai, &m_StagingCmd)))
+    if (!VK_OK(vkAllocateCommandBuffers(m_Device->GetDevice(), &ai, &m_StagingCmd)))
+    {
+        // R14: every failure path emits a subsystem-tagged Error.  Pre-A2
+        // this returned false silently and the caller (StageTo*) only logged
+        // a generic 'ring full' Warn even though the real failure was the
+        // command-buffer allocation.
+        VCKLog::Error("VMM", "vkAllocateCommandBuffers failed for staging cmd (transferPool)");
         return false;
+    }
 
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    if (!VK_CHECK(vkBeginCommandBuffer(m_StagingCmd, &bi)))
+    if (!VK_OK(vkBeginCommandBuffer(m_StagingCmd, &bi)))
     {
+        VCKLog::Error("VMM", "vkBeginCommandBuffer failed for staging cmd");
         vkFreeCommandBuffers(m_Device->GetDevice(),
                              m_TransferPool, 1, &m_StagingCmd);
         m_StagingCmd = VK_NULL_HANDLE;
@@ -849,8 +881,9 @@ void VulkanMemoryManager::SubmitStagingCmd()
 
     // If End fails the cmd is malformed and submitting it would be a VUID
     // violation - bail with full cleanup instead of plowing into vkQueueSubmit.
-    if (!VK_CHECK(vkEndCommandBuffer(m_StagingCmd)))
+    if (!VK_OK(vkEndCommandBuffer(m_StagingCmd)))
     {
+        VCKLog::Error("VMM", "vkEndCommandBuffer failed for staging cmd; dropping pending acquires");
         vkFreeCommandBuffers(m_Device->GetDevice(),
                              m_TransferPool, 1, &m_StagingCmd);
         m_StagingCmd  = VK_NULL_HANDLE;
@@ -951,7 +984,7 @@ void VulkanMemoryManager::SubmitStagingCmd()
         gai.commandBufferCount = 1;
 
         VkCommandBuffer acquireCmd = VK_NULL_HANDLE;
-        if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &gai, &acquireCmd)))
+        if (!VK_OK(vkAllocateCommandBuffers(m_Device->GetDevice(), &gai, &acquireCmd)))
         {
             VCKLog::Error("VMM", "Failed to allocate acquire-barrier cmd; resources may be in undefined state on graphics queue.");
             m_PendingAcquireBuffers.clear();
@@ -962,7 +995,7 @@ void VulkanMemoryManager::SubmitStagingCmd()
         VkCommandBufferBeginInfo gbi{};
         gbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         gbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        if (!VK_CHECK(vkBeginCommandBuffer(acquireCmd, &gbi)))
+        if (!VK_OK(vkBeginCommandBuffer(acquireCmd, &gbi)))
         {
             // Recording into a not-begun cmd is undefined; bail before we
             // record barriers that would never actually run.  Resources
@@ -1029,11 +1062,12 @@ void VulkanMemoryManager::SubmitStagingCmd()
             static_cast<uint32_t>(bbs.size()), bbs.empty() ? nullptr : bbs.data(),
             static_cast<uint32_t>(ibs.size()), ibs.empty() ? nullptr : ibs.data());
 
-        if (!VK_CHECK(vkEndCommandBuffer(acquireCmd)))
+        if (!VK_OK(vkEndCommandBuffer(acquireCmd)))
         {
             // End failed - cmd is incomplete, submitting it is a VUID
             // violation.  Free the cmd and drop pending acquires; same
             // reasoning as the BeginCommandBuffer failure path above.
+            VCKLog::Error("VMM", "vkEndCommandBuffer failed for acquire cmd; pending acquires dropped.");
             vkFreeCommandBuffers(m_Device->GetDevice(),
                                  m_Command->GetCommandPool(), 1, &acquireCmd);
             m_PendingAcquireBuffers.clear();
