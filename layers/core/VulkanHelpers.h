@@ -345,12 +345,17 @@ enum class PresentMode {
 
 // Rule 24: rendering mode is a user-visible choice.  Classic uses VkRenderPass +
 // VkFramebuffer (default).  Dynamic uses vkCmdBeginRendering with on-the-fly
-// attachment description (VK_KHR_dynamic_rendering, core in 1.3).  Stage-1
-// surface only - selecting Dynamic enables the extension on the device and
-// emits a Notice; the dynamic-rendering codepath itself ships in v0.4.
+// attachment description (VK_KHR_dynamic_rendering, core in 1.3).  Selecting
+// Dynamic probes VkPhysicalDeviceDynamicRenderingFeatures, chains it into
+// vkCreateDevice, and toggles VulkanPipeline to skip CreateRenderPass and
+// chain VkPipelineRenderingCreateInfo into vkCreateGraphicsPipelines instead
+// (Theme E - E1).  Callers in Dynamic mode use vkCmdBeginRendering /
+// vkCmdEndRendering and skip VulkanFramebufferSet entirely.  When the device
+// does not advertise the feature VCK transparently falls back to Classic and
+// emits an R23 Notice naming the fallback.
 enum class RenderingMode {
-    Classic,    // VkRenderPass + VkFramebuffer.  Default; behaviour unchanged from v0.3.
-    Dynamic,    // VK_KHR_dynamic_rendering.  Stage-1: extension enabled, codepath in v0.4.
+    Classic,    // VkRenderPass + VkFramebuffer.  Default; behaviour unchanged from v0.4.
+    Dynamic,    // VK_KHR_dynamic_rendering / 1.3 core.  vkCmdBeginRendering, no VkRenderPass.
 };
 
 // MSAA sample count sentinel.  If cfg.swapchain.msaaSamples == MSAA_AUTO (the
