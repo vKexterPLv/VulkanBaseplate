@@ -36,16 +36,60 @@ namespace VCK {
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
+        // Inlined cleanup helper: destroys every primitive created in slots
+        // [0, builtSlots) plus any partial slot at index `builtSlots` whose
+        // imageAvailable / renderFinished have been written.  Stays inline
+        // (rather than calling Shutdown()) so a failed Initialize never
+        // logs a misleading "Sync Shut down" Info line.
+        const auto rollback = [&](uint32_t builtSlots,
+                                  bool partialImageAvailable,
+                                  bool partialRenderFinished) {
+            for (uint32_t k = 0; k < builtSlots; ++k) {
+                vkDestroyFence(device.GetDevice(), m_InFlightFences[k], nullptr);
+                vkDestroySemaphore(device.GetDevice(), m_RenderFinishedSemaphores[k], nullptr);
+                vkDestroySemaphore(device.GetDevice(), m_ImageAvailableSemaphores[k], nullptr);
+                m_InFlightFences[k]            = VK_NULL_HANDLE;
+                m_RenderFinishedSemaphores[k]  = VK_NULL_HANDLE;
+                m_ImageAvailableSemaphores[k]  = VK_NULL_HANDLE;
+            }
+            if (partialRenderFinished) {
+                vkDestroySemaphore(device.GetDevice(), m_RenderFinishedSemaphores[builtSlots], nullptr);
+                m_RenderFinishedSemaphores[builtSlots] = VK_NULL_HANDLE;
+            }
+            if (partialImageAvailable) {
+                vkDestroySemaphore(device.GetDevice(), m_ImageAvailableSemaphores[builtSlots], nullptr);
+                m_ImageAvailableSemaphores[builtSlots] = VK_NULL_HANDLE;
+            }
+            m_Device         = nullptr;
+            m_FramesInFlight = 0;
+            m_CurrentFrame   = 0;
+        };
+
         for (uint32_t i = 0; i < m_FramesInFlight; ++i)
         {
-            if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i])))
+            if (!VK_OK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateSemaphore failed (imageAvailable, frame " + std::to_string(i) + ")");
+                rollback(i, false, false);
                 return false;
+            }
 
-            if (!VK_CHECK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i])))
+            if (!VK_OK(vkCreateSemaphore(device.GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateSemaphore failed (renderFinished, frame " + std::to_string(i) + ")");
+                rollback(i, true, false);
                 return false;
+            }
 
-            if (!VK_CHECK(vkCreateFence(device.GetDevice(), &fenceInfo, nullptr, &m_InFlightFences[i])))
+            if (!VK_OK(vkCreateFence(device.GetDevice(), &fenceInfo, nullptr, &m_InFlightFences[i])))
+            {
+                VCKLog::Error("Sync",
+                    "vkCreateFence failed (inFlight, frame " + std::to_string(i) + ")");
+                rollback(i, true, true);
                 return false;
+            }
         }
 
         VCKLog::Info("Sync", "Initialized - " + std::to_string(m_FramesInFlight) + " frames in flight");

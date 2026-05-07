@@ -35,8 +35,11 @@ namespace VCK {
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         poolInfo.queueFamilyIndex = device.GetQueueFamilyIndices().GraphicsFamily.value();
 
-        if (!VK_CHECK(vkCreateCommandPool(device.GetDevice(), &poolInfo, nullptr, &m_CommandPool)))
+        if (!VK_OK(vkCreateCommandPool(device.GetDevice(), &poolInfo, nullptr, &m_CommandPool)))
+        {
+            VCKLog::Error("Command", "vkCreateCommandPool failed");
             return false;
+        }
 
         // ── Command buffers ───────────────────────────────────────────────────────
         // One primary buffer per frame-in-flight slot.
@@ -46,8 +49,22 @@ namespace VCK {
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = m_FramesInFlight;
 
-        if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
+        if (!VK_OK(vkAllocateCommandBuffers(device.GetDevice(), &allocInfo, m_CommandBuffers.data())))
+        {
+            VCKLog::Error("Command",
+                "vkAllocateCommandBuffers failed (" + std::to_string(m_FramesInFlight) + " buffers)");
+            // Roll back to default-construct-equivalent state: destroy the
+            // pool, null its handle, drop the device pointer, and clear the
+            // frame count.  A subsequent Shutdown() then hits the
+            // `if (!m_Device) return;` guard and stays silent (R19) instead
+            // of emitting a misleading 'Command Shut down' Info line for an
+            // object whose Initialize never finished.
+            vkDestroyCommandPool(device.GetDevice(), m_CommandPool, nullptr);
+            m_CommandPool    = VK_NULL_HANDLE;
+            m_Device         = nullptr;
+            m_FramesInFlight = 0;
             return false;
+        }
 
         VCKLog::Info("Command", std::string("Initialized - pool + ")
             + std::to_string(m_FramesInFlight) + " command buffers");
@@ -76,8 +93,12 @@ namespace VCK {
         VkCommandBuffer cmd = m_CommandBuffers[frameIndex];
 
         // Reset the individual buffer - pool stays intact, other slots unaffected.
-        if (!VK_CHECK(vkResetCommandBuffer(cmd, 0)))
+        if (!VK_OK(vkResetCommandBuffer(cmd, 0)))
+        {
+            VCKLog::Error("Command",
+                "vkResetCommandBuffer failed for frame " + std::to_string(frameIndex));
             return false;
+        }
 
         // ONE_TIME_SUBMIT: hint to the driver that this buffer is recorded and
         // submitted exactly once before the next reset.
@@ -85,13 +106,25 @@ namespace VCK {
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        return VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+        if (!VK_OK(vkBeginCommandBuffer(cmd, &beginInfo)))
+        {
+            VCKLog::Error("Command",
+                "vkBeginCommandBuffer failed for frame " + std::to_string(frameIndex));
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
     bool VulkanCommand::EndRecording(uint32_t frameIndex)
     {
-        return VK_CHECK(vkEndCommandBuffer(m_CommandBuffers[frameIndex]));
+        if (!VK_OK(vkEndCommandBuffer(m_CommandBuffers[frameIndex])))
+        {
+            VCKLog::Error("Command",
+                "vkEndCommandBuffer failed for frame " + std::to_string(frameIndex));
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -109,8 +142,11 @@ namespace VCK {
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer cb = VK_NULL_HANDLE;
-        if (!VK_CHECK(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &cb)))
+        if (!VK_OK(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &cb)))
+        {
+            VCKLog::Error("Command", "vkAllocateCommandBuffers (secondary) failed");
             return VK_NULL_HANDLE;
+        }
         return cb;
     }
 
@@ -133,12 +169,22 @@ namespace VCK {
         // ONE_TIME_SUBMIT / SIMULTANEOUS_USE to match their usage.
         bi.flags            = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | extraFlags;
         bi.pInheritanceInfo = &inheritance;
-        return VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+        if (!VK_OK(vkBeginCommandBuffer(cb, &bi)))
+        {
+            VCKLog::Error("Command", "vkBeginCommandBuffer (secondary) failed");
+            return false;
+        }
+        return true;
     }
 
     bool VulkanCommand::EndSecondary(VkCommandBuffer cb)
     {
-        return VK_CHECK(vkEndCommandBuffer(cb));
+        if (!VK_OK(vkEndCommandBuffer(cb)))
+        {
+            VCKLog::Error("Command", "vkEndCommandBuffer (secondary) failed");
+            return false;
+        }
+        return true;
     }
 
     void VulkanCommand::ExecuteSecondaries(VkCommandBuffer         primary,

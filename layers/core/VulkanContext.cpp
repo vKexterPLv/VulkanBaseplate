@@ -106,6 +106,17 @@ namespace VCK {
 #endif
 
     void VulkanContext::Shutdown() {
+        // A default-constructed (or already-shut-down) context produces zero
+        // log output (R14 + R19).  EnabledExtensions can still be populated
+        // when CreateInstance fails partway - it is filled before the
+        // vkCreateInstance call, so Instance can stay null while the vector
+        // holds the attempted extension list.  Clear it on the early-return
+        // path so GetEnabledExtensions() does not expose stale data.
+        if (Instance == VK_NULL_HANDLE) {
+            EnabledExtensions.clear();
+            return;
+        }
+
         VCKLog::Info("Context", "Shutdown");
 
         // Order matters: surface → debug messenger → instance

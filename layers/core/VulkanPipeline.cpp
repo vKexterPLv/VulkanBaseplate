@@ -56,9 +56,49 @@ namespace VCK {
         // cfg.swapchain.msaaSamples); we simply mirror it here.
         m_Samples = samples;
 
-        if (!CreateRenderPass(swapchainFormat))    return false;
-        if (!CreatePipelineLayout())               return false;
-        if (!CreateGraphicsPipeline(shaders, vertexInput)) return false;
+        // Per-step Info breadcrumbs at the public-API boundary so a reader
+        // scanning the log can tell at a glance which sub-stage was running
+        // when Initialize returned false.  Each sub-function owns its
+        // subsystem-tagged Error on failure (R14: exactly one Error per
+        // failure path) - these Info lines do not log on the failure branch.
+        //
+        // Failure paths roll back already-built sub-state inline AND drop
+        // the device pointer so the object lands in default-construct-
+        // equivalent state - a subsequent Shutdown() then hits the
+        // `if (!m_Device) return;` guard and stays silent (R19), instead
+        // of emitting a misleading 'Pipeline Shut down' line for an
+        // object whose Initialize never finished.  Matches the VulkanDevice
+        // / VulkanCommand / VulkanSync rollback contract.
+        VkDevice rawDevice = m_Device->GetDevice();
+        const auto rollbackToDefault = [&]() {
+            m_Device      = nullptr;
+            m_PipelineCfg = Config{};
+            m_Samples     = VK_SAMPLE_COUNT_1_BIT;
+        };
+
+        VCKLog::Info("Pipeline", "Creating render pass...");
+        if (!CreateRenderPass(swapchainFormat)) {
+            rollbackToDefault();
+            return false;
+        }
+
+        VCKLog::Info("Pipeline", "Creating pipeline layout...");
+        if (!CreatePipelineLayout()) {
+            vkDestroyRenderPass(rawDevice, m_RenderPass, nullptr);
+            m_RenderPass = VK_NULL_HANDLE;
+            rollbackToDefault();
+            return false;
+        }
+
+        VCKLog::Info("Pipeline", "Creating graphics pipeline...");
+        if (!CreateGraphicsPipeline(shaders, vertexInput)) {
+            vkDestroyPipelineLayout(rawDevice, m_PipelineLayout, nullptr);
+            vkDestroyRenderPass    (rawDevice, m_RenderPass,     nullptr);
+            m_PipelineLayout = VK_NULL_HANDLE;
+            m_RenderPass     = VK_NULL_HANDLE;
+            rollbackToDefault();
+            return false;
+        }
 
         VCKLog::Info("Pipeline", "Initialized");
         return true;
@@ -153,7 +193,13 @@ namespace VCK {
         renderPassInfo.dependencyCount = 1;
         renderPassInfo.pDependencies = &dependency;
 
-        return VK_CHECK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass));
+        if (!VK_OK(vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr, &m_RenderPass)))
+        {
+            VCKLog::Error("Pipeline",
+                std::string("vkCreateRenderPass failed (") + (useMsaa ? "MSAA" : "single-sample") + ")");
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +219,14 @@ namespace VCK {
                                           ? nullptr
                                           : m_PipelineCfg.pushConstantRanges.data();
 
-        return VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout));
+        if (!VK_OK(vkCreatePipelineLayout(m_Device->GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout)))
+        {
+            VCKLog::Error("Pipeline",
+                "vkCreatePipelineLayout failed (setLayouts=" + std::to_string(layoutInfo.setLayoutCount)
+                + ", pushRanges=" + std::to_string(layoutInfo.pushConstantRangeCount) + ")");
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -184,8 +237,12 @@ namespace VCK {
         createInfo.codeSize = spirv.size() * sizeof(uint32_t);
         createInfo.pCode = spirv.data();
 
+        // Silent helper: the caller (CreateGraphicsPipeline) emits the
+        // single subsystem-tagged Error covering both modules so that
+        // failing both shader stages produces exactly one Error for the
+        // user's logical failure (R14), not three.
         VkShaderModule shaderModule = VK_NULL_HANDLE;
-        if (!VK_CHECK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
+        if (!VK_OK(vkCreateShaderModule(m_Device->GetDevice(), &createInfo, nullptr, &shaderModule)))
             return VK_NULL_HANDLE;
 
         return shaderModule;
@@ -203,6 +260,15 @@ namespace VCK {
 
         if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE)
         {
+            const bool vertMissing = (vertModule == VK_NULL_HANDLE);
+            const bool fragMissing = (fragModule == VK_NULL_HANDLE);
+            const char* which =
+                (vertMissing && fragMissing) ? "vertex+fragment" :
+                vertMissing                  ? "vertex" :
+                                               "fragment";
+            VCKLog::Error("Pipeline",
+                std::string("graphics pipeline aborted: ")
+                + which + " shader module(s) unavailable");
             if (vertModule) vkDestroyShaderModule(m_Device->GetDevice(), vertModule, nullptr);
             if (fragModule) vkDestroyShaderModule(m_Device->GetDevice(), fragModule, nullptr);
             return false;
@@ -321,7 +387,7 @@ namespace VCK {
         pipelineInfo.subpass = 0;
         pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
-        bool success = VK_CHECK(vkCreateGraphicsPipelines(
+        bool success = VK_OK(vkCreateGraphicsPipelines(
             m_Device->GetDevice(),
             VK_NULL_HANDLE,   // no pipeline cache yet
             1, &pipelineInfo,
@@ -331,6 +397,9 @@ namespace VCK {
         // Shader modules are no longer needed after pipeline creation.
         vkDestroyShaderModule(m_Device->GetDevice(), vertModule, nullptr);
         vkDestroyShaderModule(m_Device->GetDevice(), fragModule, nullptr);
+
+        if (!success)
+            VCKLog::Error("Pipeline", "vkCreateGraphicsPipelines failed");
 
         return success;
     }

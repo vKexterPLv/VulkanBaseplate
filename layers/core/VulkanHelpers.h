@@ -301,6 +301,24 @@ inline void LogVk(const char* tag, const std::string& message) {
           return true;                                                            \
       }())
 
+// -----------------------------------------------------------------------------
+//  VK_OK(expr)
+//
+//  Silent variant of VK_CHECK.  Returns bool, does NOT log on failure.  Use
+//  when the caller emits its own subsystem-tagged VCKLog::Error with richer
+//  context than the generic "VK_CHECK" line - rule 14 says exactly one Error
+//  per failure, so calling VK_CHECK *and* logging a subsystem Error would
+//  double-log.  Pair with a VCKLog::Error("Subsystem", ...) on the failure
+//  branch.
+//
+//  Usage:
+//    if (!VK_OK(vkCreateFoo(...))) {
+//        VCKLog::Error("Subsystem", "vkCreateFoo failed (...rich context...)");
+//        return false;
+//    }
+// -----------------------------------------------------------------------------
+#define VK_OK(expr) ((expr) == VK_SUCCESS)
+
 
 // -----------------------------------------------------------------------------
 //  VCK::Config  -  master init-chain configuration

@@ -114,8 +114,9 @@ namespace VCK {
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
-        if (!VK_CHECK(vkCreateImageView(device.GetDevice(), &viewInfo, nullptr, &m_ImageView)))
+        if (!VK_OK(vkCreateImageView(device.GetDevice(), &viewInfo, nullptr, &m_ImageView)))
         {
+            VCKLog::Error("Image", "vkCreateImageView failed - rolling back image allocation");
             vmaDestroyImage(device.GetAllocator(), m_Image, m_Allocation);
             m_Image = VK_NULL_HANDLE;
             m_Allocation = VK_NULL_HANDLE;
