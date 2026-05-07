@@ -1638,12 +1638,24 @@ Mesh Line(const Vec3& a, const Vec3& b)
 // =============================================================================
 namespace
 {
-    bool ReadSpirvFile(const std::string& path, std::vector<uint32_t>& out)
+    // The caller passes its subsystem tag ("ShaderLoader" /
+    // "ShaderWatcher") so an I/O failure inside this helper is logged
+    // under the caller's tag, not always under "ShaderLoader".  Pre-A5
+    // a ShaderWatcher::Reload that hit a missing/corrupt SPIR-V file
+    // produced one Error tagged "ShaderLoader" (from this helper) and
+    // one Error tagged "ShaderWatcher" (from Reload), which is a
+    // double-log per R14 *and* sends the user looking in the wrong
+    // subsystem.  Now this helper owns the single subsystem-tagged
+    // Error per failure path; ShaderWatcher::Reload demotes its
+    // wrapping log to a high-level Notice.
+    bool ReadSpirvFile(const char*           subsystemTag,
+                       const std::string&    path,
+                       std::vector<uint32_t>& out)
     {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
-            VCKLog::Error("ShaderLoader",
+            VCKLog::Error(subsystemTag,
                 std::string("failed to open SPIR-V file: ") + path);
             return false;
         }
@@ -1651,7 +1663,7 @@ namespace
         const std::streamsize bytes = file.tellg();
         if (bytes <= 0 || (bytes % 4) != 0)
         {
-            VCKLog::Error("ShaderLoader",
+            VCKLog::Error(subsystemTag,
                 std::string("invalid SPIR-V byte count (") +
                 std::to_string(static_cast<long long>(bytes)) + ") for " + path);
             return false;
@@ -1662,7 +1674,7 @@ namespace
         file.read(reinterpret_cast<char*>(out.data()), bytes);
         if (!file)
         {
-            VCKLog::Error("ShaderLoader",
+            VCKLog::Error(subsystemTag,
                 std::string("failed to read SPIR-V file: ") + path);
             out.clear();
             return false;
@@ -1696,7 +1708,7 @@ bool ShaderLoader::LoadFromFile(const std::string& path, VkShaderStageFlagBits s
     }
 
     std::vector<uint32_t> bytes;
-    if (!ReadSpirvFile(path, bytes))
+    if (!ReadSpirvFile("ShaderLoader", path, bytes))
         return false;
 
     *dst = std::move(bytes);
@@ -1764,7 +1776,7 @@ bool ShaderLoader::LoadFromGLSL(const std::string& glslPath, VkShaderStageFlagBi
     }
 
     std::vector<uint32_t> bytes;
-    const bool ok = ReadSpirvFile(spvPath.string(), bytes);
+    const bool ok = ReadSpirvFile("ShaderLoader", spvPath.string(), bytes);
     {
         std::error_code ec;
         fs::remove(spvPath, ec);
@@ -1860,10 +1872,15 @@ bool ShaderWatcher::Reload()
     for (WatchedFile& w : m_Files)
     {
         std::vector<uint32_t> bytes;
-        if (!ReadSpirvFile(w.path, bytes))
+        if (!ReadSpirvFile("ShaderWatcher", w.path, bytes))
         {
-            VCKLog::Error("ShaderWatcher",
-                std::string("Reload: failed to read ") + w.path);
+            // R14: ReadSpirvFile already emitted the single subsystem-tagged
+            // Error under "ShaderWatcher" (post-A5).  Pre-A5 this branch
+            // emitted a second Error so we double-logged across two tags;
+            // demote to Notice to keep the high-level context without
+            // counting twice.
+            VCKLog::Notice("ShaderWatcher",
+                std::string("Reload aborted: failed to read ") + w.path);
             return false;
         }
         w.spirv = std::move(bytes);
@@ -2048,20 +2065,30 @@ namespace
     {
         // Vulkan requires push constants to be identical across stages.
         // Take the first non-empty Push() block and warn on conflicts.
+        //
+        // Limitation: this only detects size mismatches.  When two stages
+        // declare push blocks of the same total size but different slot
+        // layouts (e.g. mat4 'M' vs four vec4 slots 'a/b/c/d') the merge
+        // silently uses the first declaration's bytes - PushConstants'
+        // internal slot table is private, so we cannot inspect per-slot
+        // names / types here.  Detecting layout-divergent same-size
+        // declarations needs a public Slots() accessor on PushConstants
+        // and is tracked as a B-themed surface change.
         const PushConstants* first = nullptr;
         for (const ShaderStage& st : stages)
         {
-            if (st.GetPush().Size() > 0)
+            if (st.GetPush().Size() == 0) continue;
+
+            if (first == nullptr) { first = &st.GetPush(); continue; }
+
+            const uint32_t firstSz = first->Size();
+            const uint32_t stSz    = st.GetPush().Size();
+            if (firstSz != stSz)
             {
-                if (first == nullptr) { first = &st.GetPush(); continue; }
-                if (first->Size() != st.GetPush().Size())
-                {
-                    VCKLog::Warn("ShaderInterface",
-                        std::string("push constant size mismatch across stages (") +
-                        std::to_string(first->Size()) + " vs " +
-                        std::to_string(st.GetPush().Size()) +
-                        ") - using the first declaration");
-                }
+                VCKLog::Warn("ShaderInterface",
+                    std::string("push constant size mismatch across stages (") +
+                    std::to_string(firstSz) + " vs " + std::to_string(stSz) +
+                    ") - using the first declaration");
             }
         }
         return first ? *first : PushConstants{};
