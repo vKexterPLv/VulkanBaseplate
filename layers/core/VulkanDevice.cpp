@@ -388,6 +388,29 @@ namespace VCK {
             //  below; no per-feature Notice here to avoid a duplicate.)
         }
 
+        // Theme S: VK_KHR_synchronization2 feature probe.  Same shape as
+        // the timeline-semaphore path above - probe via Features2, chain
+        // into pNext at vkCreateDevice time when supported, and gate the
+        // hot-path codepath (VMM staging acquire-barrier, VulkanImage
+        // layout transitions, FrameScheduler submit) on the resulting
+        // m_Sync2Enabled flag.  When the cfg knob is off or the device
+        // does not advertise the feature, hot-path code falls back to
+        // vkCmdPipelineBarrier / VkSubmitInfo with no API surface change.
+        bool sync2Requested  = m_CfgDevice.preferSync2;
+        bool sync2Supported  = false;
+        if (sync2Requested)
+        {
+            VkPhysicalDeviceSynchronization2Features probeSync2{};
+            probeSync2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+
+            VkPhysicalDeviceFeatures2 probeF2{};
+            probeF2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            probeF2.pNext = &probeSync2;
+
+            vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probeF2);
+            sync2Supported = probeSync2.synchronization2 == VK_TRUE;
+        }
+
         // Build the merged extension list: required + user-supplied extras.
         std::vector<const char*> enabledExts(std::begin(k_RequiredDeviceExtensions), std::end(k_RequiredDeviceExtensions));
         for (const char* extra : m_CfgDevice.extraDeviceExtensions)
@@ -426,9 +449,12 @@ namespace VCK {
             return true;
         };
 
-#ifdef VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
-        (void)tryBundle(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
-#endif
+        // Theme S: VK_KHR_synchronization2 used to live in the silent bundle.
+        // It is now gated on cfg.device.preferSync2 so the user can pin to the
+        // legacy 1.0 barrier path with one cfg line.  The actual extension
+        // request happens in the cfg-gated block below alongside the feature
+        // chain (so the Notice line is paired with the knob name, not
+        // "bundle").
 #ifdef VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
         (void)tryBundle(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
 #endif
@@ -473,6 +499,18 @@ namespace VCK {
                 "cfg.rendering.mode=Dynamic acknowledged - dynamic rendering codepath ships in v0.4; rendering falls back to Classic (R23)");
         }
 
+        // Theme S: cfg-gated VK_KHR_synchronization2 request.  We only push
+        // the extension when the device probe (above) said the feature is
+        // available; otherwise the gated Notice would be misleading (the
+        // extension would be enabled but the feature struct would not be
+        // chained, so HasSynchronization2() would still report false).
+        if (sync2Requested && sync2Supported)
+        {
+#ifdef VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+            (void)tryGated(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, "cfg.device.preferSync2");
+#endif
+        }
+
         if (m_CfgDevice.enableBindless)
         {
 #ifdef VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
@@ -509,20 +547,38 @@ namespace VCK {
         deviceInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExts.size());
         deviceInfo.ppEnabledExtensionNames = enabledExts.data();
 
-        // Timeline semaphore feature chain.  When enabled, the feature struct
-        // must live in pNext and pEnabledFeatures must be nullptr (use the
-        // VkPhysicalDeviceFeatures2 path instead).  When disabled, keep the
-        // legacy pEnabledFeatures path untouched (stable for existing setups).
+        // Feature chain.  Whenever any feature struct must be enabled at
+        // vkCreateDevice time we route everything through VkPhysicalDevice-
+        // Features2 and leave pEnabledFeatures = nullptr (Vulkan spec
+        // requirement when features2 is in pNext).  When no extra feature
+        // is requested we keep the legacy pEnabledFeatures path untouched
+        // for binary stability with pre-Theme-S setups.
         VkPhysicalDeviceTimelineSemaphoreFeatures tsFeatures{};
+        VkPhysicalDeviceSynchronization2Features  sync2Features{};
         VkPhysicalDeviceFeatures2                 features2{};
-        if (timelineRequested && timelineSupported)
+        const bool useFeatures2 =
+            (timelineRequested && timelineSupported) ||
+            (sync2Requested    && sync2Supported);
+        if (useFeatures2)
         {
-            tsFeatures.sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
-            tsFeatures.timelineSemaphore = VK_TRUE;
-
             features2.sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
             features2.features = deviceFeatures;
-            features2.pNext    = &tsFeatures;
+            void** chainTail   = &features2.pNext;
+
+            if (timelineRequested && timelineSupported)
+            {
+                tsFeatures.sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+                tsFeatures.timelineSemaphore = VK_TRUE;
+                *chainTail = &tsFeatures;
+                chainTail  = &tsFeatures.pNext;
+            }
+            if (sync2Requested && sync2Supported)
+            {
+                sync2Features.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+                sync2Features.synchronization2 = VK_TRUE;
+                *chainTail = &sync2Features;
+                chainTail  = &sync2Features.pNext;
+            }
 
             deviceInfo.pNext            = &features2;
             deviceInfo.pEnabledFeatures = nullptr;  // must be null with features2
@@ -539,6 +595,7 @@ namespace VCK {
         }
 
         m_TimelineSemaphoresEnabled = timelineRequested && timelineSupported;
+        m_Sync2Enabled              = sync2Requested    && sync2Supported;
 
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
         vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndices.PresentFamily.value(),  0, &m_PresentQueue);
@@ -581,6 +638,18 @@ namespace VCK {
             VCKLog::Notice("Device", "feature unavailable: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
         } else {
             VCKLog::Notice("Device", "feature disabled by cfg: VK_KHR_timeline_semaphore - FrameScheduler will use per-slot fences");
+        }
+
+        // Rule 23: Theme S synchronization2 decision announced same shape as
+        // the timeline path - hot-path code (VMM acquire-barrier, image layout
+        // transitions, FrameScheduler submit) gates on HasSynchronization2()
+        // and falls back to vkCmdPipelineBarrier / VkSubmitInfo when off.
+        if (m_Sync2Enabled) {
+            VCKLog::Notice("Device", "feature enabled: VK_KHR_synchronization2 (cfg.device.preferSync2)");
+        } else if (sync2Requested) {
+            VCKLog::Notice("Device", "feature unavailable: VK_KHR_synchronization2 - hot-path uses vkCmdPipelineBarrier / VkSubmitInfo fallback");
+        } else {
+            VCKLog::Notice("Device", "feature disabled by cfg: VK_KHR_synchronization2 - hot-path uses vkCmdPipelineBarrier / VkSubmitInfo fallback");
         }
 
         return true;

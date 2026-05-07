@@ -95,6 +95,15 @@ namespace VCK {
         // check this before creating timeline objects.
         bool               HasTimelineSemaphores() const { return m_TimelineSemaphoresEnabled; }
 
+        // True when VK_KHR_synchronization2 was requested
+        // (Config::DeviceCfg::preferSync2 = true) AND the physical device
+        // reported support AND we actually enabled it on VkDevice.  Hot-path
+        // code (VMM staging acquire-barrier, VulkanImage layout
+        // transitions, FrameScheduler submit) gates on this flag and falls
+        // back to vkCmdPipelineBarrier / VkSubmitInfo when false.  Theme S
+        // (synchronization2 adoption).
+        bool               HasSynchronization2() const { return m_Sync2Enabled; }
+
         // ── Swapchain support query (used by VulkanSwapchain) ────────────────────
         struct SwapchainSupportDetails
         {
@@ -126,6 +135,7 @@ namespace VCK {
         VmaAllocator       m_Allocator = VK_NULL_HANDLE;
         QueueFamilyIndices m_QueueFamilyIndices;
         bool               m_TimelineSemaphoresEnabled = false; // v0.3
+        bool               m_Sync2Enabled              = false; // Theme S
 
         // Snapshot of cfg.device (preferDiscreteGpu / extra exts / queue pref).
         Config::DeviceCfg     m_CfgDevice;
