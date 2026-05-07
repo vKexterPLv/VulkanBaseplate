@@ -53,20 +53,32 @@ bool VulkanOneTimeCommand::Begin(VulkanDevice& device, VulkanCommand& command)
     ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
 
-    if (!VK_CHECK(vkAllocateCommandBuffers(device.GetDevice(), &ai, &m_Cmd)))
+    if (!VK_OK(vkAllocateCommandBuffers(device.GetDevice(), &ai, &m_Cmd)))
+    {
+        // R14: subsystem-tagged Error so caller-side log filtering on
+        // 'OneTime' actually surfaces the failure.  Pre-A3 the only Error
+        // was VK_CHECK's generic 'VK_CHECK' line which is invisible to
+        // anyone grepping the OneTime tag.
+        VCKLog::Error("OneTime", "vkAllocateCommandBuffers failed");
+        m_Device = nullptr;
+        m_Pool   = VK_NULL_HANDLE;
         return false;
+    }
 
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    if (!VK_CHECK(vkBeginCommandBuffer(m_Cmd, &bi)))
+    if (!VK_OK(vkBeginCommandBuffer(m_Cmd, &bi)))
     {
         // Free the cmd we just allocated; if we leave m_Cmd set the caller
         // can't tell Begin failed and a later End() would try to End/Submit
         // a cmd that was never begun (VUID violation) or just leak it.
+        VCKLog::Error("OneTime", "vkBeginCommandBuffer failed");
         vkFreeCommandBuffers(device.GetDevice(), m_Pool, 1, &m_Cmd);
-        m_Cmd = VK_NULL_HANDLE;
+        m_Cmd    = VK_NULL_HANDLE;
+        m_Device = nullptr;
+        m_Pool   = VK_NULL_HANDLE;
         return false;
     }
     return true;
@@ -76,11 +88,12 @@ void VulkanOneTimeCommand::End()
 {
     if (!m_Cmd) return;
 
-    if (!VK_CHECK(vkEndCommandBuffer(m_Cmd)))
+    if (!VK_OK(vkEndCommandBuffer(m_Cmd)))
     {
         // Same reasoning as VMM::SubmitStagingCmd: a malformed cmd buffer
         // must not reach vkQueueSubmit (VUID violation).  Skip the submit,
         // free the cmd, fall through to the cleanup at the bottom.
+        VCKLog::Error("OneTime", "vkEndCommandBuffer failed; submit skipped");
         vkFreeCommandBuffers(m_Device->GetDevice(), m_Pool, 1, &m_Cmd);
         m_Cmd = VK_NULL_HANDLE;
         return;
@@ -225,8 +238,23 @@ bool VulkanFramebufferSet::CreateAll(VkRenderPass renderPass, VkImageView depthV
         fi.height          = extent.height;
         fi.layers          = 1;
 
-        if (!VK_CHECK(vkCreateFramebuffer(m_Device->GetDevice(), &fi, nullptr, &m_Framebuffers[i])))
+        if (!VK_OK(vkCreateFramebuffer(m_Device->GetDevice(), &fi, nullptr, &m_Framebuffers[i])))
+        {
+            // R14 + partial-init rollback (matches the A1 / A2 contract):
+            // log the per-image failure, destroy the framebuffers we did
+            // build [0, i) so the caller is not forced to call Shutdown()
+            // after a failed Initialize, and leave m_Framebuffers empty so
+            // a subsequent Shutdown() is silent.
+            VCKLog::Error("FramebufferSet",
+                "vkCreateFramebuffer failed for swapchain image " + std::to_string(i));
+            for (size_t k = 0; k < i; ++k)
+            {
+                if (m_Framebuffers[k] != VK_NULL_HANDLE)
+                    vkDestroyFramebuffer(m_Device->GetDevice(), m_Framebuffers[k], nullptr);
+            }
+            m_Framebuffers.clear();
             return false;
+        }
     }
     return true;
 }
@@ -794,9 +822,25 @@ bool VulkanModelPipeline::Initialize(VulkanDevice&                          devi
 {
     m_Device = &device;
 
-    if (!BuildDescriptorLayouts())                                           return false;
-    if (!BuildPipelineLayout())                                              return false;
-    if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput, samples))   return false;
+    // Inline rollback (matches the A1 contract on VulkanPipeline /
+    // VulkanDevice / VulkanCommand / VulkanSync) so a failed Initialize
+    // leaves the model pipeline in default-construct-equivalent state -
+    // a subsequent Shutdown() then hits 'if (!m_Device) return;' and
+    // stays silent (R19) instead of emitting a misleading
+    // 'ModelPipeline Shut down' line.  Each Build* sub-function owns
+    // its subsystem-tagged Error on failure (R14: exactly one Error per
+    // failure path).
+    VkDevice rawDevice = m_Device->GetDevice();
+    const auto rollbackToDefault = [&]() {
+        if (m_PipelineLayout) { vkDestroyPipelineLayout(rawDevice,      m_PipelineLayout, nullptr); m_PipelineLayout = VK_NULL_HANDLE; }
+        if (m_Set1Layout)     { vkDestroyDescriptorSetLayout(rawDevice, m_Set1Layout,     nullptr); m_Set1Layout     = VK_NULL_HANDLE; }
+        if (m_Set0Layout)     { vkDestroyDescriptorSetLayout(rawDevice, m_Set0Layout,     nullptr); m_Set0Layout     = VK_NULL_HANDLE; }
+        m_Device = nullptr;
+    };
+
+    if (!BuildDescriptorLayouts())                                          { rollbackToDefault(); return false; }
+    if (!BuildPipelineLayout())                                             { rollbackToDefault(); return false; }
+    if (!BuildGraphicsPipeline(renderPass, shaders, vertexInput, samples))  { rollbackToDefault(); return false; }
 
     VCKLog::Info("ModelPipeline", "Initialized");
     return true;
@@ -828,14 +872,28 @@ bool VulkanModelPipeline::BuildDescriptorLayouts()
                 VK_SHADER_STAGE_VERTEX_BIT)
         .Build(*m_Device);
 
-    if (m_Set0Layout == VK_NULL_HANDLE) return false;
+    if (m_Set0Layout == VK_NULL_HANDLE)
+    {
+        VCKLog::Error("ModelPipeline", "BuildDescriptorLayouts: set 0 (UBO) layout build failed");
+        return false;
+    }
 
     m_Set1Layout = VulkanDescriptorLayoutBuilder{}
         .Add(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build(*m_Device);
 
-    return m_Set1Layout != VK_NULL_HANDLE;
+    if (m_Set1Layout == VK_NULL_HANDLE)
+    {
+        VCKLog::Error("ModelPipeline", "BuildDescriptorLayouts: set 1 (sampler) layout build failed");
+        // Caller-side rollback in Initialize() will tear down m_Set0Layout;
+        // tear it down here too so this function is safe to call in
+        // isolation (e.g. from a future Recreate path) without leaking.
+        vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_Set0Layout, nullptr);
+        m_Set0Layout = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -858,7 +916,12 @@ bool VulkanModelPipeline::BuildPipelineLayout()
     ci.pushConstantRangeCount = 1;
     ci.pPushConstantRanges    = &pcRange;
 
-    return VK_CHECK(vkCreatePipelineLayout(m_Device->GetDevice(), &ci, nullptr, &m_PipelineLayout));
+    if (!VK_OK(vkCreatePipelineLayout(m_Device->GetDevice(), &ci, nullptr, &m_PipelineLayout)))
+    {
+        VCKLog::Error("ModelPipeline", "vkCreatePipelineLayout failed");
+        return false;
+    }
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
