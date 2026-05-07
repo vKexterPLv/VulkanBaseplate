@@ -104,6 +104,23 @@ namespace VCK {
         // (synchronization2 adoption).
         bool               HasSynchronization2() const { return m_Sync2Enabled; }
 
+        // True when cfg.rendering.mode == Dynamic AND the physical device
+        // advertised VkPhysicalDeviceDynamicRenderingFeatures::dynamicRendering
+        // (or 1.3 core) AND we successfully enabled it on VkDevice.  Theme E
+        // (E1: dynamic rendering codepath in VulkanPipeline gates on this).
+        // When false the pipeline falls back to the Classic VkRenderPass +
+        // VkFramebuffer path, which keeps the legacy contract for callers
+        // running on devices that do not advertise the feature.
+        bool               HasDynamicRendering() const { return m_DynamicRenderingEnabled; }
+
+        // Snapshot accessor - returns the user's selected RenderingMode
+        // captured at Initialize() time.  Pipeline / Frame helpers read
+        // this to choose the Classic vs Dynamic codepath.  When Dynamic is
+        // selected but HasDynamicRendering() is false (extension or
+        // feature unavailable) the pipeline transparently falls back to
+        // Classic and the device init log emits the R23 fallback Notice.
+        RenderingMode      GetRenderingMode() const { return m_CfgRendering.mode; }
+
         // ── Swapchain support query (used by VulkanSwapchain) ────────────────────
         struct SwapchainSupportDetails
         {
@@ -136,6 +153,7 @@ namespace VCK {
         QueueFamilyIndices m_QueueFamilyIndices;
         bool               m_TimelineSemaphoresEnabled = false; // v0.3
         bool               m_Sync2Enabled              = false; // Theme S
+        bool               m_DynamicRenderingEnabled   = false; // Theme E (E1)
 
         // Snapshot of cfg.device (preferDiscreteGpu / extra exts / queue pref).
         Config::DeviceCfg     m_CfgDevice;

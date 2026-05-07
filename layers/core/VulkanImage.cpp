@@ -235,6 +235,41 @@ namespace VCK {
             destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         }
 
+        // Theme S - prefer vkCmdPipelineBarrier2 / VkImageMemoryBarrier2 when
+        // VK_KHR_synchronization2 is enabled on the device.  The bit values
+        // we use here (TOP_OF_PIPE / TRANSFER / FRAGMENT_SHADER / COLOR_OUT /
+        // EARLY_FRAGMENT_TESTS / BOTTOM_OF_PIPE / ALL_COMMANDS for stages,
+        // SHADER_READ / TRANSFER_WRITE / COLOR_ATTACHMENT_WRITE /
+        // DEPTH_STENCIL_ATTACHMENT_*  / MEMORY_READ / MEMORY_WRITE for
+        // access) are bit-identical between the 32-bit and 64-bit flag
+        // types per the Vulkan spec, so a widening cast preserves the
+        // exact mapping above.  The legacy 1.0 path is retained for users
+        // that pin cfg.device.preferSync2 = false or run on devices that
+        // do not advertise the feature.
+        if (m_Device != nullptr && m_Device->HasSynchronization2())
+        {
+            VkImageMemoryBarrier2 barrier2{};
+            barrier2.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier2.srcStageMask        = static_cast<VkPipelineStageFlags2>(sourceStage);
+            barrier2.srcAccessMask       = static_cast<VkAccessFlags2>(barrier.srcAccessMask);
+            barrier2.dstStageMask        = static_cast<VkPipelineStageFlags2>(destinationStage);
+            barrier2.dstAccessMask       = static_cast<VkAccessFlags2>(barrier.dstAccessMask);
+            barrier2.oldLayout           = oldLayout;
+            barrier2.newLayout           = newLayout;
+            barrier2.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier2.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier2.image               = m_Image;
+            barrier2.subresourceRange    = barrier.subresourceRange;
+
+            VkDependencyInfo dep{};
+            dep.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount  = 1;
+            dep.pImageMemoryBarriers     = &barrier2;
+
+            vkCmdPipelineBarrier2(cmd, &dep);
+            return;
+        }
+
         vkCmdPipelineBarrier(
             cmd,
             sourceStage, destinationStage,

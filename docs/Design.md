@@ -87,6 +87,21 @@ clear lifetime tag (VMM) or is owned by a class that does.
 8. **EXPLICIT SYNCHRONIZATION MODEL**
 - Only fences / semaphores / timeline tokens define ordering.
 - No implicit ordering between commands, queues, or systems.
+- Pipeline barriers default to the `VK_KHR_synchronization2` /
+  Vulkan 1.3 core path (`vkCmdPipelineBarrier2`,
+  `VkImageMemoryBarrier2`, `VkBufferMemoryBarrier2`) when the device
+  advertises the feature.  The legacy 1.0 path
+  (`vkCmdPipelineBarrier`, `VkImageMemoryBarrier`,
+  `VkBufferMemoryBarrier`) remains available verbatim and is selected
+  automatically when the device does not advertise sync2 or when the
+  user pins `cfg.device.preferSync2 = false`.  Either path is observable
+  via the R23 Notice line at device init
+  (`feature enabled: VK_KHR_synchronization2 (cfg.device.preferSync2)` /
+  `feature unavailable: VK_KHR_synchronization2 - hot-path uses
+  vkCmdPipelineBarrier / VkSubmitInfo fallback`).  Theme S touchpoints:
+  `VulkanImage::RecordLayoutTransition`, `VMM::StageToBuffer` /
+  `StageToImage` / `SubmitStagingCmd` (queue-ownership release / acquire
+  half).
 
 9. **ESCAPE HATCH ALWAYS EXISTS**
 - Any abstraction must allow bypass:
