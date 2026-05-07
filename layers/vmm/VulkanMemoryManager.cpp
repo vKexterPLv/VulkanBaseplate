@@ -588,18 +588,45 @@ bool VulkanMemoryManager::StageToBuffer(VmmBuffer&   dst,
     // in SubmitStagingCmd after the transfer fence retires.  Spec §7.7.4.
     if (FamiliesDiffer())
     {
-        VkBufferMemoryBarrier release{};
-        release.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        release.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        release.dstAccessMask       = 0;                           // release half
-        release.srcQueueFamilyIndex = m_TransferFamily;
-        release.dstQueueFamilyIndex = m_GraphicsFamily;
-        release.buffer              = dst.buffer;
-        release.offset              = dstOffset;
-        release.size                = size;
-        vkCmdPipelineBarrier(m_StagingCmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            0, 0, nullptr, 1, &release, 0, nullptr);
+        // Theme S - prefer VkBufferMemoryBarrier2 + vkCmdPipelineBarrier2
+        // when the device has VK_KHR_synchronization2 enabled.  The legacy
+        // 1.0 path stays in place for users that pin
+        // cfg.device.preferSync2 = false.
+        if (m_Device->HasSynchronization2())
+        {
+            VkBufferMemoryBarrier2 release2{};
+            release2.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            release2.srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            release2.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            release2.dstStageMask        = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+            release2.dstAccessMask       = 0;                           // release half
+            release2.srcQueueFamilyIndex = m_TransferFamily;
+            release2.dstQueueFamilyIndex = m_GraphicsFamily;
+            release2.buffer              = dst.buffer;
+            release2.offset              = dstOffset;
+            release2.size                = size;
+
+            VkDependencyInfo dep{};
+            dep.sType                     = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.bufferMemoryBarrierCount  = 1;
+            dep.pBufferMemoryBarriers     = &release2;
+            vkCmdPipelineBarrier2(m_StagingCmd, &dep);
+        }
+        else
+        {
+            VkBufferMemoryBarrier release{};
+            release.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            release.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+            release.dstAccessMask       = 0;                           // release half
+            release.srcQueueFamilyIndex = m_TransferFamily;
+            release.dstQueueFamilyIndex = m_GraphicsFamily;
+            release.buffer              = dst.buffer;
+            release.offset              = dstOffset;
+            release.size                = size;
+            vkCmdPipelineBarrier(m_StagingCmd,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0, 0, nullptr, 1, &release, 0, nullptr);
+        }
 
         m_PendingAcquireBuffers.push_back({ dst.buffer, size, dstOffset });
     }
@@ -641,9 +668,33 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
     toTransfer.subresourceRange.layerCount     = 1;
     toTransfer.srcAccessMask                   = 0;
     toTransfer.dstAccessMask                   = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(m_StagingCmd,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+    if (m_Device->HasSynchronization2())
+    {
+        VkImageMemoryBarrier2 b2{};
+        b2.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b2.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b2.srcAccessMask       = 0;
+        b2.dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        b2.dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        b2.oldLayout           = toTransfer.oldLayout;
+        b2.newLayout           = toTransfer.newLayout;
+        b2.srcQueueFamilyIndex = toTransfer.srcQueueFamilyIndex;
+        b2.dstQueueFamilyIndex = toTransfer.dstQueueFamilyIndex;
+        b2.image               = toTransfer.image;
+        b2.subresourceRange    = toTransfer.subresourceRange;
+
+        VkDependencyInfo dep{};
+        dep.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount  = 1;
+        dep.pImageMemoryBarriers     = &b2;
+        vkCmdPipelineBarrier2(m_StagingCmd, &dep);
+    }
+    else
+    {
+        vkCmdPipelineBarrier(m_StagingCmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+    }
 
     // Copy buffer → image level 0
     VkBufferImageCopy region{};
@@ -673,18 +724,66 @@ bool VulkanMemoryManager::StageToImage(VmmImage&    dst,
         toShader.dstAccessMask         = 0;
         toShader.srcQueueFamilyIndex   = m_TransferFamily;
         toShader.dstQueueFamilyIndex   = m_GraphicsFamily;
-        vkCmdPipelineBarrier(m_StagingCmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &toShader);
+        if (m_Device->HasSynchronization2())
+        {
+            VkImageMemoryBarrier2 b2{};
+            b2.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            b2.srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            b2.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            b2.dstStageMask        = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+            b2.dstAccessMask       = 0;
+            b2.oldLayout           = toShader.oldLayout;
+            b2.newLayout           = toShader.newLayout;
+            b2.srcQueueFamilyIndex = toShader.srcQueueFamilyIndex;
+            b2.dstQueueFamilyIndex = toShader.dstQueueFamilyIndex;
+            b2.image               = toShader.image;
+            b2.subresourceRange    = toShader.subresourceRange;
+
+            VkDependencyInfo dep{};
+            dep.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount  = 1;
+            dep.pImageMemoryBarriers     = &b2;
+            vkCmdPipelineBarrier2(m_StagingCmd, &dep);
+        }
+        else
+        {
+            vkCmdPipelineBarrier(m_StagingCmd,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &toShader);
+        }
 
         m_PendingAcquireImages.push_back({ dst.image, dst.mipLevels });
     }
     else
     {
         toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(m_StagingCmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &toShader);
+        if (m_Device->HasSynchronization2())
+        {
+            VkImageMemoryBarrier2 b2{};
+            b2.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            b2.srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            b2.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            b2.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            b2.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            b2.oldLayout           = toShader.oldLayout;
+            b2.newLayout           = toShader.newLayout;
+            b2.srcQueueFamilyIndex = toShader.srcQueueFamilyIndex;
+            b2.dstQueueFamilyIndex = toShader.dstQueueFamilyIndex;
+            b2.image               = toShader.image;
+            b2.subresourceRange    = toShader.subresourceRange;
+
+            VkDependencyInfo dep{};
+            dep.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount  = 1;
+            dep.pImageMemoryBarriers     = &b2;
+            vkCmdPipelineBarrier2(m_StagingCmd, &dep);
+        }
+        else
+        {
+            vkCmdPipelineBarrier(m_StagingCmd,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &toShader);
+        }
     }
 
     return true;
@@ -1054,13 +1153,71 @@ void VulkanMemoryManager::SubmitStagingCmd()
             ibs.push_back(b);
         }
 
-        vkCmdPipelineBarrier(acquireCmd,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0, nullptr,
-            static_cast<uint32_t>(bbs.size()), bbs.empty() ? nullptr : bbs.data(),
-            static_cast<uint32_t>(ibs.size()), ibs.empty() ? nullptr : ibs.data());
+        // Theme S - emit the acquire barrier through vkCmdPipelineBarrier2
+        // when sync2 is enabled.  Build sync2 mirrors of bbs/ibs so the
+        // queue-ownership-acquire layout transition + access becomes
+        // explicitly per-stage instead of being widened to TOP_OF_PIPE.
+        if (m_Device->HasSynchronization2())
+        {
+            std::vector<VkBufferMemoryBarrier2> bbs2;
+            bbs2.reserve(bbs.size());
+            for (const auto& b : bbs)
+            {
+                VkBufferMemoryBarrier2 b2{};
+                b2.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                b2.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                b2.srcAccessMask       = 0;
+                b2.dstStageMask        = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT |
+                                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                b2.dstAccessMask       = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
+                                         VK_ACCESS_2_INDEX_READ_BIT            |
+                                         VK_ACCESS_2_UNIFORM_READ_BIT          |
+                                         VK_ACCESS_2_SHADER_READ_BIT;
+                b2.srcQueueFamilyIndex = b.srcQueueFamilyIndex;
+                b2.dstQueueFamilyIndex = b.dstQueueFamilyIndex;
+                b2.buffer              = b.buffer;
+                b2.offset              = b.offset;
+                b2.size                = b.size;
+                bbs2.push_back(b2);
+            }
+
+            std::vector<VkImageMemoryBarrier2> ibs2;
+            ibs2.reserve(ibs.size());
+            for (const auto& b : ibs)
+            {
+                VkImageMemoryBarrier2 b2{};
+                b2.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                b2.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                b2.srcAccessMask       = 0;
+                b2.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                b2.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+                b2.oldLayout           = b.oldLayout;
+                b2.newLayout           = b.newLayout;
+                b2.srcQueueFamilyIndex = b.srcQueueFamilyIndex;
+                b2.dstQueueFamilyIndex = b.dstQueueFamilyIndex;
+                b2.image               = b.image;
+                b2.subresourceRange    = b.subresourceRange;
+                ibs2.push_back(b2);
+            }
+
+            VkDependencyInfo dep{};
+            dep.sType                     = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.bufferMemoryBarrierCount  = static_cast<uint32_t>(bbs2.size());
+            dep.pBufferMemoryBarriers     = bbs2.empty() ? nullptr : bbs2.data();
+            dep.imageMemoryBarrierCount   = static_cast<uint32_t>(ibs2.size());
+            dep.pImageMemoryBarriers      = ibs2.empty() ? nullptr : ibs2.data();
+            vkCmdPipelineBarrier2(acquireCmd, &dep);
+        }
+        else
+        {
+            vkCmdPipelineBarrier(acquireCmd,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0, nullptr,
+                static_cast<uint32_t>(bbs.size()), bbs.empty() ? nullptr : bbs.data(),
+                static_cast<uint32_t>(ibs.size()), ibs.empty() ? nullptr : ibs.data());
+        }
 
         if (!VK_OK(vkEndCommandBuffer(acquireCmd)))
         {
