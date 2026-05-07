@@ -635,6 +635,20 @@ struct Config
         // to true on a device that does not advertise the extension produces
         // a single Notice and falls through with no behavioural change.
         bool                       enableBindless               = false;
+
+        // R24 cfg knob: prefer the VK_KHR_synchronization2 / Vulkan 1.3
+        // core path for pipeline barriers and queue submits.  When true
+        // (default) and the device advertises the feature, VCK enables
+        // VK_KHR_synchronization2, chains
+        // VkPhysicalDeviceSynchronization2Features into vkCreateDevice,
+        // and HasSynchronization2() returns true.  Hot-path code (VMM
+        // staging acquire-barrier, VulkanImage layout transitions,
+        // FrameScheduler submit) gates on that flag and falls back to
+        // vkCmdPipelineBarrier / VkSubmitInfo when off / unavailable.
+        // The user-facing API does not change either way - this is an
+        // internal modernisation knob, kept opt-out so a user with a
+        // strange driver can pin to the legacy path with one cfg line.
+        bool                       preferSync2                  = true;
     } device;
 
     // R24 cfg knob: rendering pipeline shape.  Classic = VkRenderPass +
