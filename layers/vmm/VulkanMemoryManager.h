@@ -367,15 +367,18 @@ public:
 private:
     // ── Internal staging ring state ───────────────────────────────────────────
     //
-    //  Current model: SubmitStagingCmd() ends with vkQueueWaitIdle(), which
-    //  means that by the time SubmitStagingCmd() returns, ALL uploads recorded
-    //  into the staging command are finished on the GPU.  EndFrame() and
-    //  FlushStaging() therefore fully reset writeHead/inFlight right after
-    //  submit - the ring is trivially drained every frame.
+    //  Current model: SubmitStagingCmd() submits the staging command with a
+    //  per-submit VkFence and waits on that fence before returning.  By the
+    //  time SubmitStagingCmd() returns, every upload recorded into the
+    //  staging command has retired on the GPU.  EndFrame() and FlushStaging()
+    //  therefore fully reset writeHead/inFlight right after submit - the ring
+    //  is trivially drained every frame.  Unlike vkQueueWaitIdle this does
+    //  not stall the rest of the queue (rule 4); on a device with a
+    //  dedicated transfer queue the graphics queue stays untouched.
     //
     //  frameTails[] is retained as diagnostic / forward-compat metadata for a
-    //  future non-blocking staging model (fence-per-frame), but is not
-    //  currently used for reclamation.
+    //  future non-blocking staging model (fence-per-frame in flight), but is
+    //  not currently used for reclamation.
     struct StagingRing
     {
         VmmBuffer  buffer;         // the ring buffer itself
@@ -407,7 +410,7 @@ private:
 
     // ── Internal staging command recording ───────────────────────────────────
     bool EnsureStagingCmd();     // opens m_StagingCmd if not already open
-    void SubmitStagingCmd();     // ends + submits + waits, resets cmd
+    void SubmitStagingCmd();     // ends + submits + waits on per-submit fence, resets cmd
 
     // ── State ─────────────────────────────────────────────────────────────────
     VulkanDevice*  m_Device  = nullptr;
