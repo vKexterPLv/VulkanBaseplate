@@ -53,10 +53,16 @@ namespace VCK {
         {
             VCKLog::Error("Command",
                 "vkAllocateCommandBuffers failed (" + std::to_string(m_FramesInFlight) + " buffers)");
-            // Proactive cleanup: release the pool we created above so callers
-            // don't have to know to call Shutdown() on partial-init failure.
+            // Roll back to default-construct-equivalent state: destroy the
+            // pool, null its handle, drop the device pointer, and clear the
+            // frame count.  A subsequent Shutdown() then hits the
+            // `if (!m_Device) return;` guard and stays silent (R19) instead
+            // of emitting a misleading 'Command Shut down' Info line for an
+            // object whose Initialize never finished.
             vkDestroyCommandPool(device.GetDevice(), m_CommandPool, nullptr);
-            m_CommandPool = VK_NULL_HANDLE;
+            m_CommandPool    = VK_NULL_HANDLE;
+            m_Device         = nullptr;
+            m_FramesInFlight = 0;
             return false;
         }
 

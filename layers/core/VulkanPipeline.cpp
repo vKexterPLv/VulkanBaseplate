@@ -61,26 +61,42 @@ namespace VCK {
         // when Initialize returned false.  Each sub-function owns its
         // subsystem-tagged Error on failure (R14: exactly one Error per
         // failure path) - these Info lines do not log on the failure branch.
-        // Failure paths roll back already-built sub-state inline so the
-        // caller does not have to know to call Shutdown() after a failed
-        // Initialize() (matches the VulkanDevice / VulkanCommand /
-        // VulkanSync rollback contract).
+        //
+        // Failure paths roll back already-built sub-state inline AND drop
+        // the device pointer so the object lands in default-construct-
+        // equivalent state - a subsequent Shutdown() then hits the
+        // `if (!m_Device) return;` guard and stays silent (R19), instead
+        // of emitting a misleading 'Pipeline Shut down' line for an
+        // object whose Initialize never finished.  Matches the VulkanDevice
+        // / VulkanCommand / VulkanSync rollback contract.
+        VkDevice rawDevice = m_Device->GetDevice();
+        const auto rollbackToDefault = [&]() {
+            m_Device      = nullptr;
+            m_PipelineCfg = Config{};
+            m_Samples     = VK_SAMPLE_COUNT_1_BIT;
+        };
+
         VCKLog::Info("Pipeline", "Creating render pass...");
-        if (!CreateRenderPass(swapchainFormat))             return false;
+        if (!CreateRenderPass(swapchainFormat)) {
+            rollbackToDefault();
+            return false;
+        }
 
         VCKLog::Info("Pipeline", "Creating pipeline layout...");
         if (!CreatePipelineLayout()) {
-            vkDestroyRenderPass(m_Device->GetDevice(), m_RenderPass, nullptr);
+            vkDestroyRenderPass(rawDevice, m_RenderPass, nullptr);
             m_RenderPass = VK_NULL_HANDLE;
+            rollbackToDefault();
             return false;
         }
 
         VCKLog::Info("Pipeline", "Creating graphics pipeline...");
         if (!CreateGraphicsPipeline(shaders, vertexInput)) {
-            vkDestroyPipelineLayout(m_Device->GetDevice(), m_PipelineLayout, nullptr);
-            vkDestroyRenderPass    (m_Device->GetDevice(), m_RenderPass,     nullptr);
+            vkDestroyPipelineLayout(rawDevice, m_PipelineLayout, nullptr);
+            vkDestroyRenderPass    (rawDevice, m_RenderPass,     nullptr);
             m_PipelineLayout = VK_NULL_HANDLE;
             m_RenderPass     = VK_NULL_HANDLE;
+            rollbackToDefault();
             return false;
         }
 
