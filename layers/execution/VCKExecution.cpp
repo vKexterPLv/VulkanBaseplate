@@ -34,7 +34,12 @@ bool TimelineSemaphore::Initialize(VulkanDevice& device, uint64_t initialValue)
               std::to_string(static_cast<int>(r)) +
               "). The device was likely not created with timelineSemaphore=VK_TRUE; "
               "fall back to VulkanSync.");
-        m_Sem = VK_NULL_HANDLE;
+        // R19: failed Initialize must land in default-construct-equivalent
+        // state.  m_Sem is already cleared above on the partial-write path,
+        // but m_Device was set unconditionally - reset it too so a
+        // subsequent Shutdown() is silent and IsValid() stays correct.
+        m_Sem    = VK_NULL_HANDLE;
+        m_Device = nullptr;
         return false;
     }
     return true;
@@ -103,7 +108,29 @@ bool QueueSet::Initialize(VulkanDevice& device)
     m_Transfer       = device.GetTransferQueue();
     m_TransferFamily = qfi.TransferFamily.value_or(m_GraphicsFamily);
 
-    return m_Graphics != VK_NULL_HANDLE;
+    if (m_Graphics == VK_NULL_HANDLE)
+    {
+        // R14: previously this path returned false silently, so a
+        // FrameScheduler::Initialize sitting on top would emit its own
+        // generic 'QueueSet::Initialize failed' Error with no context.
+        // Now the leaf owns a subsystem-tagged Error that names the
+        // failed queue, and the caller demotes its summary to remove
+        // the double-log.  R19: reset all fields back to default so the
+        // QueueSet object itself is observably fresh after a failed
+        // Initialize.
+        VCKLog::Error("QueueSet",
+            "VulkanDevice did not provide a graphics queue (handle=null). "
+            "This usually means VulkanDevice::Initialize was never called "
+            "or PickPhysicalDevice failed to find a queue family with "
+            "VK_QUEUE_GRAPHICS_BIT.");
+        m_Compute        = VK_NULL_HANDLE;
+        m_Transfer       = VK_NULL_HANDLE;
+        m_GraphicsFamily = 0;
+        m_ComputeFamily  = 0;
+        m_TransferFamily = 0;
+        return false;
+    }
+    return true;
 }
 
 
@@ -784,14 +811,31 @@ bool FrameScheduler::Initialize(VulkanDevice&  device,
     m_Sync    = &sync;
     m_Cfg     = cfg;
 
+    // Inline rollback (matches the A1 / A3 contract on every other public
+    // Initialize) so a failed FrameScheduler::Initialize lands in
+    // default-construct-equivalent state and a subsequent Shutdown() is
+    // silent (R19).  Each leaf (QueueSet, GpuSubmissionBatcher) owns its
+    // own subsystem-tagged Error, so the scheduler-level summary is
+    // demoted to Notice to honour R14 (exactly one Error per failure path).
+    const auto rollbackToDefault = [&]() {
+        m_Submissions.Shutdown();
+        m_Queues.Shutdown();
+        m_Device  = nullptr;
+        m_Command = nullptr;
+        m_Sync    = nullptr;
+        m_Cfg     = Config{};
+    };
+
     if (!m_Queues.Initialize(device))
     {
-        VCKLog::Error("FrameScheduler", "QueueSet::Initialize failed.");
+        VCKLog::Notice("FrameScheduler", "Initialize aborted: QueueSet step failed (see prior QueueSet error).");
+        rollbackToDefault();
         return false;
     }
     if (!m_Submissions.Initialize(device, m_Queues))
     {
-        VCKLog::Error("FrameScheduler", "GpuSubmissionBatcher::Initialize failed.");
+        VCKLog::Notice("FrameScheduler", "Initialize aborted: GpuSubmissionBatcher step failed.");
+        rollbackToDefault();
         return false;
     }
     // Runtime framesInFlight comes from VulkanSync (already clamped in its
