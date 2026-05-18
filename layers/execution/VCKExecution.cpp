@@ -619,6 +619,12 @@ void DebugTimeline::Initialize(bool enabled)
 
 void DebugTimeline::Shutdown()
 {
+    if (m_GpuDevice != VK_NULL_HANDLE && m_QueryPool != VK_NULL_HANDLE)
+        vkDestroyQueryPool(m_GpuDevice, m_QueryPool, nullptr);
+    m_QueryPool  = VK_NULL_HANDLE;
+    m_GpuDevice  = VK_NULL_HANDLE;
+    m_QueryHead  = 0;
+    m_PendingGpu.clear();
     m_Enabled = false;
     m_Spans.clear();
     m_OpenCpu.clear();
@@ -795,6 +801,93 @@ bool DebugTimeline::DumpChromeTracing(const char* path)
     }
     out << "\n]\n";
     return true;
+}
+
+
+// ── GPU timestamps ────────────────────────────────────────────────────────────
+
+bool DebugTimeline::InitQueryPool(VkDevice device, float timestampPeriodNs)
+{
+    if (!m_Enabled) return true;
+    m_GpuDevice       = device;
+    m_TimestampPeriod = timestampPeriodNs;
+    m_QueryHead       = 0;
+
+    VkQueryPoolCreateInfo ci{};
+    ci.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    ci.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+    ci.queryCount = m_QueryCount;
+
+    return VK_CHECK(vkCreateQueryPool(device, &ci, nullptr, &m_QueryPool));
+}
+
+void DebugTimeline::BeginGpuSpan(VkCommandBuffer cmd, const char* name)
+{
+    if (!m_Enabled || m_QueryPool == VK_NULL_HANDLE) return;
+    if (m_QueryHead + 2 > m_QueryCount)
+    {
+        VCKLog::Warn("DebugTimeline", "BeginGpuSpan: query pool exhausted this frame.");
+        return;
+    }
+
+    uint32_t qBegin = m_QueryHead++;
+    uint32_t qEnd   = m_QueryHead++;
+
+    vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, m_QueryPool, qBegin);
+
+    PendingGpuSpan pg;
+    pg.name        = name ? name : "";
+    pg.frame       = 0;
+    pg.beginQuery  = qBegin;
+    pg.endQuery    = qEnd;
+    std::lock_guard<std::mutex> lk(m_Mu);
+    m_PendingGpu.push_back(pg);
+}
+
+void DebugTimeline::EndGpuSpan(VkCommandBuffer cmd)
+{
+    if (!m_Enabled || m_QueryPool == VK_NULL_HANDLE) return;
+    std::lock_guard<std::mutex> lk(m_Mu);
+    if (m_PendingGpu.empty()) return;
+    uint32_t qEnd = m_PendingGpu.back().endQuery;
+    vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, m_QueryPool, qEnd);
+}
+
+void DebugTimeline::ResolveGpuSpans(VkDevice device, uint64_t frameIndex)
+{
+    if (!m_Enabled || m_QueryPool == VK_NULL_HANDLE) return;
+
+    std::vector<PendingGpuSpan> pending;
+    {
+        std::lock_guard<std::mutex> lk(m_Mu);
+        pending = std::move(m_PendingGpu);
+        m_PendingGpu.clear();
+        m_QueryHead = 0;
+    }
+    if (pending.empty()) return;
+
+    uint32_t maxQ = 0;
+    for (const auto& pg : pending)
+        maxQ = std::max(maxQ, std::max(pg.beginQuery, pg.endQuery) + 1);
+
+    std::vector<uint64_t> results(maxQ, 0);
+    vkGetQueryPoolResults(device, m_QueryPool,
+                          0, maxQ,
+                          results.size() * sizeof(uint64_t), results.data(),
+                          sizeof(uint64_t),
+                          VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+    // Reset queries for the next frame.
+    vkResetQueryPool(device, m_QueryPool, 0, maxQ);
+
+    for (const auto& pg : pending)
+    {
+        uint64_t t0 = results[pg.beginQuery];
+        uint64_t t1 = results[pg.endQuery];
+        uint64_t startUs = static_cast<uint64_t>(t0 * m_TimestampPeriod / 1000.0f);
+        uint64_t endUs   = static_cast<uint64_t>(t1 * m_TimestampPeriod / 1000.0f);
+        RecordGpuSpan(pg.name.c_str(), frameIndex, startUs, endUs);
+    }
 }
 
 
@@ -1225,6 +1318,205 @@ bool HandleLiveResize(Window&               window,
     const bool ok = HandleLiveResize(window, device, swapchain, framebuffers, pipeline, depth);
     if (timeline.Enabled()) timeline.EndCpuSpan("HandleLiveResize", frame);
     return ok;
+}
+
+
+// =============================================================================
+// [24] RenderGraph
+// =============================================================================
+
+PassHandle RenderGraph::AddPass(const char* name, PassCallback callback)
+{
+    PassHandle h = static_cast<PassHandle>(m_Passes.size());
+    PassNode node;
+    node.name     = name ? name : "";
+    node.callback = std::move(callback);
+    m_Passes.push_back(std::move(node));
+    return h;
+}
+
+ResourceHandle RenderGraph::ImportImage(VulkanImage& image, VkImageLayout currentLayout)
+{
+    ResourceHandle h = static_cast<ResourceHandle>(m_Resources.size());
+    ResourceNode node;
+    node.name          = "imported";
+    node.currentLayout = currentLayout;
+    node.image         = &image;
+    m_Resources.push_back(std::move(node));
+    return h;
+}
+
+ResourceHandle RenderGraph::CreateTarget(const char* name, VkFormat format, VkExtent2D extent)
+{
+    ResourceHandle h = static_cast<ResourceHandle>(m_Resources.size());
+    ResourceNode node;
+    node.name   = name ? name : "";
+    node.format = format;
+    node.extent = extent;
+    node.image  = nullptr;
+    m_Resources.push_back(std::move(node));
+    return h;
+}
+
+void RenderGraph::Reads(PassHandle pass, ResourceHandle resource)
+{
+    if (pass < m_Passes.size())
+        m_Passes[pass].reads.push_back(resource);
+}
+
+void RenderGraph::Writes(PassHandle pass, ResourceHandle resource)
+{
+    if (pass < m_Passes.size())
+        m_Passes[pass].writes.push_back(resource);
+}
+
+bool RenderGraph::Compile(VulkanDevice& device)
+{
+    m_Device   = &device;
+    m_Compiled = false;
+    m_Order.clear();
+    m_Barriers.clear();
+
+    // Kahn's algorithm: compute in-degree per pass from write→read edges.
+    const uint32_t N = static_cast<uint32_t>(m_Passes.size());
+    std::vector<uint32_t> inDegree(N, 0);
+    // adjacency: writer → readers
+    std::vector<std::vector<uint32_t>> adj(N);
+
+    for (uint32_t r = 0; r < N; ++r)
+    {
+        for (ResourceHandle res : m_Passes[r].reads)
+        {
+            for (uint32_t w = 0; w < N; ++w)
+            {
+                if (w == r) continue;
+                for (ResourceHandle wr : m_Passes[w].writes)
+                {
+                    if (wr == res)
+                    {
+                        adj[w].push_back(r);
+                        inDegree[r]++;
+                    }
+                }
+            }
+        }
+    }
+
+    // BFS queue
+    std::vector<uint32_t> queue;
+    for (uint32_t i = 0; i < N; ++i)
+        if (inDegree[i] == 0)
+            queue.push_back(i);
+
+    for (size_t qi = 0; qi < queue.size(); ++qi)
+    {
+        uint32_t cur = queue[qi];
+        m_Order.push_back(cur);
+        for (uint32_t dep : adj[cur])
+        {
+            if (--inDegree[dep] == 0)
+                queue.push_back(dep);
+        }
+    }
+
+    if (m_Order.size() != N)
+    {
+        VCKLog::Error("RenderGraph", "Compile: cycle detected in render graph.");
+        return false;
+    }
+
+    // Plan barriers: for each read dependency, add a barrier before the reader.
+    for (uint32_t orderIdx = 0; orderIdx < static_cast<uint32_t>(m_Order.size()); ++orderIdx)
+    {
+        uint32_t passIdx = m_Order[orderIdx];
+        for (ResourceHandle res : m_Passes[passIdx].reads)
+        {
+            PlannedBarrier b;
+            b.beforePass = orderIdx;
+            b.resource   = res;
+            b.oldLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            b.newLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            m_Barriers.push_back(b);
+        }
+    }
+
+    m_Compiled = true;
+    VCKLog::Notice("RenderGraph", ("Compile: " + std::to_string(N) +
+        " passes, " + std::to_string(m_Barriers.size()) + " barriers planned.").c_str());
+    return true;
+}
+
+void RenderGraph::Execute(VkCommandBuffer cmd, uint32_t slotIndex)
+{
+    if (!m_Compiled) return;
+
+    for (uint32_t orderIdx = 0; orderIdx < static_cast<uint32_t>(m_Order.size()); ++orderIdx)
+    {
+        // Issue pre-planned barriers for this pass.
+        std::vector<VkImageMemoryBarrier2> barriers2;
+        for (const PlannedBarrier& pb : m_Barriers)
+        {
+            if (pb.beforePass != orderIdx) continue;
+            ResourceNode& rn = m_Resources[pb.resource];
+            VkImage img = rn.image ? rn.image->GetImage() : rn.managed.GetImage();
+            if (!img) continue;
+
+            VkImageMemoryBarrier2 b{};
+            b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            b.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            b.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            b.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            b.oldLayout           = pb.oldLayout;
+            b.newLayout           = pb.newLayout;
+            b.image               = img;
+            b.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            barriers2.push_back(b);
+        }
+
+        if (!barriers2.empty())
+        {
+            VkDependencyInfo dep{};
+            dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers2.size());
+            dep.pImageMemoryBarriers    = barriers2.data();
+            vkCmdPipelineBarrier2(cmd, &dep);
+        }
+
+        // Run the pass callback.
+        uint32_t passIdx = m_Order[orderIdx];
+        PassResources pr;
+        for (ResourceHandle rh : m_Passes[passIdx].reads)
+        {
+            ResourceNode& rn = m_Resources[rh];
+            VkImageView v = rn.image ? rn.image->GetImageView() : rn.managed.GetImageView();
+            pr.m_Views[rh] = v;
+        }
+        for (ResourceHandle rh : m_Passes[passIdx].writes)
+        {
+            ResourceNode& rn = m_Resources[rh];
+            VkImageView v = rn.image ? rn.image->GetImageView() : rn.managed.GetImageView();
+            pr.m_Views[rh] = v;
+        }
+        if (m_Passes[passIdx].callback)
+            m_Passes[passIdx].callback(cmd, pr);
+    }
+}
+
+void RenderGraph::Shutdown()
+{
+    if (m_Device)
+    {
+        for (ResourceNode& rn : m_Resources)
+            if (!rn.image)
+                rn.managed.Shutdown();
+    }
+    m_Passes.clear();
+    m_Resources.clear();
+    m_Order.clear();
+    m_Barriers.clear();
+    m_Compiled = false;
+    m_Device   = nullptr;
 }
 
 } // namespace VCK

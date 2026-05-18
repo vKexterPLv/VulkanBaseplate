@@ -96,3 +96,8 @@ Reading top-down, each new example adds **one layer** of VCK assistance over
 the previous tier — so by the time you finish `[14]`, you've seen every
 abstraction VCK ships and exactly what each one buys you. Pick the lowest tier
 that meets your needs; rule 9 (escape hatches) means you can always drop back.
+
+| 15 | `DynamicRenderingExample` | `RenderingMode::Dynamic` — `vkCmdBeginRendering` / `vkCmdEndRendering` with explicit sync2 image transitions; no `VkRenderPass`, no `VkFramebuffer` |
+| 16 | `BindlessExample`         | `cfg.device.enableBindless` + `VulkanDescriptorAllocator::InitializeBindless` + `WriteBindless` — texture array indexed by `gl_VertexIndex` |
+| 17 | `OffscreenTargetExample`  | `OffscreenTarget` render-to-texture → `FullscreenPass` blit to swapchain — classic & dynamic rendering modes |
+| 18 | `RenderGraphExample`      | Declarative `RenderGraph`: offscreen shadow pass + main colour pass, auto-barrier insertion, `PassResources` callback pattern |

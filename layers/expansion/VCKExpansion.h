@@ -582,18 +582,37 @@ public:
     VulkanDescriptorAllocator(const VulkanDescriptorAllocator&)            = delete;
     VulkanDescriptorAllocator& operator=(const VulkanDescriptorAllocator&) = delete;
 
-    bool Initialize(VulkanDevice&                   device,
-                    uint32_t                        maxSets,
-                    std::initializer_list<PoolSize> sizes);
+    bool Initialize(VulkanDevice&                device,
+                    uint32_t                     maxSets,
+                    const std::vector<PoolSize>& sizes);
     void Shutdown();
 
     // Allocates a single descriptor set from the given layout.
     // Returns VK_NULL_HANDLE on failure.
     VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
 
+    // ── Bindless mode ────────────────────────────────────────────────────────
+    // Requires cfg.device.enableBindless = true.
+    // Creates one large descriptor set with PARTIALLY_BOUND +
+    // UPDATE_AFTER_BIND flags.  maxDescriptors: total slots in the array.
+    bool InitializeBindless(VulkanDevice&    device,
+                            VkDescriptorType type,
+                            uint32_t         maxDescriptors);
+
+    // Update one slot of the bindless array.
+    void WriteBindless(uint32_t      arrayIndex,
+                       VkImageView   view,
+                       VkSampler     sampler,
+                       VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    VkDescriptorSet       GetBindlessSet()    const { return m_BindlessSet;    }
+    VkDescriptorSetLayout GetBindlessLayout() const { return m_BindlessLayout; }
+
 private:
-    VulkanDevice*    m_Device = nullptr;
-    VkDescriptorPool m_Pool   = VK_NULL_HANDLE;
+    VulkanDevice*         m_Device        = nullptr;
+    VkDescriptorPool      m_Pool          = VK_NULL_HANDLE;
+    VkDescriptorSet       m_BindlessSet    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
 };
 
 
@@ -948,9 +967,14 @@ private:
 //  a timestamp compare per file (R19).  Conceptually debug-only; the user
 //  is expected to instantiate it only when cfg.debug == true.  No GPU state.
 // =============================================================================
+// ShaderWatcher (debug-only): polls .spv file timestamps for hot reload.
 class ShaderWatcher
 {
 public:
+    // Set debug flag before calling Watch(). Emits VCKLog::Warn in Watch()
+    // when debug == false (ShaderWatcher is debug-only - rule R19).
+    void Initialize(bool debug) { m_Debug = debug; }
+
     // Register a .spv file to watch; stores stage + baseline last_write_time.
     // Returns false + VCKLog::Error if the file does not exist.
     bool Watch(const std::string& path, VkShaderStageFlagBits stage);
@@ -986,6 +1010,7 @@ private:
     };
     std::vector<WatchedFile> m_Files;
     bool                     m_Changed = false;
+    bool                     m_Debug   = false;
 };
 
 
@@ -1121,5 +1146,122 @@ inline void ApplyToConfig(const SpecConstants& spec,
 
 
 // =============================================================================
+// [31] HotReload  (debug-only)
+//
+//  Drives the ShaderWatcher → DrainInFlight → Reinitialize → Recreate cycle.
+//  Call Initialize() after pipeline and scheduler are set up.
+//  Call Tick() every frame — returns true if a reload happened.
+//
+class HotReload
+{
+public:
+    HotReload()  = default;
+    ~HotReload() = default;
+
+    HotReload(const HotReload&)            = delete;
+    HotReload& operator=(const HotReload&) = delete;
+
+    struct Config { bool debug = false; };
+
+    bool Initialize(VulkanDevice&                          device,
+                    VulkanSwapchain&                       swapchain,
+                    VulkanPipeline&                        pipeline,
+                    VulkanFramebufferSet&                  framebuffers,
+                    FrameScheduler&                        scheduler,
+                    const VulkanPipeline::ShaderInfo&      shaders,
+                    const VulkanPipeline::VertexInputInfo& vertexInput,
+                    const VulkanPipeline::Config&          pipelineCfg,
+                    Config                                 cfg);
+    void Shutdown();
+
+    bool Tick();
+    bool Watch(const std::string& path, VkShaderStageFlagBits stage);
+
+private:
+    VulkanDevice*                   m_Device       = nullptr;
+    VulkanSwapchain*                m_Swapchain    = nullptr;
+    VulkanPipeline*                 m_Pipeline     = nullptr;
+    VulkanFramebufferSet*           m_Framebuffers = nullptr;
+    FrameScheduler*                 m_Scheduler    = nullptr;
+    VulkanPipeline::ShaderInfo      m_Shaders      = {};
+    VulkanPipeline::VertexInputInfo m_VertexInput  = {};
+    VulkanPipeline::Config          m_PipelineCfg  = {};
+    bool                            m_Debug        = false;
+    ShaderWatcher                   m_ShaderWatcher;
+};
+
+
+// =============================================================================
+// [32] OffscreenTarget
+//
+//  Bundles VulkanImage + VkRenderPass + VkFramebuffer for render-to-texture.
+//  In Dynamic rendering mode (device.HasDynamicRendering()) the VkRenderPass
+//  and VkFramebuffer are VK_NULL_HANDLE.
+//
+class OffscreenTarget
+{
+public:
+    OffscreenTarget()  = default;
+    ~OffscreenTarget() = default;
+
+    OffscreenTarget(const OffscreenTarget&)            = delete;
+    OffscreenTarget& operator=(const OffscreenTarget&) = delete;
+
+    bool Initialize(VulkanDevice& device, VkFormat format, VkExtent2D extent);
+    void Shutdown();
+
+    VulkanImage&  GetImage()       { return m_Image; }
+    VkRenderPass  GetRenderPass()  const { return m_RenderPass;  }
+    VkFramebuffer GetFramebuffer() const { return m_Framebuffer; }
+    VkImageView   GetImageView()   const { return m_Image.GetImageView(); }
+    VkExtent2D    GetExtent()      const { return m_Extent; }
+    VkFormat      GetFormat()      const { return m_Format; }
+
+private:
+    VulkanImage    m_Image;
+    VkRenderPass   m_RenderPass  = VK_NULL_HANDLE;
+    VkFramebuffer  m_Framebuffer = VK_NULL_HANDLE;
+    VkExtent2D     m_Extent      = {};
+    VkFormat       m_Format      = VK_FORMAT_UNDEFINED;
+    VulkanDevice*  m_Device      = nullptr;
+};
+
+
+// =============================================================================
+// [33] FullscreenPass
+//
+//  Renders a fullscreen triangle sampling from a single input texture.
+//  Caller provides fragment SPIR-V; vertex shader is hardcoded.
+//  Binding 0, set 0 → COMBINED_IMAGE_SAMPLER.
+//
+class FullscreenPass
+{
+public:
+    FullscreenPass()  = default;
+    ~FullscreenPass() = default;
+
+    FullscreenPass(const FullscreenPass&)            = delete;
+    FullscreenPass& operator=(const FullscreenPass&) = delete;
+
+    bool Initialize(VulkanDevice&                device,
+                    VulkanSwapchain&             swapchain,
+                    VulkanPipeline&              pipeline,
+                    const std::vector<uint32_t>& vertShaderSpv,
+                    const std::vector<uint32_t>& fragShaderSpv,
+                    VkSampler                    sampler,
+                    uint32_t                     framesInFlight);
+    void Shutdown();
+
+    void Record(VkCommandBuffer cmd, VkImageView inputView, uint32_t slotIndex);
+
+private:
+    VulkanDevice*                m_Device    = nullptr;
+    VkPipeline                   m_Pipeline  = VK_NULL_HANDLE;
+    VkPipelineLayout             m_Layout    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        m_SetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool             m_Pool      = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_Sets;
+    VkSampler                    m_Sampler   = VK_NULL_HANDLE;
+};
 
 } // namespace VCK

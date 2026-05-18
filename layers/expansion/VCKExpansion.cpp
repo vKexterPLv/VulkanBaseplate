@@ -744,9 +744,9 @@ VkDescriptorSet VulkanDescriptorPool::GetSet(uint32_t frameIndex) const
 // =============================================================================
 
 bool VulkanDescriptorAllocator::Initialize(
-    VulkanDevice& device,
-    uint32_t      maxSets,
-    std::initializer_list<PoolSize> sizes)
+    VulkanDevice&                device,
+    uint32_t                     maxSets,
+    const std::vector<PoolSize>& sizes)
 {
     m_Device = &device;
 
@@ -771,10 +771,89 @@ bool VulkanDescriptorAllocator::Initialize(
 
 void VulkanDescriptorAllocator::Shutdown()
 {
-    if (m_Pool && m_Device)
-        vkDestroyDescriptorPool(m_Device->GetDevice(), m_Pool, nullptr);
-    m_Pool   = VK_NULL_HANDLE;
-    m_Device = nullptr;
+    if (m_Device)
+    {
+        if (m_BindlessLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_BindlessLayout, nullptr);
+        if (m_Pool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(m_Device->GetDevice(), m_Pool, nullptr);
+    }
+    m_BindlessLayout = VK_NULL_HANDLE;
+    m_BindlessSet    = VK_NULL_HANDLE;
+    m_Pool           = VK_NULL_HANDLE;
+    m_Device         = nullptr;
+}
+
+bool VulkanDescriptorAllocator::InitializeBindless(
+    VulkanDevice& device, VkDescriptorType type, uint32_t maxDescriptors)
+{
+    m_Device = &device;
+
+    VkDescriptorBindingFlags bindingFlags =
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo flagsCI{};
+    flagsCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    flagsCI.bindingCount  = 1;
+    flagsCI.pBindingFlags = &bindingFlags;
+
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding         = 0;
+    binding.descriptorType  = type;
+    binding.descriptorCount = maxDescriptors;
+    binding.stageFlags      = VK_SHADER_STAGE_ALL;
+
+    VkDescriptorSetLayoutCreateInfo layoutCI{};
+    layoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutCI.pNext        = &flagsCI;
+    layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    layoutCI.bindingCount = 1;
+    layoutCI.pBindings    = &binding;
+
+    if (!VK_CHECK(vkCreateDescriptorSetLayout(
+            device.GetDevice(), &layoutCI, nullptr, &m_BindlessLayout)))
+        return false;
+
+    VkDescriptorPoolSize poolSize{ type, maxDescriptors };
+    VkDescriptorPoolCreateInfo poolCI{};
+    poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    poolCI.maxSets       = 1;
+    poolCI.poolSizeCount = 1;
+    poolCI.pPoolSizes    = &poolSize;
+
+    if (!VK_CHECK(vkCreateDescriptorPool(device.GetDevice(), &poolCI, nullptr, &m_Pool)))
+        return false;
+
+    VkDescriptorSetAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ai.descriptorPool     = m_Pool;
+    ai.descriptorSetCount = 1;
+    ai.pSetLayouts        = &m_BindlessLayout;
+
+    return VK_CHECK(vkAllocateDescriptorSets(device.GetDevice(), &ai, &m_BindlessSet));
+}
+
+void VulkanDescriptorAllocator::WriteBindless(
+    uint32_t arrayIndex, VkImageView view, VkSampler sampler, VkImageLayout layout)
+{
+    if (!m_Device || m_BindlessSet == VK_NULL_HANDLE) return;
+
+    VkDescriptorImageInfo imgInfo{};
+    imgInfo.sampler     = sampler;
+    imgInfo.imageView   = view;
+    imgInfo.imageLayout = layout;
+
+    VkWriteDescriptorSet write{};
+    write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet          = m_BindlessSet;
+    write.dstBinding      = 0;
+    write.dstArrayElement = arrayIndex;
+    write.descriptorCount = 1;
+    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo      = &imgInfo;
+    vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &write, 0, nullptr);
 }
 
 VkDescriptorSet VulkanDescriptorAllocator::Allocate(VkDescriptorSetLayout layout)
@@ -1818,6 +1897,14 @@ void ShaderLoader::Clear()
 // =============================================================================
 bool ShaderWatcher::Watch(const std::string& path, VkShaderStageFlagBits stage)
 {
+    if (!m_Debug)
+    {
+        VCKLog::Warn("ShaderWatcher",
+            "Watch() called in a non-debug build. "
+            "ShaderWatcher is debug-only and polls the filesystem every frame. "
+            "Set cfg.debug = true or remove ShaderWatcher from release builds.");
+    }
+
     namespace fs = std::filesystem;
     std::error_code ec;
     if (!fs::exists(path, ec) || ec)
@@ -2199,6 +2286,355 @@ VkDescriptorSetLayout ShaderInterface::BuildSetLayout(VulkanDevice& device,
 PushConstants& ShaderInterface::Push()
 {
     return m_SharedPush;
+}
+
+
+// =============================================================================
+// [31] HotReload
+// =============================================================================
+
+bool HotReload::Initialize(
+    VulkanDevice&                          device,
+    VulkanSwapchain&                       swapchain,
+    VulkanPipeline&                        pipeline,
+    VulkanFramebufferSet&                  framebuffers,
+    FrameScheduler&                        scheduler,
+    const VulkanPipeline::ShaderInfo&      shaders,
+    const VulkanPipeline::VertexInputInfo& vertexInput,
+    const VulkanPipeline::Config&          pipelineCfg,
+    Config                                 cfg)
+{
+    m_Debug        = cfg.debug;
+    m_Device       = &device;
+    m_Swapchain    = &swapchain;
+    m_Pipeline     = &pipeline;
+    m_Framebuffers = &framebuffers;
+    m_Scheduler    = &scheduler;
+    m_Shaders      = shaders;
+    m_VertexInput  = vertexInput;
+    m_PipelineCfg  = pipelineCfg;
+
+    if (!m_Debug)
+    {
+        VCKLog::Warn("HotReload",
+            "Instantiated outside debug mode. "
+            "Set cfg.debug = true or remove HotReload from release builds.");
+    }
+    m_ShaderWatcher.Initialize(m_Debug);
+    return true;
+}
+
+void HotReload::Shutdown()
+{
+    m_ShaderWatcher.Shutdown();
+    m_Device       = nullptr;
+    m_Swapchain    = nullptr;
+    m_Pipeline     = nullptr;
+    m_Framebuffers = nullptr;
+    m_Scheduler    = nullptr;
+}
+
+bool HotReload::Watch(const std::string& path, VkShaderStageFlagBits stage)
+{
+    return m_ShaderWatcher.Watch(path, stage);
+}
+
+bool HotReload::Tick()
+{
+    if (!m_ShaderWatcher.HasChanged())
+        return false;
+
+    m_Scheduler->DrainInFlight();
+    if (!m_Pipeline->Reinitialize(*m_Device, *m_Swapchain,
+                                   m_Shaders, m_VertexInput, m_PipelineCfg))
+    {
+        VCKLog::Error("HotReload", "Pipeline Reinitialize failed after shader change.");
+        return false;
+    }
+    m_Framebuffers->Recreate(*m_Pipeline);
+    m_ShaderWatcher.ResetChanged();
+    return true;
+}
+
+
+// =============================================================================
+// [32] OffscreenTarget
+// =============================================================================
+
+bool OffscreenTarget::Initialize(VulkanDevice& device,
+                                  VkFormat format, VkExtent2D extent)
+{
+    m_Device = &device;
+    m_Format = format;
+    m_Extent = extent;
+
+    VulkanImage::Config imgCfg{};
+    imgCfg.width         = extent.width;
+    imgCfg.height        = extent.height;
+    imgCfg.format        = format;
+    imgCfg.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                           VK_IMAGE_USAGE_SAMPLED_BIT;
+    imgCfg.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!m_Image.Initialize(device, imgCfg))
+        return false;
+
+    if (device.HasDynamicRendering())
+        return true;
+
+    VkAttachmentDescription att{};
+    att.format         = format;
+    att.samples        = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    att.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference ref{};
+    ref.attachment = 0;
+    ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription sub{};
+    sub.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments    = &ref;
+
+    VkRenderPassCreateInfo rpci{};
+    rpci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpci.attachmentCount = 1;
+    rpci.pAttachments    = &att;
+    rpci.subpassCount    = 1;
+    rpci.pSubpasses      = &sub;
+
+    if (!VK_CHECK(vkCreateRenderPass(device.GetDevice(), &rpci, nullptr, &m_RenderPass)))
+        return false;
+
+    VkFramebufferCreateInfo fbci{};
+    fbci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbci.renderPass      = m_RenderPass;
+    fbci.attachmentCount = 1;
+    VkImageView view     = m_Image.GetImageView();
+    fbci.pAttachments    = &view;
+    fbci.width           = extent.width;
+    fbci.height          = extent.height;
+    fbci.layers          = 1;
+
+    return VK_CHECK(vkCreateFramebuffer(device.GetDevice(), &fbci, nullptr, &m_Framebuffer));
+}
+
+void OffscreenTarget::Shutdown()
+{
+    if (m_Device)
+    {
+        if (m_Framebuffer != VK_NULL_HANDLE)
+            vkDestroyFramebuffer(m_Device->GetDevice(), m_Framebuffer, nullptr);
+        if (m_RenderPass != VK_NULL_HANDLE)
+            vkDestroyRenderPass(m_Device->GetDevice(), m_RenderPass, nullptr);
+    }
+    m_Image.Shutdown();
+    m_Framebuffer = VK_NULL_HANDLE;
+    m_RenderPass  = VK_NULL_HANDLE;
+    m_Device      = nullptr;
+}
+
+
+// =============================================================================
+// [33] FullscreenPass
+// =============================================================================
+
+bool FullscreenPass::Initialize(
+    VulkanDevice&                device,
+    VulkanSwapchain&             swapchain,
+    VulkanPipeline&              pipeline,
+    const std::vector<uint32_t>& vertShaderSpv,
+    const std::vector<uint32_t>& fragShaderSpv,
+    VkSampler                    sampler,
+    uint32_t                     framesInFlight)
+{
+    m_Device  = &device;
+    m_Sampler = sampler;
+
+    VkDevice dev = device.GetDevice();
+
+    // 1. Descriptor set layout: one COMBINED_IMAGE_SAMPLER at binding 0.
+    VkDescriptorSetLayoutBinding samplerBinding{};
+    samplerBinding.binding         = 0;
+    samplerBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerBinding.descriptorCount = 1;
+    samplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo dsLayoutCI{};
+    dsLayoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    dsLayoutCI.bindingCount = 1;
+    dsLayoutCI.pBindings    = &samplerBinding;
+    if (!VK_CHECK(vkCreateDescriptorSetLayout(dev, &dsLayoutCI, nullptr, &m_SetLayout)))
+        return false;
+
+    // 2. Descriptor pool + one set per slot.
+    VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, framesInFlight };
+    VkDescriptorPoolCreateInfo poolCI{};
+    poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolCI.maxSets       = framesInFlight;
+    poolCI.poolSizeCount = 1;
+    poolCI.pPoolSizes    = &poolSize;
+    if (!VK_CHECK(vkCreateDescriptorPool(dev, &poolCI, nullptr, &m_Pool)))
+        return false;
+
+    std::vector<VkDescriptorSetLayout> layouts(framesInFlight, m_SetLayout);
+    VkDescriptorSetAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ai.descriptorPool     = m_Pool;
+    ai.descriptorSetCount = framesInFlight;
+    ai.pSetLayouts        = layouts.data();
+    m_Sets.resize(framesInFlight);
+    if (!VK_CHECK(vkAllocateDescriptorSets(dev, &ai, m_Sets.data())))
+        return false;
+
+    // 3. Pipeline layout.
+    VkPipelineLayoutCreateInfo layoutCI{};
+    layoutCI.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutCI.setLayoutCount = 1;
+    layoutCI.pSetLayouts    = &m_SetLayout;
+    if (!VK_CHECK(vkCreatePipelineLayout(dev, &layoutCI, nullptr, &m_Layout)))
+        return false;
+
+    // 4. Shader modules.
+    auto makeModule = [&](const std::vector<uint32_t>& spv) -> VkShaderModule {
+        VkShaderModuleCreateInfo ci{};
+        ci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        ci.codeSize = spv.size() * sizeof(uint32_t);
+        ci.pCode    = spv.data();
+        VkShaderModule mod = VK_NULL_HANDLE;
+        vkCreateShaderModule(dev, &ci, nullptr, &mod);
+        return mod;
+    };
+    VkShaderModule vertMod = makeModule(vertShaderSpv);
+    VkShaderModule fragMod = makeModule(fragShaderSpv);
+    if (!vertMod || !fragMod)
+    {
+        VCKLog::Error("FullscreenPass", "Failed to create shader modules");
+        if (vertMod) vkDestroyShaderModule(dev, vertMod, nullptr);
+        if (fragMod) vkDestroyShaderModule(dev, fragMod, nullptr);
+        return false;
+    }
+
+    // 5. Graphics pipeline: no vertex input, no depth, fullscreen triangle.
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vertMod;
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fragMod;
+    stages[1].pName  = "main";
+
+    VkPipelineVertexInputStateCreateInfo viState{};
+    viState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo iaState{};
+    iaState.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    iaState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo vpState{};
+    vpState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    vpState.viewportCount = 1;
+    vpState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rsState{};
+    rsState.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rsState.polygonMode = VK_POLYGON_MODE_FILL;
+    rsState.cullMode    = VK_CULL_MODE_NONE;
+    rsState.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rsState.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo msState{};
+    msState.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo dsState{};
+    dsState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+
+    VkPipelineColorBlendAttachmentState blendAtt{};
+    blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo cbState{};
+    cbState.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    cbState.attachmentCount = 1;
+    cbState.pAttachments    = &blendAtt;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynState{};
+    dynState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates    = dynStates;
+
+    VkGraphicsPipelineCreateInfo pipeCI{};
+    pipeCI.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeCI.stageCount          = 2;
+    pipeCI.pStages             = stages;
+    pipeCI.pVertexInputState   = &viState;
+    pipeCI.pInputAssemblyState = &iaState;
+    pipeCI.pViewportState      = &vpState;
+    pipeCI.pRasterizationState = &rsState;
+    pipeCI.pMultisampleState   = &msState;
+    pipeCI.pDepthStencilState  = &dsState;
+    pipeCI.pColorBlendState    = &cbState;
+    pipeCI.pDynamicState       = &dynState;
+    pipeCI.layout              = m_Layout;
+    pipeCI.renderPass          = pipeline.GetRenderPass();
+
+    bool ok = VK_CHECK(vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &m_Pipeline));
+
+    vkDestroyShaderModule(dev, vertMod, nullptr);
+    vkDestroyShaderModule(dev, fragMod, nullptr);
+
+    return ok;
+}
+
+void FullscreenPass::Shutdown()
+{
+    if (m_Device)
+    {
+        VkDevice dev = m_Device->GetDevice();
+        if (m_Pipeline  != VK_NULL_HANDLE) vkDestroyPipeline(dev, m_Pipeline, nullptr);
+        if (m_Layout    != VK_NULL_HANDLE) vkDestroyPipelineLayout(dev, m_Layout, nullptr);
+        if (m_Pool      != VK_NULL_HANDLE) vkDestroyDescriptorPool(dev, m_Pool, nullptr);
+        if (m_SetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(dev, m_SetLayout, nullptr);
+    }
+    m_Pipeline  = VK_NULL_HANDLE;
+    m_Layout    = VK_NULL_HANDLE;
+    m_Pool      = VK_NULL_HANDLE;
+    m_SetLayout = VK_NULL_HANDLE;
+    m_Sets.clear();
+    m_Device    = nullptr;
+}
+
+void FullscreenPass::Record(VkCommandBuffer cmd, VkImageView inputView, uint32_t slotIndex)
+{
+    if (slotIndex >= static_cast<uint32_t>(m_Sets.size())) return;
+
+    VkDescriptorImageInfo imgInfo{};
+    imgInfo.sampler     = m_Sampler;
+    imgInfo.imageView   = inputView;
+    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet write{};
+    write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet          = m_Sets[slotIndex];
+    write.dstBinding      = 0;
+    write.descriptorCount = 1;
+    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo      = &imgInfo;
+    vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &write, 0, nullptr);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Layout,
+                            0, 1, &m_Sets[slotIndex], 0, nullptr);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
 

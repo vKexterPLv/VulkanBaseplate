@@ -28,7 +28,7 @@
 //          VulkanSync.{h,cpp}         Per-frame semaphores + fences.
 //          VmaImpl.cpp                VMA single TU (VMA_IMPLEMENTATION).
 //      expansion/                - reusable rendering building blocks.
-//          VCKExpansion.{h,cpp}       Classes [1]-[12] + [23]-[25] +
+//          VCKExpansion.{h,cpp}       Classes [1]-[12] + [23]-[25] + [26]-[33] +
 //                                      HandleLiveResize overloads.
 //          VCKMath.h                  Vec2/3/4, Mat4 + free helpers.
 //      execution/                - frame scheduling & observability.
@@ -46,8 +46,8 @@
 //          libglfw3.a            - GLFW pre-compiled MinGW lib (download,
 //                                  not source - Linux/macOS use pkg-config).
 //      build.bat / build.sh      - Windows / Linux+macOS build scripts.
-//      <13 example dirs>         - see example/README.md or docs/Examples.md.
-//                                   Menu now runs [1]-[13], [A] builds all.
+//      <14 example dirs>         - see example/README.md or docs/Examples.md.
+//                                   Menu now runs [1]-[14], [A] builds all.
 //  docs/                         - design, build, examples, API reference.
 //                                  Start with docs/Overview.md for the
 //                                  one-page "what VCK is / gives / never
@@ -223,6 +223,12 @@
 //                                                           without touching
 //                                                           vkDeviceWaitIdle
 //                                                           (v0.3).
+//    FrameScheduler::SlotCount() → uint32_t               number of in-flight slots
+//                                                           (== framesInFlight).
+//        Use to initialize FrameData<T>:
+//        frameData.Initialize(scheduler.SlotCount())
+//    [23] FrameData<T>             - per-frame typed resource ring (UBOs, sets, etc.)
+//    [24] RenderGraph              - declarative barrier-aware render graph skeleton.
 //  layers/vmm/ (optional)
 //    VmmRawAlloc / VmmRegistry / VulkanMemoryManager - see its header.
 //
@@ -454,6 +460,9 @@
 //  [28] SpecConstants                 - VkSpecializationInfo builder (specialization constants)
 //  [29] ShaderStage                   - per-stage VertexLayout / PushConstants / binding declaration
 //  [30] ShaderInterface               - merges ShaderStages into pipeline cfg + descriptor layouts
+//  [31] HotReload                     - drives ShaderWatcher→DrainInFlight→Reinitialize→Recreate (debug-only)
+//  [32] OffscreenTarget               - VulkanImage + VkRenderPass + VkFramebuffer for render-to-texture
+//  [33] FullscreenPass                - fullscreen triangle with one COMBINED_IMAGE_SAMPLER input
 //
 //  (Numbers [13]-[22] are used by the execution layer - see below.)
 //
@@ -632,6 +641,9 @@
 //    5. Copies buffer → image.
 //    6. Transitions image TRANSFER_DST_OPTIMAL → SHADER_READ_ONLY_OPTIMAL.
 //    7. Submits, waits, frees the staging buffer.
+//
+//  NOTE: Each call to CreateFromPixels submits a one-shot command and stalls
+//  the GPU queue until it completes.  For bulk uploads, use the VMM staging ring.
 //
 //  Usage:
 //    VulkanTexture tex;
@@ -1007,6 +1019,9 @@
  VulkanPipeline.cpp
 ────────────────────────────────────────────────────────────────────────────────
  bool           VulkanPipeline::Initialize(VulkanDevice&, VkFormat, const ShaderInfo&, const VertexInputInfo&)
+ bool           VulkanPipeline::Reinitialize(VulkanDevice&, VulkanSwapchain&, const ShaderInfo&,
+                                              const VertexInputInfo&, const Config&)
+ //               Shutdown + Initialize in one call. Call DrainInFlight() first.
  void           VulkanPipeline::Shutdown()
  bool           VulkanPipeline::CreateRenderPass(VkFormat swapchainFormat)
  bool           VulkanPipeline::CreatePipelineLayout()
@@ -1114,7 +1129,7 @@
  VulkanDescriptorAllocator
    bool            VulkanDescriptorAllocator::Initialize(VulkanDevice&,
                                                           uint32_t maxSets,
-                                                          initializer_list<PoolSize> sizes)
+                                                          const vector<PoolSize>& sizes)
    void            VulkanDescriptorAllocator::Shutdown()
    VkDescriptorSet VulkanDescriptorAllocator::Allocate(VkDescriptorSetLayout)
 

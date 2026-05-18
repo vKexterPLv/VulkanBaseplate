@@ -214,6 +214,38 @@ jobs:
         run: ctest --test-dir build --output-on-failure -j
 
   # ---------------------------------------------------------------------------
+  #  Linux ASan + UBSan (Task 16).  Separate job so it can run in parallel
+  #  with the normal Linux build and its result is reported independently.
+  # ---------------------------------------------------------------------------
+  linux-sanitize:
+    name: Linux (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan-dev libglfw3-dev vulkan-tools glslang-tools \
+            ninja-build cmake g++
+
+      - name: Configure (sanitizers)
+        run: |
+          cmake -S example -B build-san -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build-san --parallel
+
+      - name: Test
+        run: ctest --test-dir build-san --output-on-failure -j
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+
+  # ---------------------------------------------------------------------------
   #  macOS (clang++ + MoltenVK + Ninja).  Homebrew covers everything; the
   #  CMake build links against vulkan-loader (Vulkan::Vulkan) which on macOS
   #  resolves to libvulkan.dylib that wraps MoltenVK at runtime.  CI does

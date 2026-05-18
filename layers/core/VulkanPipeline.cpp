@@ -449,4 +449,15 @@ namespace VCK {
         return success;
     }
 
+    bool VulkanPipeline::Reinitialize(
+        VulkanDevice&          device,
+        VulkanSwapchain&       swapchain,
+        const ShaderInfo&      shaders,
+        const VertexInputInfo& vertexInput,
+        const Config&          pipelineConfig)
+    {
+        Shutdown();
+        return Initialize(device, swapchain, shaders, vertexInput, pipelineConfig);
+    }
+
 } // namespace VCK

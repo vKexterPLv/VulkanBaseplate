@@ -151,6 +151,16 @@ namespace VCK {
             VkSampleCountFlagBits  samples,
             const Config&          pipelineConfig);
 
+        // Convenience: Shutdown() + Initialize() in one call.
+        // IMPORTANT: call scheduler.DrainInFlight() before calling this.
+        // Returns false (+ VCKLog::Error) if Initialize fails; the pipeline
+        // is left shut down in that case.
+        bool Reinitialize(VulkanDevice&          device,
+                          VulkanSwapchain&       swapchain,
+                          const ShaderInfo&      shaders,
+                          const VertexInputInfo& vertexInput,
+                          const Config&          pipelineConfig);
+
         void Shutdown();
 
         // ── Accessors ────────────────────────────────────────────────────────────

@@ -28,6 +28,38 @@ No callers in the repo (no example uses `VulkanDescriptorPool` or `VulkanUniform
 - **PF2** — bump Windows Vulkan SDK 1.3.290 → 1.4.321, matches the vendored 1.4.349 headers, unblocks `vkCmdBeginRendering` for Theme E1 Dynamic ([PR #16](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/16)).
 - **PF4** — `docs/Perf.md` baseline + `docs/perf_baseline.sh` harness ([PR #17](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/17)). First reading: 30 public classes, 22 cfg knobs, 14 examples, 1215 LoC in `VCK.h`, 1.2 MiB `libvck.a`, 67 s clean build, 4.1 MiB `vck_tests` peak RSS. GPU anchors (A3 frame time, A4 staging throughput, A5 hot-reload latency) populated separately on a developer machine.
 
+## [0.5.0] – 2026-05-18
+
+### Added
+- `RenderingMode::Dynamic` end-to-end: `DynamicRenderingExample` shows `vkCmdBeginRendering` / `vkCmdEndRendering` with barrier transitions (Task 12)
+- `cfg.device.enableBindless` fully wired: `VulkanDescriptorAllocator::InitializeBindless()` + `WriteBindless()` + `BindlessExample` (Task 13)
+- `VK_KHR_synchronization2`: all barriers use `vkCmdPipelineBarrier2` / `VkImageMemoryBarrier2`
+- `FrameData<T>` per-frame typed resource ring [23] (Task 7)
+- `RenderGraph` declarative barrier-aware skeleton [24] (Task 11)
+- `VCK::HotReload` [31] — drives ShaderWatcher→DrainInFlight→Reinitialize→Recreate (Task 8)
+- `VCK::OffscreenTarget` [32] — VulkanImage + VkRenderPass/VkFramebuffer for render-to-texture (Task 9)
+- `VCK::FullscreenPass` [33] — fullscreen triangle with sampler input (Task 10)
+- `VulkanPipeline::Reinitialize` for hot-reload + live-resize (Task 5)
+- `FrameScheduler::SlotCount()` getter (Task 6)
+- `VulkanSwapchain::GetImage(uint32_t)` / `GetImageView(uint32_t)` index accessors
+- `VulkanDescriptorAllocator::InitializeBindless` / `WriteBindless` / `GetBindlessSet` / `GetBindlessLayout`
+- `DebugTimeline::InitQueryPool` / `BeginGpuSpan` / `EndGpuSpan` / `ResolveGpuSpans` — GPU timestamp pipeline (Task 15)
+- `DynamicRenderingExample`, `BindlessExample`, `OffscreenTargetExample`, `RenderGraphExample` (Task 14)
+- ASan + UBSan CI job `linux-sanitize` (Task 16)
+
+### Changed
+- `VulkanDescriptorAllocator::Initialize`: `std::initializer_list<PoolSize>` → `const std::vector<PoolSize>&` (MSVC ABI fix, Task 3)
+- `VulkanDevice` R23 notice updated to point at `InitializeBindless` (Task 13)
+- `VCK.h` expansion header now covers `[1]-[12] + [23]-[25] + [26]-[33]`
+- `VCK.h` example count: 13 → 14 (Task 1); actual dirs now 18
+
+### Fixed
+- Stale QueueSet [16] and TimelineSemaphore [14] comments in `VCKExecution.h` (Task 2)
+- `ShaderWatcher` debug-only warning when instantiated outside debug mode (Task 4)
+- `VulkanDescriptorAllocator::Shutdown` now destroys `m_BindlessLayout`
+
+---
+
 ## [0.4.0] - 2026-04-27
 
 ### Added

@@ -494,3 +494,10 @@ Deferred, in rough priority order:
 4. MSVC/cl toolchain support (currently MinGW-w64 g++ only on Windows).
 5. Unit-test harness (currently only CI-gated compile + manual Windows
    validation).
+
+---
+
+**Rule 25:** All image memory barriers use `vkCmdPipelineBarrier2` /
+`VkImageMemoryBarrier2` when `VK_KHR_synchronization2` is active
+(`cfg.device.preferSync2`). The classic `vkCmdPipelineBarrier` path is
+the fallback when the extension is unavailable.

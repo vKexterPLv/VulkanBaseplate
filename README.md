@@ -26,18 +26,22 @@ Gets you the core Vulkan objects, expansion (textures, meshes, descriptors,
 mipmaps, AA), an optional memory manager (VMM), and an optional frame
 scheduler with a CPU job graph + GPU submission batcher.
 
-**v0.3 highlights:**
+**v0.5.0 highlights — the modern Vulkan entry point:**
 
-- **Cross-platform** — `VCK::Window` + `VCK_PLATFORM_*` on Windows / Linux / macOS. No raw GLFW or Win32 in user code.
-- **Live resize is one call** — `VCK::HandleLiveResize(window, ...)` handles 720p → 4K. The scheduler-aware overload drains via `FrameScheduler::DrainInFlight()` instead of `vkDeviceWaitIdle`.
-- **Timeline semaphores** — `FrameScheduler` signals a monotonic per-slot value, `BeginFrame` waits with one `vkWaitSemaphores`. Fence fallback when the timeline ext is absent.
-- **Dedicated compute / transfer queues** — picked when the vendor exposes them. VMM staging runs on transfer with release/acquire ownership barriers back to graphics (spec §7.7.4).
-- **Secondary command buffers** — `Allocate/Begin/End/ExecuteSecondaries` for record-then-execute.
-- **Ergonomic shaders** — `VCKMath`, `VertexLayout`, `PushConstants`, `Primitives::Cube/Plane/Sphere/Quad/Line`. Cube setup: ~40 lines → one call.
-- **AA decision tree** — `cfg.aa.technique = Auto` picks at `Swapchain::Initialize` (VRAM tier → forward path → motion vectors). MSAA / A2C / SampleRate ship; FXAA / SMAA / TAA / TAAU names are returned to the renderer (the cookbook has the shaders).
-- **Structured logging** — `VCKLog::{Info,Notice,Warn,Error}` with console-spam dedup. `VK_CHECK` routes failures to `Error`.
-- **24 design rules** — fail loud, frame is the unit of truth, `VCK.h` is the surface, every public class has an example, etc. See [`docs/Design.md`](docs/Design.md).
-- **[Cookbook](docs/Cookbook.md)** — recipes for the things VCK refuses to ship (image / OBJ loading, ImGui, FXAA/SMAA/TAA, compute particles, shadows, PBR/IBL, deferred, bloom, hot-reload, picking).
+> Dynamic rendering. Bindless descriptors. synchronization2. Render graph.
+> No render passes. No framebuffers. One line to swap to the modern pipeline.
+
+- **Dynamic rendering** — `cfg.rendering.mode = Dynamic` uses `vkCmdBeginRendering` / `vkCmdEndRendering`. No `VkRenderPass`, no `VkFramebuffer`. See `DynamicRenderingExample`.
+- **Bindless descriptors** — `cfg.device.enableBindless = true` + `VulkanDescriptorAllocator::InitializeBindless(device, type, 1024)` + `WriteBindless(index, view, sampler)`. See `BindlessExample`.
+- **synchronization2** — all barriers use `vkCmdPipelineBarrier2` / `VkImageMemoryBarrier2`. Classic `vkCmdPipelineBarrier` fallback when the extension is absent.
+- **Render graph** — declarative `RenderGraph`: `AddPass → Reads/Writes → Compile → Execute`. Kahn-sorted, auto-barriers. See `RenderGraphExample`.
+- **OffscreenTarget + FullscreenPass** — render to texture + blit to swapchain in two classes. See `OffscreenTargetExample`.
+- **HotReload** — `ShaderWatcher → DrainInFlight → Reinitialize → Recreate` in one `Tick()` call.
+- **FrameData\<T\>** — per-frame typed resource ring; initialize from `scheduler.SlotCount()`.
+- **Cross-platform** — `VCK::Window` + `VCK_PLATFORM_*` on Windows / Linux / macOS.
+- **Structured logging** — `VCKLog::{Info,Notice,Warn,Error}` with console-spam dedup.
+- **25 design rules** — fail loud, frame is the unit, `VCK.h` is the surface. See [`docs/Design.md`](docs/Design.md).
+- **[Cookbook](docs/Cookbook.md)** — recipes for ImGui, FXAA/SMAA/TAA, compute, shadows, PBR/IBL, deferred, bloom.
 
 ## Layers
 

@@ -545,7 +545,8 @@ namespace VCK {
             // is unchanged, so the user can probe support without having a
             // codepath to call into yet.
             VCKLog::Notice("Device",
-                "cfg.device.enableBindless acknowledged - bindless descriptor helpers ship in v0.4; extension enabled, no public API surface yet (R23)");
+                "cfg.device.enableBindless: VK_EXT_descriptor_indexing enabled. "
+                "Use VulkanDescriptorAllocator::InitializeBindless() for the bindless set.");
         }
 
         // R24 cfg knob (continued from VulkanSwapchain): cfg.swapchain.presentMode

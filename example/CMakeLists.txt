@@ -247,6 +247,10 @@ add_example(SchedulerPolicyExample     SchedulerPolicyExample       SchedulerPol
 add_example(HelloExample               HelloExample                 hello)
 add_example(EasyCubeExample            EasyCubeExample              easycube)
 add_example(ShaderToolingExample       ShaderToolingExample         shadertool)
+add_example(DynamicRenderingExample    DynamicRenderingExample      triangle)
+add_example(BindlessExample            BindlessExample              bindless)
+add_example(OffscreenTargetExample     OffscreenTargetExample       triangle)
+add_example(RenderGraphExample         RenderGraphExample           triangle)
 
 # ---------------------------------------------------------------------------
 #  R14 unit-test harness  (tests/*.cpp - links against vck)
@@ -282,5 +286,9 @@ add_custom_target(examples
         HelloExample
         EasyCubeExample
         ShaderToolingExample
-    COMMENT "Build all 14 VCK examples"
+        DynamicRenderingExample
+        BindlessExample
+        OffscreenTargetExample
+        RenderGraphExample
+    COMMENT "Build all 18 VCK examples"
 )

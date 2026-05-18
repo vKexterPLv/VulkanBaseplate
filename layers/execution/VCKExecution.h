@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 namespace VCK {
 
@@ -75,11 +76,8 @@ inline const char* FramePolicyName(FramePolicy p)
 //  and any consumer can wait for - no fences, no binary semaphores.
 //
 //  Requires device creation with VkPhysicalDeviceTimelineSemaphoreFeatures
-//  { timelineSemaphore = VK_TRUE }.  VCK's current VulkanDevice does NOT
-//  enable that feature, so Initialize() will return false on most setups -
-//  callers should be prepared to fall back to VulkanSync's binary fences.
-//  Adding the feature bit to the device is a one-line core change planned
-//  for a follow-up PR.
+//  { timelineSemaphore = VK_TRUE }.  Enable via cfg.device.enableTimelineSemaphores
+//  = true; VulkanDevice::HasTimelineSemaphores() returns true when active.
 // -----------------------------------------------------------------------------
 class TimelineSemaphore
 {
@@ -138,12 +136,8 @@ struct DependencyToken
 // [16] QueueSet
 //
 //  Holds VkQueue handles for the three logical queue types VCK cares about.
-//  Falls back to the graphics queue for any type the current device did not
-//  expose a dedicated queue for.  (VCK's current VulkanDevice only creates a
-//  graphics queue - so in practice all three slots point at the same queue.
-//  The abstraction exists so call sites can be written against multi-queue
-//  intent today and pick up real parallelism when VulkanDevice grows
-//  dedicated compute / transfer queue support.)
+//  Falls back to the graphics queue when the dedicated family is not requested
+//  (cfg) or not available on the device.
 // -----------------------------------------------------------------------------
 class QueueSet
 {
@@ -425,16 +419,43 @@ public:
     // When Enabled() is false, returns true without writing anything.
     bool DumpChromeTracing(const char* path);
 
+    // ── GPU timestamps ───────────────────────────────────────────────────────
+    // Call after Initialize().  Creates a VkQueryPool for timestamp queries.
+    bool InitQueryPool(VkDevice device, float timestampPeriodNs);
+
+    // Write a begin/end timestamp pair into the query pool.
+    // BeginGpuSpan before draw calls, EndGpuSpan after.
+    void BeginGpuSpan(VkCommandBuffer cmd, const char* name);
+    void EndGpuSpan  (VkCommandBuffer cmd);
+
+    // Read results back (call after fence wait) and merge into Dump() output.
+    void ResolveGpuSpans(VkDevice device, uint64_t frameIndex);
+
 private:
     uint64_t NowUs() const;
 
-    bool                                 m_Enabled = false;
+    bool                                  m_Enabled = false;
     std::chrono::steady_clock::time_point m_Origin;
-    std::mutex                           m_Mu;
-    std::vector<Span>                    m_Spans;
+    std::mutex                            m_Mu;
+    std::vector<Span>                     m_Spans;
 
     // Open CPU spans, keyed by name for simple push/pop semantics.
-    std::vector<Span>                    m_OpenCpu;
+    std::vector<Span>                     m_OpenCpu;
+
+    // GPU query pool
+    VkDevice     m_GpuDevice       = VK_NULL_HANDLE;
+    VkQueryPool  m_QueryPool       = VK_NULL_HANDLE;
+    uint32_t     m_QueryCount      = 64;
+    uint32_t     m_QueryHead       = 0;
+    float        m_TimestampPeriod = 1.0f;
+
+    struct PendingGpuSpan {
+        std::string name;
+        uint64_t    frame;
+        uint32_t    beginQuery;
+        uint32_t    endQuery;
+    };
+    std::vector<PendingGpuSpan> m_PendingGpu;
 };
 
 
@@ -593,6 +614,7 @@ public:
     // Accessors.
     uint64_t              AbsoluteFrame()      const { return m_Absolute; }
     uint32_t              CurrentSlot()        const;
+    uint32_t              SlotCount()          const { return m_FramesInFlight; }
     FramePolicy           Policy()             const { return m_Cfg.policy; }
     uint64_t              LastRetiredFrame()   const { return m_Governor.GpuFrame(); }
     bool                  InFrame()            const { return m_InFrame; }
@@ -706,5 +728,146 @@ bool HandleLiveResize(Window&               window,
                       VulkanPipeline&       pipeline,
                       VulkanDepthBuffer&    depth,
                       FrameScheduler&       scheduler);
+
+
+// =============================================================================
+// [23] FrameData<T>
+//
+//  Per-frame resource ring.  T is any user-defined struct (UBO, staging
+//  buffer, descriptor set — whatever needs one copy per in-flight slot).
+//
+//  Usage:
+//      struct PerFrame { VulkanBuffer ubo; VkDescriptorSet set; };
+//      FrameData<PerFrame> fd;
+//      fd.Initialize(scheduler.SlotCount());
+//      // in DrawFrame:
+//      PerFrame& pf = fd.Get(frame.Slot());
+//
+template <typename T>
+class FrameData
+{
+public:
+    FrameData()  = default;
+    ~FrameData() = default;
+
+    FrameData(const FrameData&)            = delete;
+    FrameData& operator=(const FrameData&) = delete;
+
+    bool Initialize(uint32_t slotCount)
+    {
+        if (slotCount == 0 || slotCount > MAX_FRAMES_IN_FLIGHT)
+        {
+            VCKLog::Error("FrameData",
+                ("Initialize: slotCount " + std::to_string(slotCount) +
+                 " out of range [1, " + std::to_string(MAX_FRAMES_IN_FLIGHT) +
+                 "]").c_str());
+            return false;
+        }
+        m_Data.resize(slotCount);
+        return true;
+    }
+
+    void Shutdown() { m_Data.clear(); }
+
+    T&       Get(uint32_t slotIndex)       { return m_Data[slotIndex]; }
+    const T& Get(uint32_t slotIndex) const { return m_Data[slotIndex]; }
+
+    auto begin() { return m_Data.begin(); }
+    auto end()   { return m_Data.end();   }
+
+private:
+    std::vector<T> m_Data;
+};
+
+
+// =============================================================================
+// [24] RenderGraph
+//
+//  Minimal declarative render graph.  Declare passes and their image
+//  dependencies; Compile() topologically sorts them and inserts
+//  vkCmdPipelineBarrier2 transitions; Execute() runs them in order.
+//
+//  Not Frostbite.  v0.5 scope: barrier insertion + pass ordering.
+//  Async compute, aliased transient memory → v0.6.
+//
+using PassHandle     = uint32_t;
+using ResourceHandle = uint32_t;
+
+static constexpr PassHandle     INVALID_PASS     = UINT32_MAX;
+static constexpr ResourceHandle INVALID_RESOURCE = UINT32_MAX;
+
+struct PassResources
+{
+    VkImageView GetView(ResourceHandle r) const
+    {
+        auto it = m_Views.find(r);
+        return it != m_Views.end() ? it->second : VK_NULL_HANDLE;
+    }
+
+    const VkRenderingInfo* RenderingInfo() const { return m_RenderingInfo; }
+
+private:
+    friend class RenderGraph;
+    std::unordered_map<ResourceHandle, VkImageView> m_Views;
+    VkRenderingInfo* m_RenderingInfo = nullptr;
+};
+
+class RenderGraph
+{
+public:
+    RenderGraph()  = default;
+    ~RenderGraph() = default;
+
+    RenderGraph(const RenderGraph&)            = delete;
+    RenderGraph& operator=(const RenderGraph&) = delete;
+
+    using PassCallback = std::function<void(VkCommandBuffer, PassResources&)>;
+
+    PassHandle     AddPass(const char* name, PassCallback callback);
+    ResourceHandle ImportImage(VulkanImage& image, VkImageLayout currentLayout);
+    ResourceHandle CreateTarget(const char* name, VkFormat format, VkExtent2D extent);
+
+    void Reads (PassHandle pass, ResourceHandle resource);
+    void Writes(PassHandle pass, ResourceHandle resource);
+
+    bool Compile(VulkanDevice& device);
+    void Execute(VkCommandBuffer cmd, uint32_t slotIndex);
+    void Shutdown();
+
+private:
+    struct PassNode
+    {
+        std::string                 name;
+        PassCallback                callback;
+        std::vector<ResourceHandle> reads;
+        std::vector<ResourceHandle> writes;
+        int                         order = -1;
+    };
+
+    struct ResourceNode
+    {
+        std::string    name;
+        VkFormat       format        = VK_FORMAT_UNDEFINED;
+        VkExtent2D     extent        = {};
+        VkImageLayout  currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VulkanImage*   image         = nullptr;
+        VulkanImage    managed;
+    };
+
+    struct PlannedBarrier
+    {
+        uint32_t      beforePass;
+        ResourceHandle resource;
+        VkImageLayout  oldLayout;
+        VkImageLayout  newLayout;
+    };
+
+    std::vector<PassNode>     m_Passes;
+    std::vector<ResourceNode> m_Resources;
+    std::vector<uint32_t>     m_Order;
+    std::vector<PlannedBarrier> m_Barriers;
+    bool                      m_Compiled = false;
+    VulkanDevice*             m_Device   = nullptr;
+};
 
 } // namespace VCK

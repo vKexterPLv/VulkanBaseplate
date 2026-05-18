@@ -62,6 +62,8 @@ namespace VCK {
         uint32_t                          GetImageCount()   const { return static_cast<uint32_t>(m_Images.size()); }
         const std::vector<VkImage>& GetImages()       const { return m_Images; }
         const std::vector<VkImageView>& GetImageViews()   const { return m_ImageViews; }
+        VkImage     GetImage    (uint32_t index) const { return m_Images[index];     }
+        VkImageView GetImageView(uint32_t index) const { return m_ImageViews[index]; }
 
         // MSAA colour views, one per swapchain image.  Empty vector when
         // cfg.swapchain.msaaSamples == VK_SAMPLE_COUNT_1_BIT (no MSAA).  The
