@@ -28,6 +28,8 @@ namespace VCK::DynamicRenderingExample {
     VulkanMesh      mesh;
     FrameScheduler  scheduler;
 
+    VulkanSwapchain::Config         swapCfg;
+    VulkanPipeline::Config          pipeCfg;
     VulkanPipeline::ShaderInfo      shaders;
     VulkanPipeline::VertexInputInfo vertexInput;
 
@@ -52,7 +54,18 @@ namespace VCK::DynamicRenderingExample {
         VkResult acq = vkAcquireNextImageKHR(
             device.GetDevice(), swapchain.GetSwapchain(),
             UINT64_MAX, f.ImageAvailable(), VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR || acq == VK_SUBOPTIMAL_KHR)
+        {
+            scheduler.EndFrame();
+            // Drain all in-flight frames before touching swapchain or pipeline.
+            scheduler.DrainInFlight();
+            swapchain.Initialize(device, context,
+                static_cast<uint32_t>(window.GetWidth()),
+                static_cast<uint32_t>(window.GetHeight()),
+                swapCfg);
+            pipeline.Reinitialize(device, swapchain, shaders, vertexInput, pipeCfg);
+            return;
+        }
 
         VkCommandBuffer cmd = f.PrimaryCmd();
 
@@ -157,9 +170,8 @@ namespace VCK::DynamicRenderingExample {
         dcfg.preferSync2 = true;
         device.Initialize(context, dcfg);
 
-        VulkanSwapchain::Config scfg{};
-        scfg.rendering.mode = RenderingMode::Dynamic;
-        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight(), scfg);
+        swapCfg.rendering.mode = RenderingMode::Dynamic;
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight(), swapCfg);
 
         shaders.VertexSpirv   = LoadSpv("./assets/triangle.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/triangle.frag.spv");
@@ -170,14 +182,13 @@ namespace VCK::DynamicRenderingExample {
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
         }};
         vertexInput.Attributes = {
-            { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,  .offset = offsetof(Vertex, pos) },
+            { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,    .offset = offsetof(Vertex, pos) },
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, col) },
         };
 
-        VulkanPipeline::Config pcfg{};
-        pcfg.rendering.mode = RenderingMode::Dynamic;
-        pcfg.dynamicColorFormat = swapchain.GetImageFormat();
-        pipeline.Initialize(device, swapchain, shaders, vertexInput, pcfg);
+        pipeCfg.rendering.mode    = RenderingMode::Dynamic;
+        pipeCfg.dynamicColorFormat = swapchain.GetImageFormat();
+        pipeline.Initialize(device, swapchain, shaders, vertexInput, pipeCfg);
 
         command.Initialize(device);
         sync.Initialize(device);

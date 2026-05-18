@@ -29,6 +29,7 @@ namespace VCK::OffscreenTargetExample {
     VulkanMesh           mesh;
     VulkanSampler        sampler;
     OffscreenTarget      offscreen;
+    FullscreenPass       fullscreenPass;
     FrameScheduler       scheduler;
 
     VulkanPipeline::ShaderInfo      shaders;
@@ -101,8 +102,9 @@ namespace VCK::OffscreenTargetExample {
         sc.extent = swapchain.GetExtent();
         vkCmdSetScissor(cmd, 0, 1, &sc);
 
-        // FullscreenPass records the draw (binds pipeline + descriptor + vkCmdDraw(3))
-        // fullscreenPass.Record(cmd, offscreen.GetImageView(), f.Slot());
+        // FullscreenPass: bind descriptor + draw a fullscreen triangle that
+        // samples the offscreen image via its push-descriptor set.
+        fullscreenPass.Record(cmd, offscreen.GetImageView(), f.Slot());
 
         vkCmdEndRenderPass(cmd);
 
@@ -167,6 +169,11 @@ namespace VCK::OffscreenTargetExample {
         FrameScheduler::Config fcfg{};
         scheduler.Initialize(device, command, sync, fcfg);
 
+        fullscreenPass.Initialize(device, swapchain, swapchainPipeline,
+                                  fsShaders.VertexSpirv, fsShaders.FragmentSpirv,
+                                  sampler.GetSampler(),
+                                  scheduler.SlotCount());
+
         const Vertex verts[] = {
             {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
             {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
@@ -180,6 +187,7 @@ namespace VCK::OffscreenTargetExample {
     {
         vkDeviceWaitIdle(device.GetDevice());
         scheduler.Shutdown();
+        fullscreenPass.Shutdown();
         mesh.Shutdown();
         sampler.Shutdown();
         offscreen.Shutdown();

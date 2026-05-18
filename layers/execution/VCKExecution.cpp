@@ -1425,6 +1425,28 @@ bool RenderGraph::Compile(VulkanDevice& device)
         return false;
     }
 
+    // Allocate GPU memory for every CreateTarget resource (image == nullptr).
+    for (ResourceNode& rn : m_Resources)
+    {
+        if (rn.image != nullptr) continue;           // imported — not our allocation
+        if (rn.format == VK_FORMAT_UNDEFINED) continue;
+        if (rn.managed.IsValid()) rn.managed.Shutdown();  // re-compile safety
+        if (!rn.managed.Create(*m_Device,
+                rn.extent.width, rn.extent.height, rn.format,
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT))
+        {
+            VCKLog::Error("RenderGraph",
+                ("Compile: failed to allocate managed image '" + rn.name + "'.").c_str());
+            return false;
+        }
+        rn.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VCKLog::Notice("RenderGraph",
+            ("Compile: allocated managed image '" + rn.name + "' " +
+             std::to_string(rn.extent.width) + "x" +
+             std::to_string(rn.extent.height) + ".").c_str());
+    }
+
     // Plan barriers: for each read dependency, add a barrier before the reader.
     for (uint32_t orderIdx = 0; orderIdx < static_cast<uint32_t>(m_Order.size()); ++orderIdx)
     {
