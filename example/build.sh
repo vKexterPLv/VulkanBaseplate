@@ -80,6 +80,11 @@ if [ -z "${CHOICE}" ]; then
     printf "   ${C_YEL}[12]${C_RESET} ${C_WHT}HelloExample${C_RESET}                minimal FrameScheduler + triangle\n"
     printf "   ${C_YEL}[13]${C_RESET} ${C_WHT}EasyCubeExample${C_RESET}             Primitives::Cube + VertexLayout + PushConstants + VCKMath\n"
     printf "   ${C_YEL}[14]${C_RESET} ${C_WHT}ShaderToolingExample${C_RESET}        ShaderLoader / Watcher / SpecConstants / Stage / Interface\n\n"
+    printf " ${C_BOLD}${C_WHT}v0.5 features${C_RESET}       ${C_DIM}(dynamic rendering / bindless / render graph)${C_RESET}\n"
+    printf "   ${C_YEL}[15]${C_RESET} ${C_WHT}DynamicRenderingExample${C_RESET}  vkCmdBeginRendering, sync2 barriers, no render pass\n"
+    printf "   ${C_YEL}[16]${C_RESET} ${C_WHT}BindlessExample${C_RESET}          descriptor indexing, texture array, push-constant index\n"
+    printf "   ${C_YEL}[17]${C_RESET} ${C_WHT}OffscreenTargetExample${C_RESET}   OffscreenTarget + FullscreenPass two-pass blit\n"
+    printf "   ${C_YEL}[18]${C_RESET} ${C_WHT}RenderGraphExample${C_RESET}       declarative RenderGraph, Kahn sort, auto barriers\n\n"
     printf "   ${C_YEL}[A]${C_RESET}  ${C_BOLD}Build all${C_RESET}\n"
     printf "   ${C_YEL}[T]${C_RESET}  ${C_BOLD}R14 unit-test harness (build + run)${C_RESET}\n"
     printf "   ${C_YEL}[0]${C_RESET}  ${C_DIM}Exit${C_RESET}\n\n"
@@ -106,5 +111,9 @@ case "${CHOICE}" in
     12)       configure_once; cmake --build "${BUILD_DIR}" -j --target HelloExample ;;
     13)       configure_once; cmake --build "${BUILD_DIR}" -j --target EasyCubeExample ;;
     14)       configure_once; cmake --build "${BUILD_DIR}" -j --target ShaderToolingExample ;;
-    *)        err "unknown selection '${CHOICE}'.  Pick 1-14, A, T, or 0." ;;
+    15)       configure_once; cmake --build "${BUILD_DIR}" -j --target DynamicRenderingExample ;;
+    16)       configure_once; cmake --build "${BUILD_DIR}" -j --target BindlessExample ;;
+    17)       configure_once; cmake --build "${BUILD_DIR}" -j --target OffscreenTargetExample ;;
+    18)       configure_once; cmake --build "${BUILD_DIR}" -j --target RenderGraphExample ;;
+    *)        err "unknown selection '${CHOICE}'.  Pick 1-18, A, T, or 0." ;;
 esac

@@ -5,7 +5,7 @@ VCK is small on purpose. No scene graph, no ECS, no material system, no asset pi
 What does land here:
 
 1. **Bug fixes** in core / expansion / execution / VMM / examples. Small, focused diffs. One bug per commit.
-2. **New examples** under `example/<Name>Example/` following the `main.cpp + App.{h,cpp}` pattern the existing 13 use. Don't reinvent the layout.
+2. **New examples** under `example/<Name>Example/` following the `main.cpp + App.{h,cpp}` pattern the existing 18 use. Don't reinvent the layout.
 3. **Docs / wiki polish.** The wiki mirrors `docs/`; edit the `docs/` source, not the wiki directly.
 4. **Cross-platform fixes** for Windows / Linux / macOS. CI runs all three.
 
@@ -13,12 +13,12 @@ What does land here:
 
 Read these. Yes really.
 
-- [`docs/Design.md`](docs/Design.md) — the 24 rules are the contract. Violating one gets a rework request unless you're changing the rule itself in the same PR.
+- [`docs/Design.md`](docs/Design.md) — the 25 rules are the contract. Violating one gets a rework request unless you're changing the rule itself in the same PR.
 - [`VCK.h`](VCK.h) — the header doc block is the API surface (R21). New public class or `cfg` knob? Update `VCK.h` in the same PR.
 - R20: every public class has at least one example. New API ships with its example.
 - Build it. `cmake -S example -B build -G Ninja && cmake --build build -j` plus `ctest --test-dir build`. CI does this on all 4 platforms. If your local fails, CI will fail.
 
-## The 24 design rules in one line each
+## The 25 design rules in one line each
 
 1. Explicit over magic. `Initialize` / `Shutdown` pairs, no singletons.
 2. Core owns; expansion / execution borrow raw pointers.
@@ -44,12 +44,13 @@ Read these. Yes really.
 22. VCK never owns user handles. Raw `Vk*` passed in is caller-owned. Handles VCK returns via getters are borrows — don't destroy them.
 23. Extension transparency. Every extension VCK enables silently is logged via `VCKLog::Notice` at init, with support status and fallback.
 24. `cfg` is the contract. If a behavioural difference changes how the user writes their renderer → it lives in `cfg`. If it only changes how VCK works underneath → silent bundle.
+25. All image memory barriers use `vkCmdPipelineBarrier2` / `VkImageMemoryBarrier2` when `VK_KHR_synchronization2` is active (`cfg.device.preferSync2`). The classic `vkCmdPipelineBarrier` path is the fallback when the extension is unavailable.
 
 ## Branching
 
 - `VCK` — current pre-release integration branch (default).
 - `first-vck` — historical first-release snapshot. Don't touch.
-- Feature branches: `devin/<timestamp>-<name>` or `feature/<name>` or `fix/<issue>`.
+- Feature branches: `feature/<name>` or `fix/<issue-number>`.
 
 ## Commits
 

@@ -1,11 +1,13 @@
 // =============================================================================
 //  VCKExpansion.h  -  Expansion layer (rendering building blocks)
 //
-//  Classes [1]-[12]: VulkanOneTimeCommand, VulkanFramebufferSet,
+//  Classes [1]-[12] + [26]-[36]: VulkanOneTimeCommand, VulkanFramebufferSet,
 //  VulkanDepthBuffer, VulkanSampler, VulkanTexture, VulkanMesh,
 //  VulkanDescriptorLayoutBuilder, VulkanDescriptorPool, VulkanUniformSet<T>,
 //  VulkanDescriptorAllocator, VulkanModelPipeline, VulkanMipmapGenerator,
-//  plus VCK::HandleLiveResize free function (base + depth overloads).
+//  VertexLayout [34], PushConstants [35], Primitives [36],
+//  ShaderLoader [26] through HotReload [31], OffscreenTarget [32],
+//  FullscreenPass [33].  Plus VCK::HandleLiveResize overloads.
 //
 //  See VCK.h for the full API reference - this file is the structural home
 //  of expansion classes, not the documentation source of truth.
@@ -782,7 +784,7 @@ public:
 
 
 // =============================================================================
-// [23] VertexLayout
+// [34] VertexLayout
 //
 //  Named vertex-input builder.  Turns a sequence of Add("name", type) calls
 //  into the two VkVertex* structs `VulkanModelPipeline::Initialize` expects.
@@ -826,7 +828,7 @@ private:
 
 
 // =============================================================================
-// [24] PushConstants
+// [35] PushConstants
 //
 //  Named push-constant block.  `Declare(name, type)` reserves the slot and
 //  records its byte offset.  `Set(name, value)` does a direct memcpy into
@@ -901,7 +903,7 @@ private:
 
 
 // =============================================================================
-// [25] Primitives
+// [36] Primitives
 //
 //  Tiny library of mesh builders that fill a CPU-side Mesh struct.  Pair
 //  with VulkanMesh to upload.  VCK never owns the returned Mesh (rule 22).

@@ -374,12 +374,11 @@ not begin until the first symbol is actually deprecated.
       RenderingMode::Dynamic` requests `VK_KHR_dynamic_rendering`,
       `cfg.device.enableBindless` requests `VK_EXT_descriptor_indexing`,
       `cfg.swapchain.presentMode = PresentMode::FifoLatestReady`
-      requests `VK_EXT_present_mode_fifo_latest_ready`. Stage-1 surface:
-      the extension is enabled and announced, but the rendering /
-      bindless codepaths themselves ship in v0.4; today the request is
-      acknowledged with a fallback `Notice` and behaviour stays Classic
-      / non-bindless. The present-mode knob is fully wired — when the
-      extension is present, `VulkanSwapchain::ChoosePresentMode` returns
+      requests `VK_EXT_present_mode_fifo_latest_ready`. v0.5: both the
+      dynamic-rendering and bindless codepaths are fully wired — see
+      `DynamicRenderingExample` and `BindlessExample`. The present-mode
+      knob is fully wired — when the extension is present,
+      `VulkanSwapchain::ChoosePresentMode` returns
       `VK_PRESENT_MODE_FIFO_LATEST_READY_EXT` directly.
 - `JobGraph` is a correct-but-simple `std::thread` + condvar scheduler. No
   fibres, no work-stealing. Drop-in replacement planned when a real
@@ -483,6 +482,23 @@ Shipped in v0.3:
 - [x] `chrome://tracing` export (v0.2.1:
   `DebugTimeline::DumpChromeTracing`).
 
+## Done in v0.5
+
+- `RenderingMode::Dynamic` end-to-end via `VK_KHR_dynamic_rendering`
+  (`vkCmdBeginRendering` / `vkCmdEndRendering`).
+- Bindless descriptors via `VK_EXT_descriptor_indexing` (`InitializeBindless` /
+  `WriteBindless`).
+- Sync2 barrier policy — all hot-path barriers use `vkCmdPipelineBarrier2` /
+  `VkImageMemoryBarrier2` when `cfg.device.preferSync2` and the device
+  supports `VK_KHR_synchronization2` (rule 25).
+- `RenderGraph` [24]: declarative pass + resource graph, Kahn sort, auto barriers.
+- `FrameData<T>` [23]: per-frame typed resource ring.
+- `HotReload` [31]: shader hot-reload pipeline.
+- `OffscreenTarget` [32] + `FullscreenPass` [33]: render-to-texture.
+- GPU timestamp pipeline: `DebugTimeline::InitQueryPool` / `BeginGpuSpan` /
+  `EndGpuSpan` / `ResolveGpuSpans`.
+- R14 unit-test harness in `tests/` (130+ cases).
+
 Deferred, in rough priority order:
 
 1. Semaphore-driven async acquire in VMM staging (today's v0.3 path
@@ -492,8 +508,6 @@ Deferred, in rough priority order:
 3. Bundled graphical profiler viewer (Perfetto / chrome://tracing is the
    external viewer today).
 4. MSVC/cl toolchain support (currently MinGW-w64 g++ only on Windows).
-5. Unit-test harness (currently only CI-gated compile + manual Windows
-   validation).
 
 ---
 

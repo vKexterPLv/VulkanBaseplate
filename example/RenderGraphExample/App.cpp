@@ -27,9 +27,14 @@ namespace VCK::RenderGraphExample {
     FrameScheduler       scheduler;
     RenderGraph          graph;
 
-    ResourceHandle offscreenRes = INVALID_RESOURCE;
+    ResourceHandle offscreenRes  = INVALID_RESOURCE;
     PassHandle     offscreenPass = INVALID_PASS;
     PassHandle     presentPass   = INVALID_PASS;
+
+    // Tracks the swapchain image index for the current frame so the
+    // offscreen-pass lambda (registered at Init time) can pick the right
+    // framebuffer at Execute time.
+    uint32_t g_imageIndex = 0;
 
     VulkanPipeline::ShaderInfo      shaders;
     VulkanPipeline::VertexInputInfo vertexInput;
@@ -57,6 +62,7 @@ namespace VCK::RenderGraphExample {
             UINT64_MAX, f.ImageAvailable(), VK_NULL_HANDLE, &imageIndex);
         if (acq == VK_ERROR_OUT_OF_DATE_KHR) { scheduler.EndFrame(); return; }
 
+        g_imageIndex = imageIndex;
         graph.Execute(f.PrimaryCmd(), f.Slot());
 
         GpuSubmissionBatcher::SubmitInfo si;
@@ -132,7 +138,7 @@ namespace VCK::RenderGraphExample {
                 VkRenderPassBeginInfo rp{};
                 rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
                 rp.renderPass        = pipeline.GetRenderPass();
-                rp.framebuffer       = framebuffers.Get(0);
+                rp.framebuffer       = framebuffers.Get(g_imageIndex);
                 rp.renderArea.extent = swapchain.GetExtent();
                 rp.clearValueCount   = 1;
                 rp.pClearValues      = &clr;
@@ -150,11 +156,16 @@ namespace VCK::RenderGraphExample {
             });
         graph.Writes(offscreenPass, offscreenRes);
 
+        // NOTE: This is a topology + Kahn-sort demo.  The offscreen pass
+        // renders the triangle directly into the acquired swapchain image;
+        // the present pass demonstrates graph ordering and auto-barrier
+        // emission but does not issue additional draw commands.
+        // In a full renderer the present pass would read pr.GetView(offscreenRes)
+        // and blit or draw it into a separate swapchain attachment.
         presentPass = graph.AddPass("present",
             [&](VkCommandBuffer /*cmd2*/, PassResources& /*pr*/)
             {
-                // In a real renderer: read pr.GetView(offscreenRes) and blit.
-                VCKLog::Notice("RenderGraph", "present pass callback invoked.");
+                VCKLog::Notice("RenderGraph", "present pass — barrier inserted by RenderGraph::Execute.");
             });
         graph.Reads(presentPass, offscreenRes);
 

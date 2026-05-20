@@ -89,6 +89,12 @@ echo    %C_YEL%[12]%C_RESET% %C_WHT%HelloExample%C_RESET%                minimal
 echo    %C_YEL%[13]%C_RESET% %C_WHT%EasyCubeExample%C_RESET%             Primitives::Cube + VertexLayout + PushConstants + VCKMath
 echo    %C_YEL%[14]%C_RESET% %C_WHT%ShaderToolingExample%C_RESET%        ShaderLoader / Watcher / SpecConstants / Stage / Interface
 echo.
+echo  %C_BOLD%%C_WHT%v0.5 features%C_RESET%       %C_DIM%(dynamic rendering / bindless / render graph)%C_RESET%
+echo    %C_YEL%[15]%C_RESET% %C_WHT%DynamicRenderingExample%C_RESET%  vkCmdBeginRendering, sync2 barriers, no render pass
+echo    %C_YEL%[16]%C_RESET% %C_WHT%BindlessExample%C_RESET%          descriptor indexing, texture array, push-constant index
+echo    %C_YEL%[17]%C_RESET% %C_WHT%OffscreenTargetExample%C_RESET%   OffscreenTarget + FullscreenPass two-pass blit
+echo    %C_YEL%[18]%C_RESET% %C_WHT%RenderGraphExample%C_RESET%       declarative RenderGraph, Kahn sort, auto barriers
+echo.
 echo    %C_YEL%[A]%C_RESET%  %C_BOLD%Build all%C_RESET%
 echo    %C_YEL%[T]%C_RESET%  %C_BOLD%R14 unit-test harness (build + run)%C_RESET%
 echo    %C_YEL%[0]%C_RESET%  %C_DIM%Exit%C_RESET%
@@ -125,9 +131,13 @@ if "%CHOICE%"=="11" set "TARGET=SchedulerPolicyExample"
 if "%CHOICE%"=="12" set "TARGET=HelloExample"
 if "%CHOICE%"=="13" set "TARGET=EasyCubeExample"
 if "%CHOICE%"=="14" set "TARGET=ShaderToolingExample"
+if "%CHOICE%"=="15" set "TARGET=DynamicRenderingExample"
+if "%CHOICE%"=="16" set "TARGET=BindlessExample"
+if "%CHOICE%"=="17" set "TARGET=OffscreenTargetExample"
+if "%CHOICE%"=="18" set "TARGET=RenderGraphExample"
 
 if "%TARGET%"=="" (
-    call :ERR "unknown selection '%CHOICE%'.  Pick 1-14, A, T, or 0."
+    call :ERR "unknown selection '%CHOICE%'.  Pick 1-18, A, T, or 0."
     exit /b 1
 )
 

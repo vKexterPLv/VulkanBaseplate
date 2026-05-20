@@ -1,11 +1,11 @@
 // =============================================================================
 //  VCKExecution.h  -  Execution & orchestration layer
 //
-//  Classes [13]-[22]: FramePolicy, TimelineSemaphore, DependencyToken,
+//  Classes [13]-[24]: FramePolicy, TimelineSemaphore, DependencyToken,
 //  QueueSet, GpuSubmissionBatcher, BackpressureGovernor, JobGraph,
-//  DebugTimeline, Frame, FrameScheduler.  Plus the DebugTimeline-aware
-//  HandleLiveResize overloads (rule 12 - explicit, timeline-observable
-//  recreation events).
+//  DebugTimeline, Frame, FrameScheduler, FrameData<T>, RenderGraph.
+//  Plus the DebugTimeline-aware HandleLiveResize overloads (rule 12 -
+//  explicit, timeline-observable recreation events).
 //
 //  See VCK.h for the full API reference - this file is the structural home
 //  of execution classes, not the documentation source of truth.
@@ -793,8 +793,8 @@ private:
 using PassHandle     = uint32_t;
 using ResourceHandle = uint32_t;
 
-static constexpr PassHandle     INVALID_PASS     = UINT32_MAX;
-static constexpr ResourceHandle INVALID_RESOURCE = UINT32_MAX;
+inline constexpr PassHandle     INVALID_PASS     = UINT32_MAX;
+inline constexpr ResourceHandle INVALID_RESOURCE = UINT32_MAX;
 
 struct PassResources
 {

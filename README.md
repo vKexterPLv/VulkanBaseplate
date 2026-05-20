@@ -187,7 +187,7 @@ modern GPU); `FrameScheduler` uses it by default.
 
 ## Examples
 
-Thirteen runnable examples in `example/`. All follow a 3-file + `assets/`
+Eighteen runnable examples in `example/`. All follow a 3-file + `assets/`
 layout (`main.cpp` + `App.h` + `App.cpp` + `assets/`), all use the
 cross-platform `VCK::Window` facade and `VCK::HandleLiveResize` (so resizing
 from 720p to 4K is handled in-library). Build with:
@@ -211,6 +211,11 @@ from 720p to 4K is handled in-library). Build with:
 | 11 | `SchedulerPolicyExample`    | live-swap Lockstep / Pipelined / AsyncMax |
 | 12 | `HelloExample`              | smallest `FrameScheduler` program — mostly VCK |
 | 13 | `EasyCubeExample`           | `Primitives::Cube` + `VertexLayout` + `PushConstants` + `VCKMath` — peak ergonomic |
+| 14 | `ShaderToolingExample`      | `ShaderLoader` / `ShaderWatcher` / `SpecConstants` / `ShaderStage` / `ShaderInterface` |
+| 15 | `DynamicRenderingExample`   | `RenderingMode::Dynamic`, `vkCmdBeginRendering` / `vkCmdEndRendering`, sync2 barriers |
+| 16 | `BindlessExample`           | `cfg.device.enableBindless`, `InitializeBindless` / `WriteBindless`, push-constant index |
+| 17 | `OffscreenTargetExample`    | `OffscreenTarget` + `FullscreenPass` — render-to-texture two-pass blit |
+| 18 | `RenderGraphExample`        | `RenderGraph` — declarative pass graph, Kahn sort, auto-barriers |
 
 Full walkthroughs: [`docs/Examples.md`](docs/Examples.md).
 
@@ -223,7 +228,7 @@ from a Developer Cmd Prompt and `cl` is used; otherwise MinGW-w64 `g++`
 ```
 cd example
 build.bat                    :: interactive menu, picks compiler from PATH
-build.bat A                  :: build all 13 examples
+build.bat A                  :: build all 18 examples
 build.bat T                  :: build + run the R14 unit-test harness
 :: or skip the wrapper entirely:
 cmake -S . -B build -G Ninja
@@ -237,7 +242,7 @@ cd example
 ./build.sh
 ```
 
-Both scripts share the same `[1]-[13] / [A] / [T] / [0]` menu and print a
+Both scripts share the same `[1]-[18] / [A] / [T] / [0]` menu and print a
 diagnostic if tools or dependencies are missing. `[T]` builds and links
 the R14 unit-test harness against the lib-once `vck.lib` / `libvck.a` and
 runs it. Full step-by-step: [`docs/Build.md`](docs/Build.md).

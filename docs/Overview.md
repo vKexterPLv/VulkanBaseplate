@@ -2,7 +2,7 @@
 
 # Overview &nbsp;·&nbsp; What VCK is, gives, and refuses to do
 
-A single page to hand a new teammate, a reviewer, or yourself six months from now.
+One-page orientation for anyone coming into the codebase cold.
 
 </div>
 
@@ -66,6 +66,9 @@ needs to be initialised.
 | `Primitives::Cube/Plane/Sphere/Quad/Line` | Cube setup goes from ~40 lines to one call (v0.2.1). |
 | `VCKMath` (Vec2/3/4, Mat4)         | Just enough maths to feed GLSL — no SIMD, no templates (v0.2.1). |
 | `HandleLiveResize`                 | Drop-in "WM_SIZE, please just work" one-liner; v0.3 scheduler-aware overload. |
+| `HotReload` [31]                   | `ShaderWatcher` → `DrainInFlight` → `Reinitialize` → `Recreate` pipeline loop. |
+| `OffscreenTarget` [32]             | `VulkanImage` + `VkRenderPass` + `VkFramebuffer` for render-to-texture. |
+| `FullscreenPass` [33]              | Fullscreen triangle with one `COMBINED_IMAGE_SAMPLER` input. |
 | `PickMSAA` / `DetectRecommendedAA` | VRAM-tier + forward/motion-aware AA picker. |
 
 ### Execution (`layers/execution/`, opt-in)
@@ -80,6 +83,8 @@ needs to be initialised.
 | `QueueSet`              | `Graphics()` / `Compute()` / `Transfer()` `VkQueue`s — really dedicated on AMD/NVIDIA in v0.3. |
 | `DebugTimeline`         | Plain-text + chrome://tracing JSON span recorder. Free when disabled. |
 | `FramePolicy`           | `Lockstep` / `Pipelined` / `AsyncMax`. |
+| `FrameData<T>` [23]     | Per-frame typed resource ring for UBOs, descriptor sets, staging buffers. |
+| `RenderGraph` [24]      | Declarative pass + resource graph; Kahn sort + auto sync2 barriers. |
 | `DrainInFlight()` (v0.3) | Wait on every slot's most recent submit without touching the device globally. Replaces `vkDeviceWaitIdle` on the resize path. |
 
 ### VMM (`layers/vmm/`, opt-in)
@@ -132,8 +137,8 @@ Paired, honest answer per layer:
 | Layer set used                                    | You get |
 |---------------------------------------------------|---------|
 | Core only                                         | A raw Vulkan app with less boilerplate. You own the frame, sync, resize. |
-| Core + expansion                                  | A single-pass renderer with textures, meshes, MSAA, mipmaps, descriptors, live resize. 9 of 13 examples. |
-| Core + expansion + execution                      | A multi-queue, multi-submit renderer with CPU task-graph parallelism, backpressure, timeline sync, chrome://tracing capture. 4 of 13 examples. |
+| Core + expansion                                  | A single-pass renderer with textures, meshes, MSAA, mipmaps, descriptors, live resize. 9 of 18 examples. |
+| Core + expansion + execution                      | A multi-queue, multi-submit renderer with CPU task-graph parallelism, backpressure, timeline sync, chrome://tracing capture. Plus dynamic rendering, bindless textures, render graph, and offscreen targets (v0.5). |
 | Core + expansion + execution + VMM                | Everything above plus typed GPU-memory lifetimes and a pooled staging ring. `VMMExample`. |
 | Core + expansion + execution + VMM + [Cookbook](Cookbook) | A full indie renderer: image loading, model loading, SDF primitives, text, FXAA / SMAA / TAA skeletons, ImGui overlay, PNG readback for golden-image tests. |
 
@@ -144,7 +149,7 @@ GLFW, no audio, no animation, no physics. Rule 16 on purpose.
 
 ---
 
-## Modern optimisations (v0.3 state)
+## Modern Vulkan
 
 These are the techniques VCK actually uses today, not a wishlist.
 
@@ -190,6 +195,21 @@ These are the techniques VCK actually uses today, not a wishlist.
   (VRAM tier → forward path → motion vectors → pick) once at
   `Swapchain::Initialize`. Sample-based AA is applied; post-process names
   are returned to the renderer to wire up.
+- **Dynamic rendering (v0.5).** `cfg.rendering.mode = RenderingMode::Dynamic`
+  enables `VK_KHR_dynamic_rendering`. `vkCmdBeginRendering` replaces render
+  pass objects; sync2 (`VK_KHR_synchronization2`) barriers replace all
+  `vkCmdPipelineBarrier` calls on the hot path.
+- **Bindless textures (v0.5).** `cfg.device.enableBindless` enables
+  `VK_EXT_descriptor_indexing`. `VulkanDescriptorAllocator::InitializeBindless`
+  creates a partially-bound, update-after-bind descriptor array; `WriteBindless`
+  fills slots at runtime; a push-constant index selects the active texture
+  per draw call.
+- **Render graph (v0.5).** `RenderGraph` [24] lets you declare passes and
+  resources, topologically sorts them via Kahn's algorithm, and emits
+  `VkImageMemoryBarrier2` transitions automatically between passes.
+- **Offscreen rendering (v0.5).** `OffscreenTarget` [32] owns a `VulkanImage`
+  + `VkRenderPass` + `VkFramebuffer` for render-to-texture. `FullscreenPass`
+  [33] blits it back to the swapchain with a single sampler.
 
 ---
 
@@ -198,11 +218,11 @@ These are the techniques VCK actually uses today, not a wishlist.
 - **One header you can actually read.** `VCK.h` is ~1,100 lines including the
   class index, config knobs, short-form rules, and function indexes per
   `.cpp`. It *is* the documentation.
-- **22 audited design rules** (see [Design](Design)). Every PR is reviewed
+- **25 audited design rules** (see [Design](Design)). Every PR is reviewed
   against them; rule violations in review are fixed in the same PR, not
   deferred.
-- **Rule 20: every public class has at least one example.** 13 examples in
-  `example/` as of v0.3 cover the full surface.
+- **Rule 20: every public class has at least one example.** 18 examples in
+  `example/` cover the full surface.
 - **Rule 14: every failure is a bool *and* a `VCKLog::Error`.** Silent
   failures don't exist.
 - **Rule 21: breaking changes to `VCK.h` bump the minor until v1.0.** You
@@ -217,7 +237,7 @@ These are the techniques VCK actually uses today, not a wishlist.
 
 ---
 
-## Honest summary (from the maintainer's side)
+## Summary
 
 VCK is not trying to be Unreal, not trying to be bgfx, not trying to be
 sokol. It sits in a specific spot: *"I want to write a Vulkan renderer, not a
@@ -225,34 +245,23 @@ Vulkan tutorial."* If that's you, you will feel at home. If you want a scene
 graph, a material editor, or a render-graph library, this is not that tool
 and the rules explicitly promise it never will be.
 
-**Pick VCK if:**
+VCK is the right fit if you are writing a small-to-medium renderer and want
+to skip ~2,000 lines of boilerplate without losing control. The per-frame
+timeline is explicit and observable (chrome://tracing, `VCKLog`, named fence /
+timeline / semaphore handles). Live resize and multi-queue parallelism are
+handled correctly without you writing the spec. The public surface is small
+enough to keep in your head.
 
-- You are writing a small-to-medium renderer and want to skip ~2,000 lines
-  of boilerplate without losing control.
-- You want the per-frame timeline made legible (chrome://tracing, `VCKLog`,
-  explicit fence / timeline / semaphore names).
-- You want live resize and multi-queue parallelism handled correctly without
-  writing the spec yourself.
-- You want the public surface small enough to keep in your head.
+If you want a scene graph, a material editor, or a full render-graph library
+with resource aliasing and pass culling, this is the wrong tool — and the
+design rules promise it always will be. VCK is explicit about *everything*;
+that is the whole point, but it does mean you still write the draw loop.
 
-**Pick something else if:**
-
-- You want a batteries-included 3D engine with a scene graph.
-- You want an "it just works" drop-in — VCK is explicit about *everything*.
-  That's the whole point, but it does mean you still write the draw loop.
-- You want a render-graph library. VCK's execution layer is a scheduler, not
-  a graph compiler; if you need automatic resource aliasing and pass
-  culling, you want something like `render-graph` on top of VCK, not VCK
-  itself.
-
-v0.3 puts VCK on the "production-ready for indie renderers" ladder: the last
-runtime `vkDeviceWaitIdle` is gone, timeline semaphores are wired end-to-end,
-dedicated queues actually parallelise, VMM is honest about fences, secondary
-command buffers are usable for multi-threaded recording, and every rule 4
-blocking site is on an explicit allow-list. The known unshipped items live
-in [docs/Design.md → Roadmap](Design.md#roadmap) — async acquire in VMM,
-GPU-driven indirect draws, bundled chrome://tracing viewer, cl/MSVC build,
-unit tests.
+v0.5 ships dynamic rendering, bindless textures, sync2 barriers, render graph,
+`FrameData<T>`, `HotReload`, `OffscreenTarget`, and `FullscreenPass`. Combined
+with the v0.3 foundation (timeline semaphores, dedicated queues, scheduler-aware
+drain, secondary command buffers), VCK is production-ready for indie renderers.
+The known deferred items live in [docs/Design.md → Roadmap](Design.md#roadmap).
 
 If you're picking the kit up for the first time, read
 [Hello VCK](Hello-VCK) next, then skim `VCK.h`'s header block.

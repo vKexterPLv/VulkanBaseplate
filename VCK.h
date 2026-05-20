@@ -28,11 +28,11 @@
 //          VulkanSync.{h,cpp}         Per-frame semaphores + fences.
 //          VmaImpl.cpp                VMA single TU (VMA_IMPLEMENTATION).
 //      expansion/                - reusable rendering building blocks.
-//          VCKExpansion.{h,cpp}       Classes [1]-[12] + [23]-[25] + [26]-[33] +
+//          VCKExpansion.{h,cpp}       Classes [1]-[12] + [26]-[36] +
 //                                      HandleLiveResize overloads.
 //          VCKMath.h                  Vec2/3/4, Mat4 + free helpers.
 //      execution/                - frame scheduling & observability.
-//          VCKExecution.{h,cpp}       Classes [13]-[22] + timeline-aware
+//          VCKExecution.{h,cpp}       Classes [13]-[24] + timeline-aware
 //                                      and scheduler-aware HandleLiveResize
 //                                      overloads.
 //      vmm/                      - memory manager (optional).
@@ -46,8 +46,8 @@
 //          libglfw3.a            - GLFW pre-compiled MinGW lib (download,
 //                                  not source - Linux/macOS use pkg-config).
 //      build.bat / build.sh      - Windows / Linux+macOS build scripts.
-//      <14 example dirs>         - see example/README.md or docs/Examples.md.
-//                                   Menu now runs [1]-[14], [A] builds all.
+//      <18 example dirs>         - see example/README.md or docs/Examples.md.
+//                                   Menu now runs [1]-[18], [A] builds all.
 //  docs/                         - design, build, examples, API reference.
 //                                  Start with docs/Overview.md for the
 //                                  one-page "what VCK is / gives / never
@@ -168,9 +168,9 @@
 //    [10] VulkanDescriptorAllocator  allocator around 7/8/9.
 //    [11] VulkanModelPipeline        pipeline preset for textured model.
 //    [12] VulkanMipmapGenerator      runtime mipmap blit utility.
-//    [23] VertexLayout               named vertex-input builder.
-//    [24] PushConstants              named push-constant block.
-//    [25] Primitives                 Cube/Plane/Sphere/Quad/Line mesh builders.
+//    [34] VertexLayout               named vertex-input builder.
+//    [35] PushConstants              named push-constant block.
+//    [36] Primitives                 Cube/Plane/Sphere/Quad/Line mesh builders.
 //    VCK::Vec2/3/4 + Mat4           POD math primitives (VCKMath.h).
 //    HandleLiveResize(window, dev, sc, fb, pipe)           base overload.
 //    HandleLiveResize(window, dev, sc, fb, pipe, depth)    + depth buffer.
@@ -452,9 +452,9 @@
 //  [10] VulkanDescriptorAllocator     - general-purpose pool supporting multiple descriptor types
 //  [11] VulkanModelPipeline           - full model pipeline with UBO layouts + push constants
 //  [12] VulkanMipmapGenerator         - blit-based mip chain generation for any VkImage
-//  [23] VertexLayout                  - named vertex-input builder (VkVertex* structs)
-//  [24] PushConstants                 - named push-constant block (Declare / Set / Apply)
-//  [25] Primitives                    - Cube / Plane / Sphere / Quad / Line mesh builders
+//  [34] VertexLayout                  - named vertex-input builder (VkVertex* structs)
+//  [35] PushConstants                 - named push-constant block (Declare / Set / Apply)
+//  [36] Primitives                    - Cube / Plane / Sphere / Quad / Line mesh builders
 //  [26] ShaderLoader                  - loads SPIR-V from .spv files, optional GLSL via glslangValidator
 //  [27] ShaderWatcher                 - polls .spv timestamps for hot reload (debug-only)
 //  [28] SpecConstants                 - VkSpecializationInfo builder (specialization constants)
@@ -1152,7 +1152,7 @@
                                                     VkImage, uint32_t w, uint32_t h,
                                                     uint32_t mipLevels)
 
- VertexLayout  [23]  - named vertex-input builder.
+ VertexLayout  [34]  - named vertex-input builder.
    Call Add(name, VertexAttrType::...) once per attribute in declaration
    order.  Location indices start at 0 and increment; byte offsets pack
    tight; Stride() returns the running total.  Binding() builds one
@@ -1175,7 +1175,7 @@
        .Add("uv",       VCK::VertexAttrType::Vec2);
      // Pass vl.Binding(0) + vl.Attributes(0) into VulkanModelPipeline.
 
- PushConstants  [24]  - named push-constant block.
+ PushConstants  [35]  - named push-constant block.
    Declare(name, type) reserves a slot; Set(name, value) writes into the
    backing buffer with no hashing on the hot path (names are compared
    linearly - blocks are small).  Apply() emits one vkCmdPushConstants
@@ -1202,7 +1202,7 @@
      pc.Set("mvp", proj * view * model).Set("model", model);
      pc.Apply(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT);
 
- Primitives  [25]  - namespace of CPU-side mesh builders.
+ Primitives  [36]  - namespace of CPU-side mesh builders.
    Each builder returns a Primitives::Mesh by value.  Caller owns the
    buffers (rule 22) and can upload via VulkanMesh.  Vertex layout is
    always position (Vec3) + normal (Vec3) + uv (Vec2), 32-bit indices.

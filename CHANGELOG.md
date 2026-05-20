@@ -2,60 +2,34 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased] — v0.5 pre-flight + Theme A
-
-### Changed (breaking, expansion layer)
-
-- **`VulkanDescriptorPool::Initialize` now takes `uint32_t framesInFlight`** (Theme A, A7 — Bug B-1). Pre-fix the pool hardcoded `MAX_FRAMES_IN_FLIGHT` for both `VkDescriptorPoolSize::descriptorCount` and `VkDescriptorPoolCreateInfo::maxSets`, so users running with `cfg.sync.framesInFlight = 1` (Lockstep) or any value other than the compile-time max over-allocated descriptor sets that were never used. The new signature is `Initialize(device, layout, type, framesInFlight)`; the caller passes `cfg.sync.framesInFlight` (or whatever runtime value drove `VulkanSync` / `VulkanCommand`) so the descriptor ring matches the frame ring exactly. `framesInFlight` outside `[1, MAX_FRAMES_IN_FLIGHT]` returns `false + VCKLog::Error("DescriptorPool", ...)`. New getter `GetFramesInFlight()` exposes the value so `VulkanUniformSet<T>` reads it directly — the user threads `framesInFlight` to the pool only, never to the UBO.
-- **`VulkanDescriptorPool::GetSet(frameIndex)`** is now bounds-checked: out-of-range `frameIndex` returns `VK_NULL_HANDLE` and emits `VCKLog::Error("DescriptorPool", ...)`. Pre-fix the `std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>` returned the (possibly never-allocated) zero-init slot silently.
-- **`VulkanUniformSet<T>`** now sizes itself to `pool.GetFramesInFlight()` and only iterates that many slots in `Initialize` / `Shutdown`. `GetSet(frameIndex)` and `Write(frameIndex, ...)` are bounds-checked the same way as the pool. `GetFramesInFlight()` getter added for symmetry. Internal storage is still `std::array<,MAX_FRAMES_IN_FLIGHT>` (`VulkanBuffer` is non-movable), but only the live slots are populated — the rest cost nothing per R19.
-
-No callers in the repo (no example uses `VulkanDescriptorPool` or `VulkanUniformSet<T>` directly today); the existing examples that need per-frame UBOs roll their own. The break is forward-compatible — the new parameter has no default, so any out-of-tree caller will see a compile error and a one-line fix.
-
-### Fixed (docs / examples)
-
-- **`example/ShaderToolingExample/App.cpp` header comment referenced a non-existent `pipeline.Reinitialize`** (Theme A, A9 — Bug B-4). The actual hot-reload path does `pipeline.Shutdown() + pipeline.Initialize(...)`; the comment now matches. A real `VulkanPipeline::Reinitialize` method is tracked separately as Theme C5.
-
-### Tests
-
-- **`tests/test_a7_descriptor_pool_fif.cpp`** — 9 new R14 cases covering the post-fix contract: default-construct reports zero frames-in-flight, `GetSet` past the ring returns `VK_NULL_HANDLE` and emits exactly one tagged `VCKLog::Error` (both pool and UBO-set sides), `Write` past the ring is a logged no-op, `Initialize` on a zero-FIF pool fails fast without dereferencing the device. R14 harness now totals **130 cases**.
-
-### v0.5 pre-flight (already merged)
-
-- **PF1** — strip stale `.exe` + stray binaries, `.gitignore` parity ([PR #13](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/13)).
-- **PF3** — `Versioning and deprecation` policy paragraph in `docs/Design.md` ([PR #14](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/14)).
-- **PF5** — Linux ASan + UBSan CI job ([PR #15](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/15)). First run is clean against the existing `VCK` branch — Theme A bug-audit work lands on a clean sanitizer baseline.
-- **PF2** — bump Windows Vulkan SDK 1.3.290 → 1.4.321, matches the vendored 1.4.349 headers, unblocks `vkCmdBeginRendering` for Theme E1 Dynamic ([PR #16](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/16)).
-- **PF4** — `docs/Perf.md` baseline + `docs/perf_baseline.sh` harness ([PR #17](https://github.com/vKexterPLv/Vulkan-Core-Kit/pull/17)). First reading: 30 public classes, 22 cfg knobs, 14 examples, 1215 LoC in `VCK.h`, 1.2 MiB `libvck.a`, 67 s clean build, 4.1 MiB `vck_tests` peak RSS. GPU anchors (A3 frame time, A4 staging throughput, A5 hot-reload latency) populated separately on a developer machine.
-
 ## [0.5.0] – 2026-05-18
 
 ### Added
-- `RenderingMode::Dynamic` end-to-end: `DynamicRenderingExample` shows `vkCmdBeginRendering` / `vkCmdEndRendering` with barrier transitions (Task 12)
-- `cfg.device.enableBindless` fully wired: `VulkanDescriptorAllocator::InitializeBindless()` + `WriteBindless()` + `BindlessExample` (Task 13)
+- `RenderingMode::Dynamic` end-to-end: `DynamicRenderingExample` shows `vkCmdBeginRendering` / `vkCmdEndRendering` with barrier transitions
+- `cfg.device.enableBindless` fully wired: `VulkanDescriptorAllocator::InitializeBindless()` + `WriteBindless()` + `BindlessExample`
 - `VK_KHR_synchronization2`: all barriers use `vkCmdPipelineBarrier2` / `VkImageMemoryBarrier2`
-- `FrameData<T>` per-frame typed resource ring [23] (Task 7)
-- `RenderGraph` declarative barrier-aware skeleton [24] (Task 11)
-- `VCK::HotReload` [31] — drives ShaderWatcher→DrainInFlight→Reinitialize→Recreate (Task 8)
-- `VCK::OffscreenTarget` [32] — VulkanImage + VkRenderPass/VkFramebuffer for render-to-texture (Task 9)
-- `VCK::FullscreenPass` [33] — fullscreen triangle with sampler input (Task 10)
-- `VulkanPipeline::Reinitialize` for hot-reload + live-resize (Task 5)
-- `FrameScheduler::SlotCount()` getter (Task 6)
+- `FrameData<T>` per-frame typed resource ring [23]
+- `RenderGraph` declarative barrier-aware skeleton [24]
+- `VCK::HotReload` [31] — drives ShaderWatcher→DrainInFlight→Reinitialize→Recreate
+- `VCK::OffscreenTarget` [32] — VulkanImage + VkRenderPass/VkFramebuffer for render-to-texture
+- `VCK::FullscreenPass` [33] — fullscreen triangle with sampler input
+- `VulkanPipeline::Reinitialize` for hot-reload + live-resize
+- `FrameScheduler::SlotCount()` getter
 - `VulkanSwapchain::GetImage(uint32_t)` / `GetImageView(uint32_t)` index accessors
 - `VulkanDescriptorAllocator::InitializeBindless` / `WriteBindless` / `GetBindlessSet` / `GetBindlessLayout`
-- `DebugTimeline::InitQueryPool` / `BeginGpuSpan` / `EndGpuSpan` / `ResolveGpuSpans` — GPU timestamp pipeline (Task 15)
-- `DynamicRenderingExample`, `BindlessExample`, `OffscreenTargetExample`, `RenderGraphExample` (Task 14)
-- ASan + UBSan CI job `linux-sanitize` (Task 16)
+- `DebugTimeline::InitQueryPool` / `BeginGpuSpan` / `EndGpuSpan` / `ResolveGpuSpans` — GPU timestamp pipeline
+- `DynamicRenderingExample`, `BindlessExample`, `OffscreenTargetExample`, `RenderGraphExample`
+- ASan + UBSan CI job `linux-sanitize`
 
 ### Changed
-- `VulkanDescriptorAllocator::Initialize`: `std::initializer_list<PoolSize>` → `const std::vector<PoolSize>&` (MSVC ABI fix, Task 3)
-- `VulkanDevice` R23 notice updated to point at `InitializeBindless` (Task 13)
-- `VCK.h` expansion header now covers `[1]-[12] + [23]-[25] + [26]-[33]`
-- `VCK.h` example count: 13 → 14 (Task 1); actual dirs now 18
+- `VulkanDescriptorAllocator::Initialize`: `std::initializer_list<PoolSize>` → `const std::vector<PoolSize>&` (MSVC ABI fix)
+- `VulkanDevice` R23 notice updated to point at `InitializeBindless`
+- `VCK.h` expansion header now covers `[1]-[12] + [26]-[36]`
+- `VCK.h` example count: 13 → 14; actual dirs now 18
 
 ### Fixed
-- Stale QueueSet [16] and TimelineSemaphore [14] comments in `VCKExecution.h` (Task 2)
-- `ShaderWatcher` debug-only warning when instantiated outside debug mode (Task 4)
+- Stale QueueSet [16] and TimelineSemaphore [14] comments in `VCKExecution.h`
+- `ShaderWatcher` debug-only warning when instantiated outside debug mode
 - `VulkanDescriptorAllocator::Shutdown` now destroys `m_BindlessLayout`
 
 ---
@@ -339,6 +313,13 @@ period.
 - `example/build.bat` Windows MinGW builder with `[1]-[9] / [A] / [0]` menu.
 - GitHub Actions CI (`.github/workflows/build.yml`) running `build.bat [A]` on Windows.
 
-[Unreleased]: https://github.com/vKexterPLv/VCK/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/vKexterPLv/VCK/releases/tag/v0.2.0
-[0.1.0]: https://github.com/vKexterPLv/VCK/releases/tag/v0.1.0
+[Unreleased]: https://github.com/vKexterPLv/Vulkan-Core-Kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.5.0
+[0.4.0]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.4.0
+[0.3.3]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.3.3
+[0.3.2]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.3.2
+[0.3.1]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.3.1
+[0.3.0]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.3.0
+[0.2.1]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.2.1
+[0.2.0]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.2.0
+[0.1.0]: https://github.com/vKexterPLv/Vulkan-Core-Kit/releases/tag/v0.1.0

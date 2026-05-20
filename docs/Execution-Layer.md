@@ -225,3 +225,85 @@ tl.DumpChromeTracing("frame.json");     // chrome://tracing / Perfetto (v0.2.1)
 
 The scheduler itself records `frame`, `jobs`, `fence-wait`, and
 `backpressure` spans automatically.
+
+---
+
+## v0.5 Classes
+
+### FrameData\<T\> [23]
+
+A per-frame typed resource ring. Allocates `SlotCount()` instances of `T`
+(one per in-flight frame slot) and gives you the current slot's instance via
+`Get(frame)`. Useful for per-frame UBOs, staging buffers, or any resource
+that must not be written while the GPU is reading from a previous frame.
+
+```cpp
+struct PerFrameUBO { glm::mat4 mvp; };
+
+VCK::FrameData<PerFrameUBO> frameData;
+frameData.Initialize(scheduler.SlotCount());
+
+// In your draw loop:
+auto& ubo = frameData.Get(frame);
+ubo.mvp = proj * view * model;
+// ... upload ubo to your uniform buffer for this slot ...
+
+frameData.Shutdown();
+```
+
+`SlotCount()` returns the number of in-flight frame slots (`FrameScheduler`
+was given at construction; default is `framesInFlight` from `cfg.sync`).
+
+---
+
+### RenderGraph [24]
+
+A declarative, barrier-aware render graph. You declare passes and resources;
+`Compile` topologically sorts them via Kahn's algorithm and records the
+`VkImageMemoryBarrier2` transitions between passes. `Execute` runs the sorted
+pass callbacks in order, emitting barriers automatically.
+
+```cpp
+VCK::RenderGraph graph;
+
+// Declare a resource (a render target):
+VCK::ResourceHandle colour = graph.CreateTarget("colour",
+    swapchain.GetImageFormat(), swapchain.GetExtent());
+
+// Declare two passes:
+VCK::PassHandle offscreenPass = graph.AddPass("offscreen",
+    [&](VkCommandBuffer cmd, VCK::PassResources&) {
+        // ... render triangle to framebuffer ...
+    });
+graph.Writes(offscreenPass, colour);
+
+VCK::PassHandle presentPass = graph.AddPass("present",
+    [&](VkCommandBuffer cmd, VCK::PassResources& pr) {
+        // pr.GetView(colour) — image view for the offscreen result
+    });
+graph.Reads(presentPass, colour);
+
+// Compile once (after all passes declared):
+graph.Compile(device);
+
+// Execute every frame:
+graph.Execute(f.PrimaryCmd(), f.Slot());
+
+graph.Shutdown();
+```
+
+Constants: `VCK::INVALID_PASS`, `VCK::INVALID_RESOURCE`. `Compile` returns
+`false` and logs an error if a cycle is detected or a resource is undeclared.
+
+`PassResources::GetView(handle)` returns the `VkImageView` for a declared
+target resource, ready to sample or blit in the pass callback.
+
+### SlotCount()
+
+`FrameScheduler::SlotCount()` returns the number of in-flight frame slots.
+Pass it to `FrameData<T>::Initialize` to size the resource ring correctly.
+
+```cpp
+VCK::FrameData<MyUBO> ubo;
+ubo.Initialize(scheduler.SlotCount());
+```

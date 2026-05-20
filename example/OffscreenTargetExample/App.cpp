@@ -158,7 +158,7 @@ namespace VCK::OffscreenTargetExample {
                              { static_cast<uint32_t>(window.GetWidth()),
                                static_cast<uint32_t>(window.GetHeight()) });
 
-        offscreenPipeline.Initialize(device, swapchain, shaders, vertexInput);
+        offscreenPipeline.Initialize(device, VK_FORMAT_R8G8B8A8_UNORM, shaders, vertexInput);
         swapchainPipeline.Initialize(device, swapchain, fsShaders, {});
 
         command.Initialize(device);

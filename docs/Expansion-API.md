@@ -176,3 +176,107 @@ if (VCK::VulkanMipmapGenerator::IsFormatSupported(dev, VK_FORMAT_R8G8B8A8_SRGB))
 
 The source image must have been created with `TRANSFER_SRC_BIT | TRANSFER_DST_BIT`
 usage.
+
+---
+
+## v0.5 Classes
+
+### HotReload [31]
+
+Drives the shader hot-reload pipeline: `ShaderWatcher` detects a `.spv`
+change, `DrainInFlight` retires in-flight frames, then `Reinitialize` +
+`Recreate` rebuild the pipeline and framebuffers in place.
+
+```cpp
+VCK::HotReload hotReload;
+hotReload.Initialize(device, watcher, scheduler, pipeline, swapchain, framebuffers, shaders, vertexInput);
+// Run on a background thread or poll in the main loop:
+hotReload.Poll();
+hotReload.Shutdown();
+```
+
+Enabled only when `cfg.debug = true`. In release builds `Poll()` is a no-op
+and `ShaderWatcher` emits a `VCKLog::Notice` if instantiated outside debug mode.
+
+---
+
+### OffscreenTarget [32]
+
+Allocates a `VulkanImage` + matching `VkRenderPass` + `VkFramebuffer` for
+render-to-texture. The image format and extent are caller-specified.
+
+```cpp
+VCK::OffscreenTarget offscreen;
+offscreen.Initialize(device, VK_FORMAT_R8G8B8A8_UNORM, {width, height});
+
+// In your draw loop — pass 1:
+VkRenderPassBeginInfo rp{};
+rp.renderPass  = offscreen.GetRenderPass();
+rp.framebuffer = offscreen.GetFramebuffer();
+rp.renderArea.extent = offscreen.GetExtent();
+vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+// ... draw scene ...
+vkCmdEndRenderPass(cmd);
+
+offscreen.Shutdown();
+```
+
+Accessors: `GetRenderPass()`, `GetFramebuffer()`, `GetImageView()`, `GetExtent()`.
+
+---
+
+### FullscreenPass [33]
+
+A fullscreen triangle that samples one `COMBINED_IMAGE_SAMPLER` input and
+writes to the swapchain colour attachment. Pair with `OffscreenTarget` for a
+two-pass blit.
+
+```cpp
+VCK::FullscreenPass fsPass;
+fsPass.Initialize(device, swapchain, offscreen.GetImageView(), sampler);
+
+// In your draw loop — pass 2:
+fsPass.Record(cmd, framebuffers.Get(imageIndex), swapchain.GetExtent());
+
+fsPass.Shutdown();
+```
+
+`Initialize` creates its own render pass (swapchain format) and a descriptor
+set that holds the input image view + sampler. `Record` begins the render
+pass, binds the fullscreen pipeline, issues one `vkCmdDraw(3, 1, 0, 0)`, and
+ends the render pass. No vertex buffer needed.
+
+---
+
+### InitializeBindless / WriteBindless (VulkanDescriptorAllocator)
+
+`VulkanDescriptorAllocator` gained two methods in v0.5 for bindless descriptor
+indexing (requires `cfg.device.enableBindless = true`):
+
+```cpp
+VCK::VulkanDescriptorAllocator allocator;
+
+// Create a bindless pool for up to 1024 combined-image-sampler slots:
+allocator.InitializeBindless(device,
+    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024);
+
+// Fill slot 0:
+allocator.WriteBindless(0, texture.GetImageView(), sampler.GetSampler());
+
+// Bind in your draw loop:
+VkDescriptorSet bindlessSet = allocator.GetBindlessSet();
+vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    pipeLayout, 0, 1, &bindlessSet, 0, nullptr);
+
+// Push the index:
+uint32_t idx = 0;
+vkCmdPushConstants(cmd, pipeLayout,
+    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(idx), &idx);
+
+allocator.Shutdown();
+```
+
+The descriptor set layout uses `VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT`. Slots not filled via
+`WriteBindless` are left unbound — reading them from a shader is undefined
+unless `GL_EXT_nonuniform_qualifier` guards the access.
