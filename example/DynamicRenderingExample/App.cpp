@@ -161,7 +161,7 @@ namespace VCK::DynamicRenderingExample {
         wci.height    = 720;
         wci.title     = title;
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
 
         context.Initialize(window, title);

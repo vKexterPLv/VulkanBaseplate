@@ -232,7 +232,7 @@ namespace VCK::ShaderToolingExample {
         wci.height    = g_InitH;
         wci.title     = title;
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
 
         VCK::Config cfg;

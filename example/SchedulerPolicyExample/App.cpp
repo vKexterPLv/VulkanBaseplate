@@ -170,7 +170,7 @@ namespace VCK::SchedulerPolicyExample {
         wci.height    = g_InitH;
         wci.title     = title + " - Pipelined";
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
         // Extra GLFW callbacks retained through NativeHandle().  When VCK::Window
         // grows cross-platform input APIs these will move behind it as well.

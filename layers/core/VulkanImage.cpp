@@ -45,18 +45,18 @@ namespace VCK {
 
 
     // ─────────────────────────────────────────────────────────────────────────────
-    bool VulkanImage::Create(VulkanDevice& device,
+    bool VulkanImage::Initialize(VulkanDevice& device,
         uint32_t           width,
         uint32_t           height,
         VkFormat           format,
         VkImageUsageFlags  usageFlags,
         VkImageAspectFlags aspectFlags)
     {
-        return Create(device, width, height, format, usageFlags, aspectFlags,
-                      VK_SAMPLE_COUNT_1_BIT);
+        return Initialize(device, width, height, format, usageFlags, aspectFlags,
+                          VK_SAMPLE_COUNT_1_BIT);
     }
 
-    bool VulkanImage::Create(VulkanDevice&         device,
+    bool VulkanImage::Initialize(VulkanDevice&         device,
         uint32_t              width,
         uint32_t              height,
         VkFormat              format,

@@ -118,12 +118,12 @@ void SetWindowResizedInternal(Window& w, int width, int height)
 // =============================================================================
 #if VCK_PLATFORM_WINDOWS
 
-bool Window::Create(const WindowCreateInfo& info)
+bool Window::Initialize(const WindowCreateInfo& info)
 {
     if (m_Handle)
     {
         VCKLog::Warn("Window",
-            "Create() called twice without Destroy(); ignoring (Windows)");
+            "Initialize() called twice without Destroy(); ignoring (Windows)");
         return true;
     }
     if (!EnsureGlfwInitialized()) return false;
@@ -207,12 +207,12 @@ VkResult Window::CreateSurface(VkInstance instance,
 // =============================================================================
 #elif VCK_PLATFORM_LINUX
 
-bool Window::Create(const WindowCreateInfo& info)
+bool Window::Initialize(const WindowCreateInfo& info)
 {
     if (m_Handle)
     {
         VCKLog::Warn("Window",
-            "Create() called twice without Destroy(); ignoring (Linux)");
+            "Initialize() called twice without Destroy(); ignoring (Linux)");
         return true;
     }
     if (!EnsureGlfwInitialized()) return false;
@@ -302,12 +302,12 @@ VkResult Window::CreateSurface(VkInstance instance,
 // =============================================================================
 #elif VCK_PLATFORM_MACOS
 
-bool Window::Create(const WindowCreateInfo& info)
+bool Window::Initialize(const WindowCreateInfo& info)
 {
     if (m_Handle)
     {
         VCKLog::Warn("Window",
-            "Create() called twice without Destroy(); ignoring (macOS)");
+            "Initialize() called twice without Destroy(); ignoring (macOS)");
         return true;
     }
     if (!EnsureGlfwInitialized()) return false;

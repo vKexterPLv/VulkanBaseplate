@@ -320,7 +320,7 @@ namespace VCK::VMMExample {
         wci.height    = g_InitH;
         wci.title     = title;
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
 
         // ── Core init (unchanged from any other example) ───────────────────────

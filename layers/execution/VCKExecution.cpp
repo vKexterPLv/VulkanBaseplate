@@ -1431,7 +1431,7 @@ bool RenderGraph::Compile(VulkanDevice& device)
         if (rn.image != nullptr) continue;           // imported — not our allocation
         if (rn.format == VK_FORMAT_UNDEFINED) continue;
         if (rn.managed.IsValid()) rn.managed.Shutdown();  // re-compile safety
-        if (!rn.managed.Create(*m_Device,
+        if (!rn.managed.Initialize(*m_Device,
                 rn.extent.width, rn.extent.height, rn.format,
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT))

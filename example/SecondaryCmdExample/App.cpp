@@ -167,7 +167,7 @@ namespace VCK::SecondaryCmdExample {
         wci.height    = g_InitH;
         wci.title     = title;
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
 
         context.Initialize(window, title);

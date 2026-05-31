@@ -95,7 +95,7 @@
 //      VCK::WindowCreateInfo wci;
 //      wci.width = 1280; wci.height = 720; wci.title = "Hello VCK";
 //      wci.resizable = true;
-//      window.Create(wci);
+//      window.Initialize(wci);
 //
 //      // 2. Optional non-default knobs.  Leave for defaults to get:
 //      //    AATechnique::Auto (first-run 5-step detect),

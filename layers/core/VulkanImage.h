@@ -16,7 +16,7 @@ namespace VCK {
     //  All images are TILING_OPTIMAL (device-local).
     //
     //  Texture upload workflow:
-    //    1. image.Create(device, w, h, VK_FORMAT_R8G8B8A8_SRGB,
+    //    1. image.Initialize(device, w, h, VK_FORMAT_R8G8B8A8_SRGB,
     //                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     //                   VK_IMAGE_ASPECT_COLOR_BIT)
     //    2. image.RecordLayoutTransition(cmd,
@@ -46,7 +46,7 @@ namespace VCK {
         VulkanImage& operator=(VulkanImage&& other) noexcept;
 
         // ── Creation ─────────────────────────────────────────────────────────────
-        bool Create(VulkanDevice& device,
+        bool Initialize(VulkanDevice& device,
             uint32_t           width,
             uint32_t           height,
             VkFormat           format,
@@ -57,7 +57,7 @@ namespace VCK {
         // image; combine with VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT +
         // VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT to let tile-based GPUs keep
         // the surface in on-chip memory.
-        bool Create(VulkanDevice& device,
+        bool Initialize(VulkanDevice& device,
             uint32_t              width,
             uint32_t              height,
             VkFormat              format,

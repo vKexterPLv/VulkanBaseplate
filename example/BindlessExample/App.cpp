@@ -132,12 +132,12 @@ namespace VCK::BindlessExample {
         wci.height    = 720;
         wci.title     = title;
         wci.resizable = true;
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
         window.SetWindowRefreshCallback(OnWindowRefresh);
         context.Initialize(window, title);
 
-        VulkanDevice::Config dcfg{};
-        dcfg.enableBindless = true;
+        VCK::Config dcfg{};
+        dcfg.device.enableBindless = true;
         device.Initialize(context, dcfg);
 
         swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight());
@@ -188,7 +188,7 @@ namespace VCK::BindlessExample {
         mesh.Upload(device, command, verts, sizeof(verts), idx, 6);
 
         dsLayout   = allocator.GetBindlessLayout();
-        pipeLayout = pipeline.GetLayout();
+        pipeLayout = pipeline.GetPipelineLayout();
 
         VCKLog::Notice("BindlessExample", "Bindless texture array ready (4 slots).");
     }

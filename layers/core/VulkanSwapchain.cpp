@@ -290,7 +290,7 @@ namespace VCK {
             m_MsaaTargets.resize(m_Images.size());
             for (size_t i = 0; i < m_Images.size(); ++i)
             {
-                const bool ok = m_MsaaTargets[i].Create(
+                const bool ok = m_MsaaTargets[i].Initialize(
                     *m_Device,
                     m_Extent.width, m_Extent.height,
                     m_ImageFormat,

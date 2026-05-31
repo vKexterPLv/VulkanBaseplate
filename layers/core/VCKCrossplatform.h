@@ -38,7 +38,7 @@
 //  ~~~~~~~~~~~
 //      VCK::Window win;
 //      VCK::WindowCreateInfo wci{ 1280, 720, "My App", /*resizable=*/true };
-//      if (!win.Create(wci)) return -1;
+//      if (!win.Initialize(wci)) return -1;
 //
 //      auto wantedExts = VCK::Window::RequiredInstanceExtensions();
 //      // ... pass wantedExts into cfg.context.extraInstanceExtensions ...
@@ -115,7 +115,7 @@ public:
     Window& operator=(const Window&) = delete;
 
     // Creates the window.  Returns false (and logs via VCKLog) on failure.
-    bool Create(const WindowCreateInfo& info);
+    bool Initialize(const WindowCreateInfo& info);
     void Destroy();
 
     // Per-frame helpers.

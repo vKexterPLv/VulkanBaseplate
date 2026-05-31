@@ -405,9 +405,9 @@ bool VulkanDepthBuffer::Initialize(VulkanDevice& device, uint32_t width, uint32_
 {
     m_Device = &device;
     VkFormat fmt = FindDepthFormat(device);
-    return m_Image.Create(device, width, height, fmt,
-                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                          VK_IMAGE_ASPECT_DEPTH_BIT);
+    return m_Image.Initialize(device, width, height, fmt,
+                              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                              VK_IMAGE_ASPECT_DEPTH_BIT);
 }
 
 void VulkanDepthBuffer::Shutdown()
@@ -420,7 +420,7 @@ bool VulkanDepthBuffer::Recreate(uint32_t width, uint32_t height)
 {
     m_Image.Shutdown();
     VkFormat fmt = FindDepthFormat(*m_Device);
-    return m_Image.Create(*m_Device, width, height, fmt,
+    return m_Image.Initialize(*m_Device, width, height, fmt,
                           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                           VK_IMAGE_ASPECT_DEPTH_BIT);
 }
@@ -430,17 +430,7 @@ bool VulkanDepthBuffer::Recreate(uint32_t width, uint32_t height)
 //  [4] VulkanSampler
 // =============================================================================
 
-bool VulkanSampler::CreateNearest(VulkanDevice& device)
-{
-    return Create(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST);
-}
-
-bool VulkanSampler::CreateLinear(VulkanDevice& device)
-{
-    return Create(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR);
-}
-
-bool VulkanSampler::Create(VulkanDevice& device, VkFilter filter, VkSamplerMipmapMode mipMode)
+bool VulkanSampler::Initialize(VulkanDevice& device, VkFilter filter, VkSamplerMipmapMode mipMode)
 {
     m_Device = &device;
 
@@ -475,10 +465,10 @@ bool VulkanTexture::CreateFromPixels(VulkanDevice& device, VulkanCommand& comman
 {
     VkDeviceSize size = (VkDeviceSize)width * height * 4;
 
-    if (!m_Image.Create(device, width, height,
-                        VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                        VK_IMAGE_ASPECT_COLOR_BIT))
+    if (!m_Image.Initialize(device, width, height,
+                            VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                            VK_IMAGE_ASPECT_COLOR_BIT))
         return false;
 
     // Upload via staging
@@ -510,7 +500,7 @@ bool VulkanTexture::CreateFromPixels(VulkanDevice& device, VulkanCommand& comman
     otc.End();
     staging.Shutdown();
 
-    return m_Sampler.CreateLinear(device);
+    return m_Sampler.Initialize(device);
 }
 
 void VulkanTexture::Shutdown()
@@ -2365,12 +2355,12 @@ bool OffscreenTarget::Initialize(VulkanDevice& device,
     m_Format = format;
     m_Extent = extent;
 
-    if (!m_Image.Create(device,
-                        extent.width, extent.height,
-                        format,
-                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                        VK_IMAGE_USAGE_SAMPLED_BIT,
-                        VK_IMAGE_ASPECT_COLOR_BIT))
+    if (!m_Image.Initialize(device,
+                            extent.width, extent.height,
+                            format,
+                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                            VK_IMAGE_USAGE_SAMPLED_BIT,
+                            VK_IMAGE_ASPECT_COLOR_BIT))
         return false;
 
     if (device.HasDynamicRendering())

@@ -272,7 +272,7 @@ namespace VCK::DebugShowcaseExample {
         wci.width     = 640;
         wci.height    = 360;
         wci.resizable = false;                  // resize not needed for a headless tour
-        if (!window.Create(wci)) return;
+        if (!window.Initialize(wci)) return;
 
         Config cfg;
         cfg.debug = true;                       // show all init chatter

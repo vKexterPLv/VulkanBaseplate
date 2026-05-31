@@ -211,7 +211,7 @@ private:
 //
 //  Usage:
 //    VulkanSampler s;
-//    s.CreateLinear(device);
+//    s.Initialize(device);
 //    // use s.GetSampler() in descriptor writes
 //    s.Shutdown();
 // =============================================================================
@@ -224,16 +224,15 @@ public:
     VulkanSampler(const VulkanSampler&)            = delete;
     VulkanSampler& operator=(const VulkanSampler&) = delete;
 
-    bool CreateNearest(VulkanDevice& device);
-    bool CreateLinear (VulkanDevice& device);
+    bool Initialize(VulkanDevice& device,
+                    VkFilter            filter  = VK_FILTER_LINEAR,
+                    VkSamplerMipmapMode mipMode = VK_SAMPLER_MIPMAP_MODE_LINEAR);
     void Shutdown();
 
     VkSampler GetSampler() const { return m_Sampler; }
     bool      IsValid()    const { return m_Sampler != VK_NULL_HANDLE; }
 
 private:
-    bool Create(VulkanDevice& device, VkFilter filter, VkSamplerMipmapMode mipMode);
-
     VulkanDevice* m_Device  = nullptr;
     VkSampler     m_Sampler = VK_NULL_HANDLE;
 };
