@@ -164,7 +164,7 @@ namespace VCK::OffscreenTargetExample {
         command.Initialize(device);
         sync.Initialize(device);
         swapchainFB.Initialize(device, swapchain, swapchainPipeline);
-        sampler.Initialize(device);
+        sampler.CreateLinear(device);
 
         FrameScheduler::Config fcfg{};
         scheduler.Initialize(device, command, sync, fcfg);

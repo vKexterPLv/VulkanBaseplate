@@ -28,7 +28,7 @@ namespace VCK::DynamicRenderingExample {
     VulkanMesh      mesh;
     FrameScheduler  scheduler;
 
-    VulkanSwapchain::Config         swapCfg;
+    VCK::Config                     cfg;
     VulkanPipeline::Config          pipeCfg;
     VulkanPipeline::ShaderInfo      shaders;
     VulkanPipeline::VertexInputInfo vertexInput;
@@ -62,7 +62,7 @@ namespace VCK::DynamicRenderingExample {
             swapchain.Initialize(device, context,
                 static_cast<uint32_t>(window.GetWidth()),
                 static_cast<uint32_t>(window.GetHeight()),
-                swapCfg);
+                cfg);
             pipeline.Reinitialize(device, swapchain, shaders, vertexInput, pipeCfg);
             return;
         }
@@ -166,12 +166,11 @@ namespace VCK::DynamicRenderingExample {
 
         context.Initialize(window, title);
 
-        VulkanDevice::Config dcfg{};
-        dcfg.preferSync2 = true;
-        device.Initialize(context, dcfg);
+        cfg.device.preferSync2 = true;
+        cfg.rendering.mode = RenderingMode::Dynamic;
+        device.Initialize(context, cfg);
 
-        swapCfg.rendering.mode = RenderingMode::Dynamic;
-        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight(), swapCfg);
+        swapchain.Initialize(device, context, window.GetWidth(), window.GetHeight(), cfg);
 
         shaders.VertexSpirv   = LoadSpv("./assets/triangle.vert.spv");
         shaders.FragmentSpirv = LoadSpv("./assets/triangle.frag.spv");
@@ -186,8 +185,6 @@ namespace VCK::DynamicRenderingExample {
             { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, col) },
         };
 
-        pipeCfg.rendering.mode    = RenderingMode::Dynamic;
-        pipeCfg.dynamicColorFormat = swapchain.GetImageFormat();
         pipeline.Initialize(device, swapchain, shaders, vertexInput, pipeCfg);
 
         command.Initialize(device);
