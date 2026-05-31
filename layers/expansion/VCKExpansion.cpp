@@ -2298,7 +2298,6 @@ bool HotReload::Initialize(
     VulkanSwapchain&                       swapchain,
     VulkanPipeline&                        pipeline,
     VulkanFramebufferSet&                  framebuffers,
-    FrameScheduler&                        scheduler,
     const VulkanPipeline::ShaderInfo&      shaders,
     const VulkanPipeline::VertexInputInfo& vertexInput,
     const VulkanPipeline::Config&          pipelineCfg,
@@ -2309,7 +2308,6 @@ bool HotReload::Initialize(
     m_Swapchain    = &swapchain;
     m_Pipeline     = &pipeline;
     m_Framebuffers = &framebuffers;
-    m_Scheduler    = &scheduler;
     m_Shaders      = shaders;
     m_VertexInput  = vertexInput;
     m_PipelineCfg  = pipelineCfg;
@@ -2331,7 +2329,6 @@ void HotReload::Shutdown()
     m_Swapchain    = nullptr;
     m_Pipeline     = nullptr;
     m_Framebuffers = nullptr;
-    m_Scheduler    = nullptr;
 }
 
 bool HotReload::Watch(const std::string& path, VkShaderStageFlagBits stage)
@@ -2344,7 +2341,7 @@ bool HotReload::Tick()
     if (!m_ShaderWatcher.HasChanged())
         return false;
 
-    m_Scheduler->DrainInFlight();
+    vkDeviceWaitIdle(m_Device->GetDevice());
     if (!m_Pipeline->Reinitialize(*m_Device, *m_Swapchain,
                                    m_Shaders, m_VertexInput, m_PipelineCfg))
     {
@@ -2368,14 +2365,12 @@ bool OffscreenTarget::Initialize(VulkanDevice& device,
     m_Format = format;
     m_Extent = extent;
 
-    VulkanImage::Config imgCfg{};
-    imgCfg.width         = extent.width;
-    imgCfg.height        = extent.height;
-    imgCfg.format        = format;
-    imgCfg.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                           VK_IMAGE_USAGE_SAMPLED_BIT;
-    imgCfg.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (!m_Image.Initialize(device, imgCfg))
+    if (!m_Image.Create(device,
+                        extent.width, extent.height,
+                        format,
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                        VK_IMAGE_USAGE_SAMPLED_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT))
         return false;
 
     if (device.HasDynamicRendering())

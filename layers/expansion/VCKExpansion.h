@@ -1169,7 +1169,6 @@ public:
                     VulkanSwapchain&                       swapchain,
                     VulkanPipeline&                        pipeline,
                     VulkanFramebufferSet&                  framebuffers,
-                    FrameScheduler&                        scheduler,
                     const VulkanPipeline::ShaderInfo&      shaders,
                     const VulkanPipeline::VertexInputInfo& vertexInput,
                     const VulkanPipeline::Config&          pipelineCfg,
@@ -1184,7 +1183,6 @@ private:
     VulkanSwapchain*                m_Swapchain    = nullptr;
     VulkanPipeline*                 m_Pipeline     = nullptr;
     VulkanFramebufferSet*           m_Framebuffers = nullptr;
-    FrameScheduler*                 m_Scheduler    = nullptr;
     VulkanPipeline::ShaderInfo      m_Shaders      = {};
     VulkanPipeline::VertexInputInfo m_VertexInput  = {};
     VulkanPipeline::Config          m_PipelineCfg  = {};
