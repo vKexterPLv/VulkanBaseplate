@@ -2,6 +2,29 @@
 
 All notable changes to VCK are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.5.1] – 2026-05-31
+
+Post-release patch that fixes CI failures introduced by the v0.5.0 merge, corrects two design-rule violations in the new `HotReload` class, and standardises the factory-method naming convention across the library. No new public API surface. No behaviour change for code that was compiling correctly against v0.5.0.
+
+### Changed
+
+- **`VulkanImage::Create(…)` → `VulkanImage::Initialize(device, w, h, format, usage, aspect[, samples])`** — `Create` was an inconsistent outlier; every other VCK class uses `Initialize`. All 27 call sites updated (core headers, expansion, examples). *(breaking within 0.5.x)*
+- **`VulkanSampler::CreateLinear(device)` / `CreateNearest(device)` → `VulkanSampler::Initialize(device, filter = LINEAR, mipMode = LINEAR)`** — single entry point, filter and mip mode are explicit parameters. *(breaking within 0.5.x)*
+- **`Window::Create(info)` → `Window::Initialize(info)`** — naming parity with the rest of the library. *(breaking within 0.5.x)*
+- **`HotReload::Initialize` gains required `std::function<void()> drainFn` final parameter** — callers supply a lambda (e.g. `[&]{ scheduler.DrainInFlight(); }`) that retires in-flight GPU work before each pipeline rebuild. The expansion layer never imports execution types directly (R2). Stored as `m_DrainFn`; cleared in `Shutdown`. *(breaking within 0.5.x — no examples called `HotReload::Initialize` in v0.5.0)*
+
+### Fixed
+
+- **R2 layering violation in `HotReload`** — v0.5.0 shipped `HotReload::Initialize` with a `FrameScheduler&` parameter, which pulled an execution-layer type into the expansion-layer header. Parameter removed; drain responsibility delegated to the caller via `drainFn`.
+- **R4 violation in `HotReload::Tick`** — the interim fix for the R2 violation replaced `FrameScheduler::DrainInFlight()` with `vkDeviceWaitIdle`, which is banned on the runtime hot path. Now calls `m_DrainFn()` instead.
+- **`DynamicRenderingExample` compile errors** — `VulkanSwapchain::Config` / `VulkanDevice::Config` (do not exist) replaced with `VCK::Config`; non-existent field `pipeCfg.rendering.mode` removed.
+- **`BindlessExample` compile errors** — `VulkanDevice::Config` → `VCK::Config`; `GetLayout()` → `GetPipelineLayout()`.
+- **`OffscreenTarget::Initialize`** — was calling the non-existent `VulkanImage::Config` struct and `VulkanImage::Create()`. Replaced with the correct `VulkanImage::Initialize(device, w, h, format, usage, aspect)` signature.
+- **`OffscreenTargetExample`** — `sampler.CreateLinear(device)` updated to `sampler.Initialize(device)` following the naming-convention rename.
+- **Post-0.5.0 audit sweep (B1–B5, C1–C10, D1–D10)** — compiler-warning clean-up (B), correctness fixes on newly-added code paths (C), and design-rule alignment pass (D) applied 2026-05-20.
+
+---
+
 ## [0.5.0] – 2026-05-18
 
 ### Added
