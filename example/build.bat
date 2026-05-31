@@ -32,9 +32,14 @@ setlocal EnableExtensions EnableDelayedExpansion
 ::    build.bat 0          - exit
 :: =============================================================================
 
-:: Colour codes (best-effort - falls back to plain text on consoles that
-:: don't honour ANSI).
-for /f %%a in ('"prompt $E$ & for %%b in (1) do rem"') do set "ESC=%%a"
+:: Enable ANSI colours (VTP) permanently for this user account.
+:: Re-open cmd if this is the first run -- the setting takes effect on the next window.
+reg add "HKCU\Console" /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
+
+:: Capture ESC via PowerShell -- reliable on all Windows 10+ machines.
+:: The old 'prompt $E$' trick captures ESC+$ (two chars), breaking ANSI sequences.
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[char]27" 2^>nul`) do set "ESC=%%a"
+
 set "C_RESET=%ESC%[0m"
 set "C_BOLD=%ESC%[1m"
 set "C_DIM=%ESC%[2m"
@@ -150,7 +155,7 @@ exit /b %ERRORLEVEL%
 :: changed, so re-running this on every invocation is essentially free
 :: (Ninja's null-build).
 if not exist "build\CMakeCache.txt" (
-    echo %C_DIM%[cmake] configuring (one-time)...%C_RESET%
+    echo %C_DIM%[cmake] configuring... (one-time setup)%C_RESET%
     cmake -S "%~dp0." -B "%~dp0build" -G Ninja -DCMAKE_BUILD_TYPE=Release || exit /b 1
 )
 exit /b 0
