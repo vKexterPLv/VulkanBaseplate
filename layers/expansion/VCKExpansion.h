@@ -1164,6 +1164,9 @@ public:
 
     struct Config { bool debug = false; };
 
+    // drainFn: called before pipeline rebuild to retire all in-flight GPU work.
+    // Pass [&]{ scheduler.DrainInFlight(); } for a R4-compliant hot path.
+    // The expansion layer never imports execution types directly (Rule 2).
     bool Initialize(VulkanDevice&                          device,
                     VulkanSwapchain&                       swapchain,
                     VulkanPipeline&                        pipeline,
@@ -1171,7 +1174,8 @@ public:
                     const VulkanPipeline::ShaderInfo&      shaders,
                     const VulkanPipeline::VertexInputInfo& vertexInput,
                     const VulkanPipeline::Config&          pipelineCfg,
-                    Config                                 cfg);
+                    Config                                 cfg,
+                    std::function<void()>                  drainFn);
     void Shutdown();
 
     bool Tick();
@@ -1182,6 +1186,7 @@ private:
     VulkanSwapchain*                m_Swapchain    = nullptr;
     VulkanPipeline*                 m_Pipeline     = nullptr;
     VulkanFramebufferSet*           m_Framebuffers = nullptr;
+    std::function<void()>           m_DrainFn;
     VulkanPipeline::ShaderInfo      m_Shaders      = {};
     VulkanPipeline::VertexInputInfo m_VertexInput  = {};
     VulkanPipeline::Config          m_PipelineCfg  = {};

@@ -2291,13 +2291,15 @@ bool HotReload::Initialize(
     const VulkanPipeline::ShaderInfo&      shaders,
     const VulkanPipeline::VertexInputInfo& vertexInput,
     const VulkanPipeline::Config&          pipelineCfg,
-    Config                                 cfg)
+    Config                                 cfg,
+    std::function<void()>                  drainFn)
 {
     m_Debug        = cfg.debug;
     m_Device       = &device;
     m_Swapchain    = &swapchain;
     m_Pipeline     = &pipeline;
     m_Framebuffers = &framebuffers;
+    m_DrainFn      = std::move(drainFn);
     m_Shaders      = shaders;
     m_VertexInput  = vertexInput;
     m_PipelineCfg  = pipelineCfg;
@@ -2319,6 +2321,7 @@ void HotReload::Shutdown()
     m_Swapchain    = nullptr;
     m_Pipeline     = nullptr;
     m_Framebuffers = nullptr;
+    m_DrainFn      = nullptr;
 }
 
 bool HotReload::Watch(const std::string& path, VkShaderStageFlagBits stage)
@@ -2331,7 +2334,7 @@ bool HotReload::Tick()
     if (!m_ShaderWatcher.HasChanged())
         return false;
 
-    vkDeviceWaitIdle(m_Device->GetDevice());
+    m_DrainFn();
     if (!m_Pipeline->Reinitialize(*m_Device, *m_Swapchain,
                                    m_Shaders, m_VertexInput, m_PipelineCfg))
     {
